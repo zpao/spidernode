@@ -91,9 +91,11 @@ Handle<Value> IdleWatcher::Start(const Arguments& args) {
 
   IdleWatcher *idle = ObjectWrap::Unwrap<IdleWatcher>(args.Holder());
 
-  ev_idle_start(EV_DEFAULT_UC_ &idle->watcher_);
+  if (!watcher_.active) {
+    ev_idle_start(EV_DEFAULT_UC_ &idle->watcher_);
 
-  idle->Ref();
+    idle->Ref();
+  }
 
   return Undefined();
 }
