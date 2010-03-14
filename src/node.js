@@ -104,7 +104,7 @@ function Sandbox(parentCache) {
 Sandbox.prototype = Object.create(AbstractModule.prototype);
 
 Sandbox.prototype.createMetaModule = function (id, constructor) {
-  return new MetaModule(id, rootSandbox, constructor);
+  return new MetaModule(id, this, constructor);
 };
 
 /**
