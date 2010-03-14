@@ -76,6 +76,10 @@ function AbstractModule (id, cache) {
 // defaults (maybe not needed at all?)
 AbstractModule.prototype.filename = null;
 
+AbstractModule.prototype.createMetaModule = function (id, constructor) {
+  return new MetaModule(id, this, constructor);
+};
+
 /**
  * MetaModule is created in runtime, not by loading
  * and compiling the sourcecode, but by providing live
@@ -92,26 +96,23 @@ function MetaModule(id, parent, constructor) {
 MetaModule.prototype = AbstractModule.prototype;
 
 /**
- * Sandbox is the isolation layer. It inherits all modules
+ * The root holder. Its cache replaces internalModuleCache
+ * and the main module is loaded into it.
+ */
+var rootHolder = new AbstractModule("", {});
+
+/**
+ * Sandbox is the module isolation layer. It inherits all modules
  * loaded by its parent, but modules loaded into it are isolated
  * from other sandboxes, though cached inside this sandbox.
  */
-function Sandbox(parentCache) {
-  AbstractModule.call(this, "/", Object.create(parentCache));
-  this.loaded = true;
+function Sandbox(parent) {
+  var sandbox = Object.create(parent);
+  sandbox.moduleCache = Object.create(parent.moduleCache);
+  return sandbox;
 }
 
-Sandbox.prototype = Object.create(AbstractModule.prototype);
-
-Sandbox.prototype.createMetaModule = function (id, constructor) {
-  return new MetaModule(id, this, constructor);
-};
-
-/**
- * The root sandbox. Its cache replaces internalModuleCache
- * and the main module is loaded into it.
- */
-var rootSandbox = new Sandbox(Object.prototype);
+// process
 
 process.createChildProcess = function (file, args, env) {
   var child = new process.ChildProcess();
@@ -199,7 +200,7 @@ process.mixin = function() {
 
 // Event
 
-var eventsModule = rootSandbox.createMetaModule('events', function (exports) {
+var eventsModule = rootHolder.createMetaModule('events', function (exports) {
   exports.EventEmitter = process.EventEmitter;
 
   // process.EventEmitter is defined in src/events.cc
@@ -417,7 +418,7 @@ process.fs.readFileSync = function (path, encoding) {
   return content;
 };
 
-var pathModule = rootSandbox.createMetaModule("path", function (exports) {
+var pathModule = rootHolder.createMetaModule("path", function (exports) {
   exports.join = function () {
     return exports.normalize(Array.prototype.join.call(arguments, "/"));
   };
@@ -785,9 +786,19 @@ LibModule.prototype._loadContent = function (content, filename) {
   function require (path) {
     return loadModuleSync(path, self);
   }
+  
+  function requireSandboxedAsync (url, cb) {
+    loadModule(url, new Sandbox(self), cb);
+  }
+  
+  function requireSandboxed (path) {
+    return loadModuleSync(path, new Sandbox(self));
+  }
 
   require.paths = process.paths;
   require.async = requireAsync;
+  require.sandboxed = requireSandboxed;
+  require.sandboxed.async = requireSandboxedAsync;
   require.main = process.mainModule;
   require.registerExtension = registerExtension;
 
@@ -886,7 +897,7 @@ if (process.argv[1].charAt(0) != "/" && !(/^http:\/\//).exec(process.argv[1])) {
 }
 
 // Load the main module--the command line argument.
-process.mainModule = new LibModule(".", rootSandbox);
+process.mainModule = new LibModule(".", rootHolder);
 process.mainModule.load(process.argv[1], function (err) {
   if (err) throw err;
 });
