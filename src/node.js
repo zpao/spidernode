@@ -42,37 +42,76 @@ node.dns.createConnection = removed("node.dns.createConnection() has moved. Use 
 
 /**********************************************************************/
 
-// Module 
+process.assert = function (x, msg) {
+  if (!(x)) throw new Error(msg || "assertion error");
+};
 
-var internalModuleCache = {};
-var extensionCache = {};
+// Modules core
 
-function Module (id, parent) {
+/**
+ * AbstractModule is core module class. It is only capable
+ * of basic infrastructure (id, moduleCache, exports)
+ * and should be the base for specialized module types
+ * (Sandbox for isolation, MetaModule for creating internal
+ * ans dynamically-defined modules, LibModule for modules
+ * with loadable content).
+ */
+function AbstractModule (id, cache) {
   this.id = id;
   this.exports = {};
-  this.parent = parent;
-
-  if (parent) {
-    this.moduleCache = parent.moduleCache;
-  } else {
-    this.moduleCache = {};
+  
+  if (cache) {
+    cache[id] = this;
+    this.moduleCache = cache;
   }
-  this.moduleCache[this.id] = this;
 
-  this.filename = null;
-  this.loaded = false;
-  this.exited = false;
-  this.children = [];
+  // this.loaded = false; subclass responsibility, no defaults
+
+  // this.exited = false;
+  // this was commented out, since it seems not to be used
+  // grep exited `find src -type f` only gives this line
+  // grep exited `find lib -type f` is empty
 };
 
-function createInternalModule (id, constructor) {
-  var m = new Module(id);
-  constructor(m.exports);
-  m.loaded = true;
-  internalModuleCache[id] = m;
-  return m;
+// defaults (maybe not needed at all?)
+AbstractModule.prototype.filename = null;
+
+/**
+ * MetaModule is created in runtime, not by loading
+ * and compiling the sourcecode, but by providing live
+ * "constructor" function.
+ * Known issues: No require() inside metamodule constructor yet.
+ */
+function MetaModule(id, parent, constructor) {
+  process.assert(parent, "MetaModule needs a parent");
+  AbstractModule.call(this, id, parent.moduleCache);
+  constructor(this.exports);
+  this.loaded = true;
+}
+
+MetaModule.prototype = AbstractModule.prototype;
+
+/**
+ * Sandbox is the isolation layer. It inherits all modules
+ * loaded by its parent, but modules loaded into it are isolated
+ * from other sandboxes, though cached inside this sandbox.
+ */
+function Sandbox(parentCache) {
+  AbstractModule.call(this, "/", Object.create(parentCache));
+  this.loaded = true;
+}
+
+Sandbox.prototype = Object.create(AbstractModule.prototype);
+
+Sandbox.prototype.createMetaModule = function (id, constructor) {
+  return new MetaModule(id, rootSandbox, constructor);
 };
 
+/**
+ * The root sandbox. Its cache replaces internalModuleCache
+ * and the main module is loaded into it.
+ */
+var rootSandbox = new Sandbox(Object.prototype);
 
 process.createChildProcess = function (file, args, env) {
   var child = new process.ChildProcess();
@@ -89,10 +128,6 @@ process.createChildProcess = function (file, args, env) {
   // a '/' character.
   child.spawn(file, args, envPairs);
   return child;
-};
-
-process.assert = function (x, msg) {
-  if (!(x)) throw new Error(msg || "assertion error");
 };
 
 // From jQuery.extend in the jQuery JavaScript Library v1.3.2
@@ -164,7 +199,7 @@ process.mixin = function() {
 
 // Event
 
-var eventsModule = createInternalModule('events', function (exports) {
+var eventsModule = rootSandbox.createMetaModule('events', function (exports) {
   exports.EventEmitter = process.EventEmitter;
 
   // process.EventEmitter is defined in src/events.cc
@@ -315,7 +350,8 @@ global.clearInterval = global.clearTimeout;
 
 
 
-// Modules
+// Filesystem stuff
+
 
 var debugLevel = 0;
 if ("NODE_DEBUG" in process.env) debugLevel = 1;
@@ -325,8 +361,6 @@ function debug (x) {
     process.stdio.writeError(x + "\n");
   }
 }
-
-
 
 
 function readAll (fd, pos, content, encoding, callback) {
@@ -383,7 +417,7 @@ process.fs.readFileSync = function (path, encoding) {
   return content;
 };
 
-var pathModule = createInternalModule("path", function (exports) {
+var pathModule = rootSandbox.createMetaModule("path", function (exports) {
   exports.join = function () {
     return exports.normalize(Array.prototype.join.call(arguments, "/"));
   };
@@ -459,6 +493,26 @@ function existsSync (path) {
   }
 }
 
+
+// Loadable modules
+
+var extensionCache = {};
+
+/**
+ * LibModule is module loaded from a resource (filesystem, web)
+ * and compiled. User libraries, .node addons as well as main script
+ * are all LibModules.
+ */
+function LibModule(id, parent) {
+  process.assert(parent, "LibModule needs a parent");
+  AbstractModule.call(this, id, parent.moduleCache);
+  this.parent = parent;
+  this.filename = null;
+  this.loaded = false; // maybe not needed, if there's a default ?
+  this.children = [];
+}
+
+LibModule.prototype = Object.create(AbstractModule.prototype);
 
 
 process.paths = [ path.join(process.installPrefix, "lib/node/libraries")
@@ -580,7 +634,7 @@ function loadModuleSync (request, parent) {
 
   debug("loadModuleSync REQUEST  " + (request) + " parent: " + parent.id);
 
-  var cachedModule = internalModuleCache[id] || parent.moduleCache[id];
+  var cachedModule = parent.moduleCache[id];
 
   if (cachedModule) {
     debug("found  " + JSON.stringify(id) + " in cache");
@@ -591,7 +645,7 @@ function loadModuleSync (request, parent) {
     if (!filename) {
       throw new Error("Cannot find module '" + request + "'");
     } else {
-      var module = new Module(id, parent);
+      var module = new LibModule(id, parent);
       module.loadSync(filename);
       return module.exports;
     }
@@ -607,7 +661,7 @@ function loadModule (request, parent, callback) {
 
   debug("loadModule REQUEST  " + (request) + " parent: " + parent.id);
 
-  var cachedModule = internalModuleCache[id] || parent.moduleCache[id];
+  var cachedModule = parent.moduleCache[id];
   if (cachedModule) {
     debug("found  " + JSON.stringify(id) + " in cache");
     if (callback) callback(null, cachedModule.exports);
@@ -619,7 +673,7 @@ function loadModule (request, parent, callback) {
         var err = new Error("Cannot find module '" + request + "'");
         if (callback) callback(err);
       } else {
-        var module = new Module(id, parent);
+        var module = new LibModule(id, parent);
         module.load(filename, callback);
       }
     });
@@ -653,7 +707,7 @@ function registerExtension(ext, compiler) {
 }
 
 
-Module.prototype.loadSync = function (filename) {
+LibModule.prototype.loadSync = function (filename) {
   debug("loadSync " + JSON.stringify(filename) + " for module " + JSON.stringify(this.id));
 
   process.assert(!this.loaded);
@@ -667,7 +721,7 @@ Module.prototype.loadSync = function (filename) {
 };
 
 
-Module.prototype.load = function (filename, callback) {
+LibModule.prototype.load = function (filename, callback) {
   debug("load " + JSON.stringify(filename) + " for module " + JSON.stringify(this.id));
 
   process.assert(!this.loaded);
@@ -682,13 +736,13 @@ Module.prototype.load = function (filename, callback) {
 };
 
 
-Module.prototype._loadObjectSync = function (filename) {
+LibModule.prototype._loadObjectSync = function (filename) {
   this.loaded = true;
   process.dlopen(filename, this.exports);
 };
 
 
-Module.prototype._loadObject = function (filename, callback) {
+LibModule.prototype._loadObject = function (filename, callback) {
   var self = this;
   // XXX Not yet supporting loading from HTTP. would need to download the
   // file, store it to tmp then run dlopen on it.
@@ -713,7 +767,7 @@ function cat (id, callback) {
 }
 
 
-Module.prototype._loadContent = function (content, filename) {
+LibModule.prototype._loadContent = function (content, filename) {
   var self = this;
   // remove shebang
   content = content.replace(/^\#\!.*/, '');
@@ -760,7 +814,7 @@ Module.prototype._loadContent = function (content, filename) {
 };
 
 
-Module.prototype._loadScriptSync = function (filename) {
+LibModule.prototype._loadScriptSync = function (filename) {
   var content = process.fs.readFileSync(filename);
   // remove shebang
   content = content.replace(/^\#\!.*/, '');
@@ -774,7 +828,7 @@ Module.prototype._loadScriptSync = function (filename) {
 };
 
 
-Module.prototype._loadScript = function (filename, callback) {
+LibModule.prototype._loadScript = function (filename, callback) {
   var self = this;
   cat(filename, function (err, content) {
     debug('cat done');
@@ -796,7 +850,7 @@ Module.prototype._loadScript = function (filename, callback) {
 };
 
 
-Module.prototype._waitChildrenLoad = function (callback) {
+LibModule.prototype._waitChildrenLoad = function (callback) {
   var nloaded = 0;
   var children = this.children;
   for (var i = 0; i < children.length; i++) {
@@ -832,7 +886,7 @@ if (process.argv[1].charAt(0) != "/" && !(/^http:\/\//).exec(process.argv[1])) {
 }
 
 // Load the main module--the command line argument.
-process.mainModule = new Module(".");
+process.mainModule = new LibModule(".", rootSandbox);
 process.mainModule.load(process.argv[1], function (err) {
   if (err) throw err;
 });
