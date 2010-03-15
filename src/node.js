@@ -42,7 +42,7 @@ node.dns.createConnection = removed("node.dns.createConnection() has moved. Use 
 
 /**********************************************************************/
 
-// Module 
+// Module
 
 var extensionCache = {};
 
@@ -77,6 +77,20 @@ function sandboxIn(module) {
   var s = Object.create(module);
   s.moduleCache = Object.create(module.moduleCache);
   return s;
+}
+
+
+// This contains the source code for the files in lib/
+// Like, natives.fs is the contents of lib/fs.js
+var natives = process.binding('natives');
+
+function requireNative (id) {
+  if (rootModule.moduleCache[id]) return rootModule.moduleCache[id].exports;
+  if (!natives[id]) throw new Error('No such native module ' + id);
+  var m = new Module(id, rootModule);
+  var e = m._compile(natives[id], id);
+  if (e) throw e;
+  return m.exports;
 }
 
 
@@ -276,8 +290,9 @@ function isSignal (event) {
 
 process.addListener("newListener", function (event) {
   if (isSignal(event) && process.listeners(event).length === 0) {
-    var handler = new process.SignalHandler(process[event]);
-    handler.addListener("signal", function () {
+    var b = process.binding('signal_watcher');
+    var w = new b.SignalWatcher(process[event]);
+    w.addListener("signal", function () {
       process.emit(event);
     });
   }
@@ -332,62 +347,6 @@ function debug (x) {
   }
 }
 
-
-
-
-function readAll (fd, pos, content, encoding, callback) {
-  process.fs.read(fd, 4*1024, pos, encoding, function (err, chunk, bytesRead) {
-    if (err) {
-      if (callback) callback(err);
-    } else if (chunk) {
-      content += chunk;
-      pos += bytesRead;
-      readAll(fd, pos, content, encoding, callback);
-    } else {
-      process.fs.close(fd, function (err) {
-        if (callback) callback(err, content);
-      });
-    }
-  });
-}
-
-process.fs.readFile = function (path, encoding_, callback) {
-  var encoding = typeof(encoding_) == 'string' ? encoding_ : 'utf8';
-  var callback_ = arguments[arguments.length - 1];
-  var callback = (typeof(callback_) == 'function' ? callback_ : null);
-  process.fs.open(path, process.O_RDONLY, 0666, function (err, fd) {
-    if (err) {
-      if (callback) callback(err); 
-    } else {
-      readAll(fd, 0, "", encoding, callback);
-    }
-  });
-};
-
-process.fs.readFileSync = function (path, encoding) {
-  encoding = encoding || "utf8"; // default to utf8
-
-  debug('readFileSync open');
-
-  var fd = process.fs.open(path, process.O_RDONLY, 0666);
-  var content = '';
-  var pos = 0;
-  var r;
-
-  while ((r = process.fs.read(fd, 4*1024, pos, encoding)) && r[0]) {
-    debug('readFileSync read ' + r[1]);
-    content += r[0];
-    pos += r[1]
-  }
-
-  debug('readFileSync close');
-
-  process.fs.close(fd);
-
-  debug('readFileSync done');
-
-  return content;
-};
 
 var pathModule = createInternalModule("path", function (exports) {
   exports.join = function () {
@@ -448,7 +407,7 @@ var pathModule = createInternalModule("path", function (exports) {
   };
 
   exports.exists = function (path, callback) {
-    process.fs.stat(path, function (err, stats) {
+    requireNative('fs').stat(path, function (err, stats) {
       if (callback) callback(err ? false : true);
     });
   };
@@ -458,7 +417,7 @@ var path = pathModule.exports;
 
 function existsSync (path) {
   try {
-    process.fs.stat(path);
+    process.binding('fs').stat(path);
     return true;
   } catch (e) {
     return false;
@@ -590,10 +549,10 @@ function loadModule (request, parent, callback) {
 
   if (!cachedModule) {
     // Try to compile from native modules
-    if (process.natives[id]) {
+    if (natives[id]) {
       debug('load native module ' + id);
       cachedModule = new Module(id, rootModule);
-      var e = cachedModule._compile(process.natives[id], id);
+      var e = cachedModule._compile(natives[id], id);
       if (e) throw e;
     }
   }
@@ -718,7 +677,7 @@ function cat (id, callback) {
       }
     });
   } else {
-    process.fs.readFile(id, callback);
+    requireNative('fs').readFile(id, callback);
   }
 }
 
@@ -782,7 +741,7 @@ Module.prototype._compile = function (content, filename) {
 
 
 Module.prototype._loadScriptSync = function (filename) {
-  var content = process.fs.readFileSync(filename);
+  var content = requireNative('fs').readFileSync(filename);
   // remove shebang
   content = content.replace(/^\#\!.*/, '');
 
