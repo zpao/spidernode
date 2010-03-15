@@ -73,6 +73,12 @@ function createInternalModule (id, constructor) {
   return m;
 };
 
+function sandboxIn(module) {
+  var s = Object.create(module);
+  s.moduleCache = Object.create(module.moduleCache);
+  return s;
+}
+
 
 process.createChildProcess = function (file, args, env) {
   var child = new process.ChildProcess();
@@ -732,8 +738,18 @@ Module.prototype._loadContent = function (content, filename) {
     return loadModuleSync(path, self);
   }
 
+  function requireSandboxedAsync (url, cb) {
+    loadModule(url, sandboxIn(self), cb);
+  }
+
+  function requireSandboxed (path) {
+    return loadModuleSync(path, sandboxIn(self));
+  }
+
   require.paths = process.paths;
   require.async = requireAsync;
+  require.sandboxed = requireSandboxed;
+  require.sandboxed.async = requireSandboxedAsync;
   require.main = process.mainModule;
   require.registerExtension = registerExtension;
 
