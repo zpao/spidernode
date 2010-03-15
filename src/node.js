@@ -44,7 +44,6 @@ node.dns.createConnection = removed("node.dns.createConnection() has moved. Use 
 
 // Module 
 
-var internalModuleCache = {};
 var extensionCache = {};
 
 function Module (id, parent) {
@@ -65,11 +64,12 @@ function Module (id, parent) {
   this.children = [];
 };
 
+var rootModule = {moduleCache:{}};
+
 function createInternalModule (id, constructor) {
-  var m = new Module(id);
+  var m = new Module(id, rootModule);
   constructor(m.exports);
   m.loaded = true;
-  internalModuleCache[id] = m;
   return m;
 };
 
@@ -580,7 +580,7 @@ function loadModuleSync (request, parent) {
 
   debug("loadModuleSync REQUEST  " + (request) + " parent: " + parent.id);
 
-  var cachedModule = internalModuleCache[id] || parent.moduleCache[id];
+  var cachedModule = parent.moduleCache[id];
 
   if (cachedModule) {
     debug("found  " + JSON.stringify(id) + " in cache");
@@ -607,7 +607,7 @@ function loadModule (request, parent, callback) {
 
   debug("loadModule REQUEST  " + (request) + " parent: " + parent.id);
 
-  var cachedModule = internalModuleCache[id] || parent.moduleCache[id];
+  var cachedModule = parent.moduleCache[id];
   if (cachedModule) {
     debug("found  " + JSON.stringify(id) + " in cache");
     if (callback) callback(null, cachedModule.exports);
@@ -832,7 +832,7 @@ if (process.argv[1].charAt(0) != "/" && !(/^http:\/\//).exec(process.argv[1])) {
 }
 
 // Load the main module--the command line argument.
-process.mainModule = new Module(".");
+process.mainModule = new Module(".", rootModule);
 process.mainModule.load(process.argv[1], function (err) {
   if (err) throw err;
 });
