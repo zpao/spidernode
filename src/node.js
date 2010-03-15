@@ -98,7 +98,7 @@ process.createChildProcess = function (file, args, env) {
 };
 
 process.assert = function (x, msg) {
-  if (!(x)) throw new Error(msg || "assertion error");
+  if (!x) throw new Error(msg || "assertion error");
 };
 
 // From jQuery.extend in the jQuery JavaScript Library v1.3.2
@@ -124,7 +124,7 @@ process.mixin = function() {
   }
 
   // Handle case when target is a string or something (possible in deep copy)
-  if ( typeof target !== "object" && !(typeof target === 'function') )
+  if ( typeof target !== "object" && typeof target !== 'function' )
     target = {};
 
   // mixin process itself if only one argument is passed
@@ -467,21 +467,22 @@ function existsSync (path) {
 
 
 
-process.paths = [ path.join(process.installPrefix, "lib/node/libraries")
-               ];
+process.paths = [
+  path.join(process.installPrefix, "lib", "node", "libraries")
+];
 
 if (process.env["HOME"]) {
   process.paths.unshift(path.join(process.env["HOME"], ".node_libraries"));
 }
 
 if (process.env["NODE_PATH"]) {
-  process.paths = process.env["NODE_PATH"].split(":").concat(process.paths);
+  [].unshift.apply(process.paths, process.env["NODE_PATH"].split(":"));
 }
 
 
 /* Sync unless callback given */
 function findModulePath (id, dirs, callback) {
-  process.assert(dirs.constructor == Array);
+  process.assert(dirs instanceof Array);
 
   if (/^https?:\/\//.exec(id)) {
     if (callback) {
