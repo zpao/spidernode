@@ -673,6 +673,9 @@ function cat (id, callback) {
 
 // Returns exception if any
 Module.prototype._compile = function (content, filename) {
+  // remove shebang
+  content = content.replace(/^\#\!.*/, '');
+
   // Compile content if needed
   var ext = path.extname(filename);
   if (extensionCache[ext]) {
@@ -685,8 +688,6 @@ Module.prototype._compile = function (content, filename) {
   }
   
   var self = this;
-  // remove shebang
-  content = content.replace(/^\#\!.*/, '');
 
   function requireAsync (url, cb) {
     loadModule(url, self, cb);
