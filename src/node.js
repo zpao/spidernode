@@ -62,10 +62,18 @@ var rootModule = {moduleCache:{}};
 
 function createInternalModule (id, constructor) {
   var m = new Module(id, rootModule);
-  constructor(m.exports);
+  m._setup(constructor);
   m.loaded = true;
   return m;
 };
+
+Module.prototype._setup = function (constructor) {
+  if (typeof constructor === "function") {
+    constructor.call(this, this.exports);
+  } else {
+    this.exports = constructor;
+  }
+}
 
 function sandboxIn(module) {
   var s = Object.create(module);
@@ -80,7 +88,7 @@ var natives = process.binding('natives');
 
 function loadNative (id) {
   var m = new Module(id, rootModule);
-  m._compile(natives[id], id);
+  m._setup(m._compile(natives[id], id));
   m.loaded = true;
   return m;
 }
@@ -671,6 +679,7 @@ function cat (id, callback) {
 }
 
 
+// returns constructor function or exports object
 Module.prototype._compile = function (content, filename) {
   // remove shebang
   content = content.replace(/^\#\!.*/, '');
@@ -682,10 +691,9 @@ Module.prototype._compile = function (content, filename) {
   }
 
   if (typeof content !== 'string') {
-    this.exports = content;
-    return;
+    return content;
   }
-  
+
   // create wrapper function
   var wrapper = "(function (exports, require, module, __filename, __dirname) {\n"
               + content
@@ -696,10 +704,12 @@ Module.prototype._compile = function (content, filename) {
   if (filename === process.argv[1]) {
     process.checkBreak();
   }
-  
-  compiledWrapper.call(
-    this.exports, this.exports, makeRequireFunction(this), this, filename, dirName
-  );
+
+  return function (exports) {
+    compiledWrapper.call(
+      exports, exports, makeRequireFunction(this), this, filename, dirName
+    );
+  };
 };
 
 function makeRequireFunction(module) {
@@ -734,7 +744,7 @@ Module.prototype._loadDefault = {
   sync: function () {
     var content = requireNative('fs').readFileSync(this.filename);
 
-    this._compile(content, this.filename);
+    this._setup(this._compile(content, this.filename));
     this.loaded = true;
   },
 
@@ -746,7 +756,7 @@ Module.prototype._loadDefault = {
         if (callback) callback(err);
       } else {
         try {
-          self._compile(content, self.filename);
+          self._setup(self._compile(content, self.filename));
         } catch(e) {
           if (callback) callback(e);
           return;
