@@ -44,8 +44,6 @@ node.dns.createConnection = removed("node.dns.createConnection() has moved. Use 
 
 // Module
 
-var extensionCache = {};
-
 function Module (id, parent) {
   this.id = id;
   this.exports = {};
@@ -425,6 +423,10 @@ function existsSync (path) {
 }
 
 
+var extensionCache = {
+  ".js": null, //identity, no compiler needed
+  ".node": function() { throw new Error(".node cannot be compiled into js."); },
+};
 
 var modulePaths = [];
 
@@ -470,17 +472,12 @@ function findModulePath (id, dirs, callback) {
     rest = [];
   }
 
-  var locations = [
-    path.join(dir, id + ".js"),
-    path.join(dir, id + ".node"),
-    path.join(dir, id, "index.js"),
-    path.join(dir, id, "index.node")
-  ];
-
-  var ext;
-  for (ext in extensionCache) {
-    locations.push(path.join(dir, id + ext));
-    locations.push(path.join(dir, id, 'index' + ext));
+  var locations = [];
+  for (var ext in extensionCache) {
+    locations.push(
+      path.join(dir, id + ext),
+      path.join(dir, id, 'index' + ext)
+    );
   }
 
   function searchLocations () {
@@ -519,8 +516,8 @@ function resolveModulePath(request, parent) {
     // Relative request
     debug("RELATIVE: requested:" + request + " set ID to: "+id+" from "+parent.id);
 
-    var exts = ['js', 'node'], ext;
-    for (ext in extensionCache) {
+    var exts = [];
+    for (var ext in extensionCache) {
       exts.push(ext.slice(1));
     }
 
