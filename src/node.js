@@ -671,7 +671,6 @@ function cat (id, callback) {
 }
 
 
-// Returns exception if any
 Module.prototype._compile = function (content, filename) {
   // remove shebang
   content = content.replace(/^\#\!.*/, '');
