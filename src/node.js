@@ -673,15 +673,20 @@ function cat (id, callback) {
 
 // Returns exception if any
 Module.prototype._compile = function (content, filename) {
-  var self = this;
-  // remove shebang
-  content = content.replace(/^\#\!.*/, '');
-
   // Compile content if needed
   var ext = path.extname(filename);
   if (extensionCache[ext]) {
     content = extensionCache[ext](content);
   }
+
+  if (typeof content !== 'string') {
+    this.exports = content;
+    return;
+  }
+  
+  var self = this;
+  // remove shebang
+  content = content.replace(/^\#\!.*/, '');
 
   function requireAsync (url, cb) {
     loadModule(url, self, cb);
@@ -707,21 +712,17 @@ Module.prototype._compile = function (content, filename) {
   require.registerExtension = registerExtension;
 
 
-  if ('string' === typeof content) {
-    // create wrapper function
-    var wrapper = "(function (exports, require, module, __filename, __dirname) { "
-                + content
-                + "\n});";
+  // create wrapper function
+  var wrapper = "(function (exports, require, module, __filename, __dirname) { "
+              + content
+              + "\n});";
 
-    var compiledWrapper = process.compile(wrapper, filename);
-    var dirName = path.dirname(filename);
-    if (filename === process.argv[1]) {
-      process.checkBreak();
-    }
-    compiledWrapper.apply(self.exports, [self.exports, require, self, filename, dirName]);
-  } else {
-    self.exports = content;
+  var compiledWrapper = process.compile(wrapper, filename);
+  var dirName = path.dirname(filename);
+  if (filename === process.argv[1]) {
+    process.checkBreak();
   }
+  compiledWrapper.apply(self.exports, [self.exports, require, self, filename, dirName]);
 };
 
 
