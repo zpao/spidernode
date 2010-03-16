@@ -686,22 +686,37 @@ Module.prototype._compile = function (content, filename) {
     return;
   }
   
-  var self = this;
+  // create wrapper function
+  var wrapper = "(function (exports, require, module, __filename, __dirname) {\n"
+              + content
+              + "\n});";
 
+  var compiledWrapper = process.compile(wrapper, filename);
+  var dirName = path.dirname(filename);
+  if (filename === process.argv[1]) {
+    process.checkBreak();
+  }
+  
+  compiledWrapper.call(
+    this.exports, this.exports, makeRequireFunction(this), this, filename, dirName
+  );
+};
+
+function makeRequireFunction(module) {
   function requireAsync (url, cb) {
-    loadModule(url, self, cb);
+    loadModule(url, module, cb);
   }
 
   function require (path) {
-    return loadModule(path, self);
+    return loadModule(path, module);
   }
 
   function requireSandboxedAsync (url, cb) {
-    loadModule(url, sandboxIn(self), cb);
+    loadModule(url, sandboxIn(module), cb);
   }
 
   function requireSandboxed (path) {
-    return loadModule(path, sandboxIn(self));
+    return loadModule(path, sandboxIn(module));
   }
 
   require.paths = modulePaths;
@@ -711,19 +726,8 @@ Module.prototype._compile = function (content, filename) {
   require.main = process.mainModule;
   require.registerExtension = registerExtension;
 
-
-  // create wrapper function
-  var wrapper = "(function (exports, require, module, __filename, __dirname) { "
-              + content
-              + "\n});";
-
-  var compiledWrapper = process.compile(wrapper, filename);
-  var dirName = path.dirname(filename);
-  if (filename === process.argv[1]) {
-    process.checkBreak();
-  }
-  compiledWrapper.apply(self.exports, [self.exports, require, self, filename, dirName]);
-};
+  return require;
+}
 
 
 Module.prototype._loadDefault = {
