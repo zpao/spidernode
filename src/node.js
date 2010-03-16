@@ -630,28 +630,28 @@ Module.prototype.goLoading = function (filename) {
 
 Module.prototype.loadSync = function (filename) {
   debug("loadSync " + JSON.stringify(filename) + " for module " + JSON.stringify(this.id));
-  this.goLoading(filename).sync.call(this, filename);
+  this.goLoading(filename).sync.call(this);
 };
 
 
 Module.prototype.load = function (filename, callback) {
   debug("load " + JSON.stringify(filename) + " for module " + JSON.stringify(this.id));
-  this.goLoading(filename).async.call(this, filename, callback);
+  this.goLoading(filename).async.call(this, callback);
 };
 
 
 loaders[".node"] = {
-  sync: function (filename) {
+  sync: function () {
     this.loaded = true;
-    process.dlopen(filename, this.exports);
+    process.dlopen(this.filename, this.exports);
   },
 
-  async: function (filename, callback) {
+  async: function (callback) {
     var self = this;
     // XXX Not yet supporting loading from HTTP. would need to download the
     // file, store it to tmp then run dlopen on it.
     self.loaded = true;
-    process.dlopen(filename, self.exports); // FIXME synchronus
+    process.dlopen(self.filename, self.exports); // FIXME synchronus
     if (callback) callback(null, self.exports);
   },
 };
@@ -731,10 +731,10 @@ Module.prototype._compile = function (content, filename) {
 
 
 Module.prototype._loadDefault = {
-  sync: function (filename) {
-    var content = requireNative('fs').readFileSync(filename);
+  sync: function () {
+    var content = requireNative('fs').readFileSync(this.filename);
 
-    var e = this._compile(content, filename);
+    var e = this._compile(content, this.filename);
     if (e) {
       throw e;
     } else {
@@ -742,14 +742,14 @@ Module.prototype._loadDefault = {
     }
   },
 
-  async: function (filename, callback) {
+  async: function (callback) {
     var self = this;
-    cat(filename, function (err, content) {
+    cat(this.filename, function (err, content) {
       debug('cat done');
       if (err) {
         if (callback) callback(err);
       } else {
-        var e = self._compile(content, filename);
+        var e = self._compile(content, self.filename);
         if (e) {
           if (callback) callback(e);
         } else {
