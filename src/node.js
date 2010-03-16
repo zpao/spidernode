@@ -49,7 +49,7 @@ function Module (id, parent) {
   this.exports = {};
   this.parent = parent;
 
-  this.moduleCache = parent ? parent.moduleCache || {};
+  this.moduleCache = parent ? parent.moduleCache : {};
   this.moduleCache[this.id] = this;
 
   this.filename = null;
