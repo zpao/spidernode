@@ -78,13 +78,18 @@ function sandboxIn(module) {
 // Like, natives.fs is the contents of lib/fs.js
 var natives = process.binding('natives');
 
-function requireNative (id) {
-  if (rootModule.moduleCache[id]) return rootModule.moduleCache[id].exports;
-  if (!natives[id]) throw new Error('No such native module ' + id);
+function loadNative (id) {
   var m = new Module(id, rootModule);
   var e = m._compile(natives[id], id);
   if (e) throw e;
-  return m.exports;
+  m.loaded = true;
+  return m;
+}
+
+function requireNative (id) {
+  if (rootModule.moduleCache[id]) return rootModule.moduleCache[id].exports;
+  if (!natives[id]) throw new Error('No such native module ' + id);
+  return loadNative(id).exports;
 }
 
 
@@ -544,9 +549,7 @@ function loadModule (request, parent, callback) {
     // Try to compile from native modules
     if (natives[id]) {
       debug('load native module ' + id);
-      cachedModule = new Module(id, rootModule);
-      var e = cachedModule._compile(natives[id], id);
-      if (e) throw e;
+      cachedModule = loadNative(id);
     }
   }
 
