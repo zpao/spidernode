@@ -49,11 +49,7 @@ function Module (id, parent) {
   this.exports = {};
   this.parent = parent;
 
-  if (parent) {
-    this.moduleCache = parent.moduleCache;
-  } else {
-    this.moduleCache = {};
-  }
+  this.moduleCache = parent ? parent.moduleCache || {};
   this.moduleCache[this.id] = this;
 
   this.filename = null;
