@@ -80,8 +80,7 @@ var natives = process.binding('natives');
 
 function loadNative (id) {
   var m = new Module(id, rootModule);
-  var e = m._compile(natives[id], id);
-  if (e) throw e;
+  m._compile(natives[id], id);
   m.loaded = true;
   return m;
 }
@@ -714,16 +713,12 @@ Module.prototype._compile = function (content, filename) {
                 + content
                 + "\n});";
 
-    try {
-      var compiledWrapper = process.compile(wrapper, filename);
-      var dirName = path.dirname(filename);
-      if (filename === process.argv[1]) {
-        process.checkBreak();
-      }
-      compiledWrapper.apply(self.exports, [self.exports, require, self, filename, dirName]);
-    } catch (e) {
-      return e;
+    var compiledWrapper = process.compile(wrapper, filename);
+    var dirName = path.dirname(filename);
+    if (filename === process.argv[1]) {
+      process.checkBreak();
     }
+    compiledWrapper.apply(self.exports, [self.exports, require, self, filename, dirName]);
   } else {
     self.exports = content;
   }
@@ -734,12 +729,8 @@ Module.prototype._loadDefault = {
   sync: function () {
     var content = requireNative('fs').readFileSync(this.filename);
 
-    var e = this._compile(content, this.filename);
-    if (e) {
-      throw e;
-    } else {
-      this.loaded = true;
-    }
+    this._compile(content, this.filename);
+    this.loaded = true;
   },
 
   async: function (callback) {
@@ -749,16 +740,17 @@ Module.prototype._loadDefault = {
       if (err) {
         if (callback) callback(err);
       } else {
-        var e = self._compile(content, self.filename);
-        if (e) {
+        try {
+          self._compile(content, self.filename);
+        } catch(e) {
           if (callback) callback(e);
-        } else {
-          self._waitChildrenLoad(function () {
-            self.loaded = true;
-            if (self.onload) self.onload();
-            if (callback) callback(null, self.exports);
-          });
+          return;
         }
+        self._waitChildrenLoad(function () {
+          self.loaded = true;
+          if (self.onload) self.onload();
+          if (callback) callback(null, self.exports);
+        });
       }
     });
   },
