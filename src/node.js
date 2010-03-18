@@ -134,7 +134,7 @@ var cwd = process.cwd();
 var module = {};
 process.compile("(function (exports) {"
                + process.binding("natives").module
-               + "\n});", "moduleModule")(module);
+               + "\n});", "module")(module);
 
 // nextTick()
 
