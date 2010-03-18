@@ -187,7 +187,7 @@ process.mixin = function() {
 var eventsModule = createInternalModule('events', function (exports) {
   exports.EventEmitter = process.EventEmitter;
 
-  // process.EventEmitter is defined in src/events.cc
+  // process.EventEmitter is defined in src/node_events.cc
   // process.EventEmitter.prototype.emit() is also defined there.
   process.EventEmitter.prototype.addListener = function (type, listener) {
     if (!(listener instanceof Function)) {
@@ -730,9 +730,6 @@ Module.prototype._compile = function (content, filename) {
 
 Module.prototype._loadScriptSync = function (filename) {
   var content = requireNative('fs').readFileSync(filename);
-  // remove shebang
-  content = content.replace(/^\#\!.*/, '');
-
   var e = this._compile(content, filename);
   if (e) {
     throw e;
