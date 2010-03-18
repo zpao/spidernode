@@ -163,8 +163,8 @@ process.nextTick = function (callback) {
 function isSignal (event) {
   return event.slice(0, 3) === 'SIG' && process.hasOwnProperty(event);
 };
-
-module.requireNative("events");
+// load events to turn process into an event emitter.
+module.require("events");
 process.addListener("newListener", function (event) {
   if (isSignal(event) && process.listeners(event).length === 0) {
     var b = process.binding('signal_watcher');
@@ -209,10 +209,6 @@ global.clearTimeout = function (timer) {
 };
 
 global.clearInterval = global.clearTimeout;
-
-
-
-
 
 var debugLevel = 0;
 if ("NODE_DEBUG" in process.env) debugLevel = 1;
