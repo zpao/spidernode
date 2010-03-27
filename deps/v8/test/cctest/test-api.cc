@@ -38,7 +38,7 @@
 #include "utils.h"
 #include "cctest.h"
 
-static const bool kLogThreading = false;
+static const bool kLogThreading = true;
 
 static bool IsNaN(double x) {
 #ifdef WIN32
@@ -2644,6 +2644,36 @@ THREADED_TEST(NamedInterceptorPropertyRead) {
 }
 
 
+THREADED_TEST(NamedInterceptorDictionaryIC) {
+  v8::HandleScope scope;
+  Local<ObjectTemplate> templ = ObjectTemplate::New();
+  templ->SetNamedPropertyHandler(XPropertyGetter);
+  LocalContext context;
+  // Create an object with a named interceptor.
+  context->Global()->Set(v8_str("interceptor_obj"), templ->NewInstance());
+  Local<Script> script = Script::Compile(v8_str("interceptor_obj.x"));
+  for (int i = 0; i < 10; i++) {
+    Local<Value> result = script->Run();
+    CHECK_EQ(result, v8_str("x"));
+  }
+  // Create a slow case object and a function accessing a property in
+  // that slow case object (with dictionary probing in generated
+  // code). Then force object with a named interceptor into slow-case,
+  // pass it to the function, and check that the interceptor is called
+  // instead of accessing the local property.
+  Local<Value> result =
+      CompileRun("function get_x(o) { return o.x; };"
+                 "var obj = { x : 42, y : 0 };"
+                 "delete obj.y;"
+                 "for (var i = 0; i < 10; i++) get_x(obj);"
+                 "interceptor_obj.x = 42;"
+                 "interceptor_obj.y = 10;"
+                 "delete interceptor_obj.y;"
+                 "get_x(interceptor_obj)");
+  CHECK_EQ(result, v8_str("x"));
+}
+
+
 static v8::Handle<Value> SetXOnPrototypeGetter(Local<String> property,
                                                const AccessorInfo& info) {
   // Set x on the prototype object and do not handle the get request.
@@ -4465,7 +4495,7 @@ TEST(ContextDetachGlobal) {
   // Enter env2
   env2->Enter();
 
-  // Create a function in env1
+  // Create a function in env2 and add a reference to it in env1.
   Local<v8::Object> global2 = env2->Global();
   global2->Set(v8_str("prop"), v8::Integer::New(1));
   CompileRun("function getProp() {return prop;}");
@@ -4473,7 +4503,7 @@ TEST(ContextDetachGlobal) {
   env1->Global()->Set(v8_str("getProp"),
                       global2->Get(v8_str("getProp")));
 
-  // Detach env1's global, and reuse the global object of env1
+  // Detach env2's global, and reuse the global object of env2
   env2->Exit();
   env2->DetachGlobal();
   // env2 has a new global object.
@@ -4507,6 +4537,85 @@ TEST(ContextDetachGlobal) {
     Local<Value> r = global3->Get(v8_str("prop2"));
     CHECK(r->IsUndefined());
   }
+
+  env2.Dispose();
+  env3.Dispose();
+}
+
+
+TEST(DetachAndReattachGlobal) {
+  v8::HandleScope scope;
+  LocalContext env1;
+
+  // Create second environment.
+  v8::Persistent<Context> env2 = Context::New();
+
+  Local<Value> foo = v8_str("foo");
+
+  // Set same security token for env1 and env2.
+  env1->SetSecurityToken(foo);
+  env2->SetSecurityToken(foo);
+
+  // Create a property on the global object in env2.
+  {
+    v8::Context::Scope scope(env2);
+    env2->Global()->Set(v8_str("p"), v8::Integer::New(42));
+  }
+
+  // Create a reference to env2 global from env1 global.
+  env1->Global()->Set(v8_str("other"), env2->Global());
+
+  // Check that we have access to other.p in env2 from env1.
+  Local<Value> result = CompileRun("other.p");
+  CHECK(result->IsInt32());
+  CHECK_EQ(42, result->Int32Value());
+
+  // Hold on to global from env2 and detach global from env2.
+  Local<v8::Object> global2 = env2->Global();
+  env2->DetachGlobal();
+
+  // Check that the global has been detached. No other.p property can
+  // be found.
+  result = CompileRun("other.p");
+  CHECK(result->IsUndefined());
+
+  // Reuse global2 for env3.
+  v8::Persistent<Context> env3 =
+      Context::New(0, v8::Handle<v8::ObjectTemplate>(), global2);
+  CHECK_EQ(global2, env3->Global());
+
+  // Start by using the same security token for env3 as for env1 and env2.
+  env3->SetSecurityToken(foo);
+
+  // Create a property on the global object in env3.
+  {
+    v8::Context::Scope scope(env3);
+    env3->Global()->Set(v8_str("p"), v8::Integer::New(24));
+  }
+
+  // Check that other.p is now the property in env3 and that we have access.
+  result = CompileRun("other.p");
+  CHECK(result->IsInt32());
+  CHECK_EQ(24, result->Int32Value());
+
+  // Change security token for env3 to something different from env1 and env2.
+  env3->SetSecurityToken(v8_str("bar"));
+
+  // Check that we do not have access to other.p in env1. |other| is now
+  // the global object for env3 which has a different security token,
+  // so access should be blocked.
+  result = CompileRun("other.p");
+  CHECK(result->IsUndefined());
+
+  // Detach the global for env3 and reattach it to env2.
+  env3->DetachGlobal();
+  env2->ReattachGlobal(global2);
+
+  // Check that we have access to other.p again in env1.  |other| is now
+  // the global object for env2 which has the same security token as env1.
+  result = CompileRun("other.p");
+  CHECK(result->IsInt32());
+  CHECK_EQ(42, result->Int32Value());
 
   env2.Dispose();
   env3.Dispose();
@@ -4605,6 +4714,7 @@ THREADED_TEST(AccessControl) {
   value = v8_compile("other.accessible_prop = 3")->Run();
   CHECK(value->IsNumber());
   CHECK_EQ(3, value->Int32Value());
+  CHECK_EQ(3, g_echo_value);
 
   value = v8_compile("other.accessible_prop")->Run();
   CHECK(value->IsNumber());
@@ -5891,6 +6001,38 @@ THREADED_TEST(InterceptorLoadICInvalidatedField) {
     "}"
     "result;",
     42 * 1000);
+}
+
+
+static int interceptor_load_not_handled_calls = 0;
+static v8::Handle<Value> InterceptorLoadNotHandled(Local<String> name,
+                                                   const AccessorInfo& info) {
+  ++interceptor_load_not_handled_calls;
+  return v8::Handle<v8::Value>();
+}
+
+
+// Test how post-interceptor lookups are done in the non-cacheable
+// case: the interceptor should not be invoked during this lookup.
+THREADED_TEST(InterceptorLoadICPostInterceptor) {
+  interceptor_load_not_handled_calls = 0;
+  CheckInterceptorLoadIC(InterceptorLoadNotHandled,
+    "receiver = new Object();"
+    "receiver.__proto__ = o;"
+    "proto = new Object();"
+    "/* Make proto a slow-case object. */"
+    "for (var i = 0; i < 1000; i++) {"
+    "  proto[\"xxxxxxxx\" + i] = [];"
+    "}"
+    "proto.x = 17;"
+    "o.__proto__ = proto;"
+    "var result = 0;"
+    "for (var i = 0; i < 1000; i++) {"
+    "  result += receiver.x;"
+    "}"
+    "result;",
+    17 * 1000);
+  CHECK_EQ(1000, interceptor_load_not_handled_calls);
 }
 
 
@@ -9954,4 +10096,58 @@ TEST(Bug618) {
     CHECK_EQ(42, c1->Get(v8_str("x"))->Int32Value());
     CHECK_EQ(23, c1->Get(v8_str("y"))->Int32Value());
   }
+}
+
+int prologue_call_count = 0;
+int epilogue_call_count = 0;
+int prologue_call_count_second = 0;
+int epilogue_call_count_second = 0;
+
+void PrologueCallback(v8::GCType, v8::GCCallbackFlags) {
+  ++prologue_call_count;
+}
+
+void EpilogueCallback(v8::GCType, v8::GCCallbackFlags) {
+  ++epilogue_call_count;
+}
+
+void PrologueCallbackSecond(v8::GCType, v8::GCCallbackFlags) {
+  ++prologue_call_count_second;
+}
+
+void EpilogueCallbackSecond(v8::GCType, v8::GCCallbackFlags) {
+  ++epilogue_call_count_second;
+}
+
+TEST(GCCallbacks) {
+  LocalContext context;
+
+  v8::V8::AddGCPrologueCallback(PrologueCallback);
+  v8::V8::AddGCEpilogueCallback(EpilogueCallback);
+  CHECK_EQ(0, prologue_call_count);
+  CHECK_EQ(0, epilogue_call_count);
+  i::Heap::CollectAllGarbage(false);
+  CHECK_EQ(1, prologue_call_count);
+  CHECK_EQ(1, epilogue_call_count);
+  v8::V8::AddGCPrologueCallback(PrologueCallbackSecond);
+  v8::V8::AddGCEpilogueCallback(EpilogueCallbackSecond);
+  i::Heap::CollectAllGarbage(false);
+  CHECK_EQ(2, prologue_call_count);
+  CHECK_EQ(2, epilogue_call_count);
+  CHECK_EQ(1, prologue_call_count_second);
+  CHECK_EQ(1, epilogue_call_count_second);
+  v8::V8::RemoveGCPrologueCallback(PrologueCallback);
+  v8::V8::RemoveGCEpilogueCallback(EpilogueCallback);
+  i::Heap::CollectAllGarbage(false);
+  CHECK_EQ(2, prologue_call_count);
+  CHECK_EQ(2, epilogue_call_count);
+  CHECK_EQ(2, prologue_call_count_second);
+  CHECK_EQ(2, epilogue_call_count_second);
+  v8::V8::RemoveGCPrologueCallback(PrologueCallbackSecond);
+  v8::V8::RemoveGCEpilogueCallback(EpilogueCallbackSecond);
+  i::Heap::CollectAllGarbage(false);
+  CHECK_EQ(2, prologue_call_count);
+  CHECK_EQ(2, epilogue_call_count);
+  CHECK_EQ(2, prologue_call_count_second);
+  CHECK_EQ(2, epilogue_call_count_second);
 }

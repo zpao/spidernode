@@ -72,11 +72,10 @@ static void GenerateDictionaryLoad(MacroAssembler* masm,
   // Check for the absence of an interceptor.
   // Load the map into r0.
   __ movq(r0, FieldOperand(r1, JSObject::kMapOffset));
-  // Test the has_named_interceptor bit in the map.
-  __ testl(FieldOperand(r0, Map::kInstanceAttributesOffset),
-          Immediate(1 << (Map::kHasNamedInterceptor + (3 * 8))));
 
-  // Jump to miss if the interceptor bit is set.
+  // Bail out if the receiver has a named interceptor.
+  __ testl(FieldOperand(r0, Map::kBitFieldOffset),
+           Immediate(1 << Map::kHasNamedInterceptor));
   __ j(not_zero, miss_label);
 
   // Bail out if we have a JS global proxy object.
@@ -151,19 +150,100 @@ static void GenerateDictionaryLoad(MacroAssembler* masm,
 }
 
 
-// Helper function used to check that a value is either not an object
-// or is loaded if it is an object.
-static void GenerateCheckNonObjectOrLoaded(MacroAssembler* masm, Label* miss,
-                                           Register value) {
+static void GenerateNumberDictionaryLoad(MacroAssembler* masm,
+                                         Label* miss,
+                                         Register elements,
+                                         Register key,
+                                         Register r0,
+                                         Register r1,
+                                         Register r2) {
+  // Register use:
+  //
+  // elements - holds the slow-case elements of the receiver and is unchanged.
+  //
+  // key      - holds the smi key on entry and is unchanged if a branch is
+  //            performed to the miss label.
+  //
+  // Scratch registers:
+  //
+  // r0 - holds the untagged key on entry and holds the hash once computed.
+  //      Holds the result on exit if the load succeeded.
+  //
+  // r1 - used to hold the capacity mask of the dictionary
+  //
+  // r2 - used for the index into the dictionary.
   Label done;
-  // Check if the value is a Smi.
-  __ JumpIfSmi(value, &done);
-  // Check if the object has been loaded.
-  __ movq(kScratchRegister, FieldOperand(value, JSFunction::kMapOffset));
-  __ testb(FieldOperand(kScratchRegister, Map::kBitField2Offset),
-           Immediate(1 << Map::kNeedsLoading));
-  __ j(not_zero, miss);
+
+  // Compute the hash code from the untagged key.  This must be kept in sync
+  // with ComputeIntegerHash in utils.h.
+  //
+  // hash = ~hash + (hash << 15);
+  __ movl(r1, r0);
+  __ notl(r0);
+  __ shll(r1, Immediate(15));
+  __ addl(r0, r1);
+  // hash = hash ^ (hash >> 12);
+  __ movl(r1, r0);
+  __ shrl(r1, Immediate(12));
+  __ xorl(r0, r1);
+  // hash = hash + (hash << 2);
+  __ leal(r0, Operand(r0, r0, times_4, 0));
+  // hash = hash ^ (hash >> 4);
+  __ movl(r1, r0);
+  __ shrl(r1, Immediate(4));
+  __ xorl(r0, r1);
+  // hash = hash * 2057;
+  __ imull(r0, r0, Immediate(2057));
+  // hash = hash ^ (hash >> 16);
+  __ movl(r1, r0);
+  __ shrl(r1, Immediate(16));
+  __ xorl(r0, r1);
+
+  // Compute capacity mask.
+  __ movq(r1, FieldOperand(elements, NumberDictionary::kCapacityOffset));
+  __ SmiToInteger32(r1, r1);
+  __ decl(r1);
+
+  // Generate an unrolled loop that performs a few probes before giving up.
+  const int kProbes = 4;
+  for (int i = 0; i < kProbes; i++) {
+    // Use r2 for index calculations and keep the hash intact in r0.
+    __ movq(r2, r0);
+    // Compute the masked index: (hash + i + i * i) & mask.
+    if (i > 0) {
+      __ addl(r2, Immediate(NumberDictionary::GetProbeOffset(i)));
+    }
+    __ and_(r2, r1);
+
+    // Scale the index by multiplying by the entry size.
+    ASSERT(NumberDictionary::kEntrySize == 3);
+    __ lea(r2, Operand(r2, r2, times_2, 0));  // r2 = r2 * 3
+
+    // Check if the key matches.
+    __ cmpq(key, FieldOperand(elements,
+                              r2,
+                              times_pointer_size,
+                              NumberDictionary::kElementsStartOffset));
+    if (i != (kProbes - 1)) {
+      __ j(equal, &done);
+    } else {
+      __ j(not_equal, miss);
+    }
+  }
+
   __ bind(&done);
+  // Check that the value is a normal propety.
+  const int kDetailsOffset =
+      NumberDictionary::kElementsStartOffset + 2 * kPointerSize;
+  ASSERT_EQ(NORMAL, 0);
+  __ Test(FieldOperand(elements, r2, times_pointer_size, kDetailsOffset),
+          Smi::FromInt(PropertyDetails::TypeField::mask()));
+  __ j(not_zero, miss);
+
+  // Get the value at the masked, scaled index.
+  const int kValueOffset =
+      NumberDictionary::kElementsStartOffset + kPointerSize;
+  __ movq(r0, FieldOperand(elements, r2, times_pointer_size, kValueOffset));
 }
 
 
@@ -271,6 +351,7 @@ void KeyedLoadIC::GenerateGeneric(MacroAssembler* masm) {
   // -----------------------------------
   Label slow, check_string, index_int, index_string;
   Label check_pixel_array, probe_dictionary;
+  Label check_number_dictionary;
 
   // Load name and receiver.
   __ movq(rax, Operand(rsp, kPointerSize));
@@ -294,6 +375,9 @@ void KeyedLoadIC::GenerateGeneric(MacroAssembler* masm) {
 
   // Check that the key is a smi.
   __ JumpIfNotSmi(rax, &check_string);
+  // Save key in rbx in case we want it for the number dictionary
+  // case.
+  __ movq(rbx, rax);
   __ SmiToInteger32(rax, rax);
   // Get the elements array of the object.
   __ bind(&index_int);
@@ -321,12 +405,23 @@ void KeyedLoadIC::GenerateGeneric(MacroAssembler* masm) {
   __ bind(&check_pixel_array);
   __ CompareRoot(FieldOperand(rcx, HeapObject::kMapOffset),
                  Heap::kPixelArrayMapRootIndex);
-  __ j(not_equal, &slow);
+  __ j(not_equal, &check_number_dictionary);
   __ cmpl(rax, FieldOperand(rcx, PixelArray::kLengthOffset));
   __ j(above_equal, &slow);
   __ movq(rcx, FieldOperand(rcx, PixelArray::kExternalPointerOffset));
   __ movzxbq(rax, Operand(rcx, rax, times_1, 0));
   __ Integer32ToSmi(rax, rax);
+  __ ret(0);
+
+  __ bind(&check_number_dictionary);
+  // Check whether the elements is a number dictionary.
+  // rax: untagged index
+  // rbx: key
+  // rcx: elements
+  __ CompareRoot(FieldOperand(rcx, HeapObject::kMapOffset),
+                 Heap::kHashTableMapRootIndex);
+  __ j(not_equal, &slow);
+  GenerateNumberDictionaryLoad(masm, &slow, rcx, rbx, rax, rdx, rdi);
   __ ret(0);
 
   // Slow case: Load name and receiver from stack and jump to runtime.
@@ -405,7 +500,6 @@ void KeyedLoadIC::GenerateGeneric(MacroAssembler* masm) {
                          rdx,
                          rax,
                          DICTIONARY_CHECK_DONE);
-  GenerateCheckNonObjectOrLoaded(masm, &slow, rcx);
   __ movq(rax, rcx);
   __ IncrementCounter(&Counters::keyed_load_generic_symbol, 1);
   __ ret(0);
@@ -1114,10 +1208,6 @@ static void GenerateNormalHelper(MacroAssembler* masm,
   // Check that the value is a JavaScript function.
   __ CmpObjectType(rdx, JS_FUNCTION_TYPE, rdx);
   __ j(not_equal, miss);
-  // Check that the function has been loaded.
-  __ testb(FieldOperand(rdx, Map::kBitField2Offset),
-           Immediate(1 << Map::kNeedsLoading));
-  __ j(not_zero, miss);
 
   // Patch the receiver with the global proxy if necessary.
   if (is_global_object) {
@@ -1308,13 +1398,12 @@ void LoadIC::GenerateNormal(MacroAssembler* masm) {
 
   // Check for non-global object that requires access check.
   __ testl(FieldOperand(rbx, Map::kBitFieldOffset),
-          Immediate(1 << Map::kIsAccessCheckNeeded));
+           Immediate(1 << Map::kIsAccessCheckNeeded));
   __ j(not_zero, &miss);
 
   // Search the dictionary placing the result in rax.
   __ bind(&probe);
   GenerateDictionaryLoad(masm, &miss, rdx, rax, rbx, rcx, CHECK_DICTIONARY);
-  GenerateCheckNonObjectOrLoaded(masm, &miss, rax);
   __ ret(0);
 
   // Global object access: Check access rights.

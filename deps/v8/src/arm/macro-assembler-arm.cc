@@ -58,11 +58,6 @@ MacroAssembler::MacroAssembler(void* buffer, int size)
 #endif
 
 
-// Using blx may yield better code, so use it when required or when available
-#if defined(USE_THUMB_INTERWORK) || defined(CAN_USE_ARMV5_INSTRUCTIONS)
-#define USE_BLX 1
-#endif
-
 // Using bx does not yield better code, so use it only when required
 #if defined(USE_THUMB_INTERWORK)
 #define USE_BX 1
@@ -117,16 +112,33 @@ void MacroAssembler::Call(Register target, Condition cond) {
 
 void MacroAssembler::Call(intptr_t target, RelocInfo::Mode rmode,
                           Condition cond) {
+#if USE_BLX
+  // On ARMv5 and after the recommended call sequence is:
+  //  ldr ip, [pc, #...]
+  //  blx ip
+
+  // The two instructions (ldr and blx) could be separated by a literal
+  // pool and the code would still work. The issue comes from the
+  // patching code which expect the ldr to be just above the blx.
+  BlockConstPoolFor(2);
+  // Statement positions are expected to be recorded when the target
+  // address is loaded. The mov method will automatically record
+  // positions when pc is the target, since this is not the case here
+  // we have to do it explicitly.
+  WriteRecordedPositions();
+
+  mov(ip, Operand(target, rmode), LeaveCC, cond);
+  blx(ip, cond);
+
+  ASSERT(kCallTargetAddressOffset == 2 * kInstrSize);
+#else
   // Set lr for return at current pc + 8.
   mov(lr, Operand(pc), LeaveCC, cond);
   // Emit a ldr<cond> pc, [pc + offset of target in constant pool].
   mov(pc, Operand(target, rmode), LeaveCC, cond);
-  // If USE_BLX is defined, we could emit a 'mov ip, target', followed by a
-  // 'blx ip'; however, the code would not be shorter than the above sequence
-  // and the target address of the call would be referenced by the first
-  // instruction rather than the second one, which would make it harder to patch
-  // (two instructions before the return address, instead of one).
+
   ASSERT(kCallTargetAddressOffset == kInstrSize);
+#endif
 }
 
 
@@ -1180,7 +1192,7 @@ void MacroAssembler::IntegerToDoubleConversionWithVFP3(Register inReg,
   // ARMv7 VFP3 instructions to implement integer to double conversion.
   mov(r7, Operand(inReg, ASR, kSmiTagSize));
   vmov(s15, r7);
-  vcvt(d7, s15);
+  vcvt_f64_s32(d7, s15);
   vmov(outLowReg, outHighReg, d7);
 }
 
@@ -1440,6 +1452,58 @@ void MacroAssembler::JumpIfNotBothSequentialAsciiStrings(Register first,
                                              scratch1,
                                              scratch2,
                                              failure);
+}
+
+
+// Allocates a heap number or jumps to the need_gc label if the young space
+// is full and a scavenge is needed.
+void MacroAssembler::AllocateHeapNumber(Register result,
+                                        Register scratch1,
+                                        Register scratch2,
+                                        Label* gc_required) {
+  // Allocate an object in the heap for the heap number and tag it as a heap
+  // object.
+  AllocateInNewSpace(HeapNumber::kSize / kPointerSize,
+                     result,
+                     scratch1,
+                     scratch2,
+                     gc_required,
+                     TAG_OBJECT);
+
+  // Get heap number map and store it in the allocated object.
+  LoadRoot(scratch1, Heap::kHeapNumberMapRootIndex);
+  str(scratch1, FieldMemOperand(result, HeapObject::kMapOffset));
+}
+
+
+void MacroAssembler::CountLeadingZeros(Register source,
+                                       Register scratch,
+                                       Register zeros) {
+#ifdef CAN_USE_ARMV5_INSTRUCTIONS
+  clz(zeros, source);  // This instruction is only supported after ARM5.
+#else
+  mov(zeros, Operand(0));
+  mov(scratch, source);
+  // Top 16.
+  tst(scratch, Operand(0xffff0000));
+  add(zeros, zeros, Operand(16), LeaveCC, eq);
+  mov(scratch, Operand(scratch, LSL, 16), LeaveCC, eq);
+  // Top 8.
+  tst(scratch, Operand(0xff000000));
+  add(zeros, zeros, Operand(8), LeaveCC, eq);
+  mov(scratch, Operand(scratch, LSL, 8), LeaveCC, eq);
+  // Top 4.
+  tst(scratch, Operand(0xf0000000));
+  add(zeros, zeros, Operand(4), LeaveCC, eq);
+  mov(scratch, Operand(scratch, LSL, 4), LeaveCC, eq);
+  // Top 2.
+  tst(scratch, Operand(0xc0000000));
+  add(zeros, zeros, Operand(2), LeaveCC, eq);
+  mov(scratch, Operand(scratch, LSL, 2), LeaveCC, eq);
+  // Top bit.
+  tst(scratch, Operand(0x80000000u));
+  add(zeros, zeros, Operand(1), LeaveCC, eq);
+#endif
 }
 
 

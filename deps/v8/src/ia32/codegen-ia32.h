@@ -373,6 +373,7 @@ class CodeGenerator: public AstVisitor {
   // Take the Result that is an untagged int32, and convert it to a tagged
   // Smi or HeapNumber.  Remove the untagged_int32 flag from the result.
   void ConvertInt32ResultToNumber(Result* value);
+  void ConvertInt32ResultToSmi(Result* value);
 
   // Track loop nesting level.
   int loop_nesting() const { return loop_nesting_; }
@@ -488,6 +489,9 @@ class CodeGenerator: public AstVisitor {
   // control destination.
   void ToBoolean(ControlDestination* destination);
 
+  // Generate code that computes a shortcutting logical operation.
+  void GenerateLogicalBooleanOperation(BinaryOperation* node);
+
   void GenericBinaryOperation(
       Token::Value op,
       StaticType* type,
@@ -500,7 +504,7 @@ class CodeGenerator: public AstVisitor {
   bool FoldConstantSmis(Token::Value op, int left, int right);
 
   // Emit code to perform a binary operation on a constant
-  // smi and a likely smi.  Consumes the Result *operand.
+  // smi and a likely smi.  Consumes the Result operand.
   Result ConstantSmiBinaryOperation(Token::Value op,
                                     Result* operand,
                                     Handle<Object> constant_operand,
@@ -511,7 +515,7 @@ class CodeGenerator: public AstVisitor {
 
   // Emit code to perform a binary operation on two likely smis.
   // The code to handle smi arguments is produced inline.
-  // Consumes the Results *left and *right.
+  // Consumes the Results left and right.
   Result LikelySmiBinaryOperation(Token::Value op,
                                   Result* left,
                                   Result* right,
@@ -528,6 +532,10 @@ class CodeGenerator: public AstVisitor {
                   Condition cc,
                   bool strict,
                   ControlDestination* destination);
+  void GenerateInlineNumberComparison(Result* left_side,
+                                      Result* right_side,
+                                      Condition cc,
+                                      ControlDestination* dest);
 
   // To prevent long attacker-controlled byte sequences, integer constants
   // from the JavaScript source are loaded in two parts if they are larger
@@ -574,8 +582,8 @@ class CodeGenerator: public AstVisitor {
   // name/value pairs.
   void DeclareGlobals(Handle<FixedArray> pairs);
 
-  // Instantiate the function boilerplate.
-  Result InstantiateBoilerplate(Handle<JSFunction> boilerplate);
+  // Instantiate the function based on the shared function info.
+  Result InstantiateFunction(Handle<SharedFunctionInfo> function_info);
 
   // Support for type checks.
   void GenerateIsSmi(ZoneList<Expression*>* args);
@@ -651,6 +659,8 @@ class CodeGenerator: public AstVisitor {
   void CodeForStatementPosition(Statement* stmt);
   void CodeForDoWhileConditionPosition(DoWhileStatement* stmt);
   void CodeForSourcePosition(int pos);
+
+  void SetTypeForStackSlot(Slot* slot, TypeInfo info);
 
 #ifdef DEBUG
   // True if the registers are valid for entry to a block.  There should
@@ -734,7 +744,7 @@ class GenericBinaryOpStub: public CodeStub {
   GenericBinaryOpStub(Token::Value op,
                       OverwriteMode mode,
                       GenericBinaryFlags flags,
-                      NumberInfo operands_type)
+                      TypeInfo operands_type)
       : op_(op),
         mode_(mode),
         flags_(flags),
@@ -757,7 +767,7 @@ class GenericBinaryOpStub: public CodeStub {
         args_in_registers_(ArgsInRegistersBits::decode(key)),
         args_reversed_(ArgsReversedBits::decode(key)),
         use_sse3_(SSE3Bits::decode(key)),
-        static_operands_type_(NumberInfo::ExpandedRepresentation(
+        static_operands_type_(TypeInfo::ExpandedRepresentation(
             StaticTypeInfoBits::decode(key))),
         runtime_operands_type_(runtime_operands_type),
         name_(NULL) {
@@ -784,7 +794,7 @@ class GenericBinaryOpStub: public CodeStub {
   bool use_sse3_;
 
   // Number type information of operands, determined by code generator.
-  NumberInfo static_operands_type_;
+  TypeInfo static_operands_type_;
 
   // Operand type information determined at runtime.
   BinaryOpIC::TypeInfo runtime_operands_type_;
@@ -796,7 +806,7 @@ class GenericBinaryOpStub: public CodeStub {
 #ifdef DEBUG
   void Print() {
     PrintF("GenericBinaryOpStub %d (op %s), "
-           "(mode %d, flags %d, registers %d, reversed %d, number_info %s)\n",
+           "(mode %d, flags %d, registers %d, reversed %d, type_info %s)\n",
            MinorKey(),
            Token::String(op_),
            static_cast<int>(mode_),

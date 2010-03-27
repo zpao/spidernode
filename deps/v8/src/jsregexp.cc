@@ -66,11 +66,6 @@ Handle<Object> RegExpImpl::CreateRegExpLiteral(Handle<JSFunction> constructor,
                                                Handle<String> pattern,
                                                Handle<String> flags,
                                                bool* has_pending_exception) {
-  // Ensure that the constructor function has been loaded.
-  if (!constructor->IsLoaded()) {
-    LoadLazy(constructor, has_pending_exception);
-    if (*has_pending_exception) return Handle<Object>();
-  }
   // Call the construct code with 2 arguments.
   Object** argv[2] = { Handle<Object>::cast(pattern).location(),
                        Handle<Object>::cast(flags).location() };
@@ -149,7 +144,7 @@ Handle<Object> RegExpImpl::Compile(Handle<JSRegExp> re,
     Handle<String> atom_string = Factory::NewStringFromTwoByte(atom_pattern);
     AtomCompile(re, pattern, flags, atom_string);
   } else {
-    IrregexpPrepare(re, pattern, flags, parse_result.capture_count);
+    IrregexpInitialize(re, pattern, flags, parse_result.capture_count);
   }
   ASSERT(re->data()->IsFixedArray());
   // Compilation succeeded so the data is set on the regexp
@@ -341,16 +336,104 @@ Code* RegExpImpl::IrregexpNativeCode(FixedArray* re, bool is_ascii) {
 }
 
 
-void RegExpImpl::IrregexpPrepare(Handle<JSRegExp> re,
-                                 Handle<String> pattern,
-                                 JSRegExp::Flags flags,
-                                 int capture_count) {
+void RegExpImpl::IrregexpInitialize(Handle<JSRegExp> re,
+                                    Handle<String> pattern,
+                                    JSRegExp::Flags flags,
+                                    int capture_count) {
   // Initialize compiled code entries to null.
   Factory::SetRegExpIrregexpData(re,
                                  JSRegExp::IRREGEXP,
                                  pattern,
                                  flags,
                                  capture_count);
+}
+
+
+int RegExpImpl::IrregexpPrepare(Handle<JSRegExp> regexp,
+                                Handle<String> subject) {
+  if (!subject->IsFlat()) {
+    FlattenString(subject);
+  }
+  bool is_ascii = subject->IsAsciiRepresentation();
+  if (!EnsureCompiledIrregexp(regexp, is_ascii)) {
+    return -1;
+  }
+#ifdef V8_NATIVE_REGEXP
+  // Native regexp only needs room to output captures. Registers are handled
+  // internally.
+  return (IrregexpNumberOfCaptures(FixedArray::cast(regexp->data())) + 1) * 2;
+#else  // !V8_NATIVE_REGEXP
+  // Byte-code regexp needs space allocated for all its registers.
+  return IrregexpNumberOfRegisters(FixedArray::cast(regexp->data()));
+#endif  // V8_NATIVE_REGEXP
+}
+
+
+RegExpImpl::IrregexpResult RegExpImpl::IrregexpExecOnce(Handle<JSRegExp> regexp,
+                                                        Handle<String> subject,
+                                                        int index,
+                                                        Vector<int> output) {
+  Handle<FixedArray> irregexp(FixedArray::cast(regexp->data()));
+
+  ASSERT(index >= 0);
+  ASSERT(index <= subject->length());
+  ASSERT(subject->IsFlat());
+
+#ifdef V8_NATIVE_REGEXP
+  ASSERT(output.length() >=
+      (IrregexpNumberOfCaptures(*irregexp) + 1) * 2);
+  do {
+    bool is_ascii = subject->IsAsciiRepresentation();
+    Handle<Code> code(IrregexpNativeCode(*irregexp, is_ascii));
+    NativeRegExpMacroAssembler::Result res =
+        NativeRegExpMacroAssembler::Match(code,
+                                          subject,
+                                          output.start(),
+                                          output.length(),
+                                          index);
+    if (res != NativeRegExpMacroAssembler::RETRY) {
+      ASSERT(res != NativeRegExpMacroAssembler::EXCEPTION ||
+             Top::has_pending_exception());
+      STATIC_ASSERT(
+          static_cast<int>(NativeRegExpMacroAssembler::SUCCESS) == RE_SUCCESS);
+      STATIC_ASSERT(
+          static_cast<int>(NativeRegExpMacroAssembler::FAILURE) == RE_FAILURE);
+      STATIC_ASSERT(static_cast<int>(NativeRegExpMacroAssembler::EXCEPTION)
+                    == RE_EXCEPTION);
+      return static_cast<IrregexpResult>(res);
+    }
+    // If result is RETRY, the string has changed representation, and we
+    // must restart from scratch.
+    // In this case, it means we must make sure we are prepared to handle
+    // the, potentially, differen subject (the string can switch between
+    // being internal and external, and even between being ASCII and UC16,
+    // but the characters are always the same).
+    IrregexpPrepare(regexp, subject);
+  } while (true);
+  UNREACHABLE();
+  return RE_EXCEPTION;
+#else  // ndef V8_NATIVE_REGEXP
+
+  ASSERT(output.length() >= IrregexpNumberOfRegisters(*irregexp));
+  bool is_ascii = subject->IsAsciiRepresentation();
+  // We must have done EnsureCompiledIrregexp, so we can get the number of
+  // registers.
+  int* register_vector = output.start();
+  int number_of_capture_registers =
+      (IrregexpNumberOfCaptures(*irregexp) + 1) * 2;
+  for (int i = number_of_capture_registers - 1; i >= 0; i--) {
+    register_vector[i] = -1;
+  }
+  Handle<ByteArray> byte_codes(IrregexpByteCode(*irregexp, is_ascii));
+
+  if (IrregexpInterpreter::Match(byte_codes,
+                                 subject,
+                                 register_vector,
+                                 index)) {
+    return RE_SUCCESS;
+  }
+  return RE_FAILURE;
+#endif  // ndef V8_NATIVE_REGEXP
 }
 
 
@@ -361,9 +444,6 @@ Handle<Object> RegExpImpl::IrregexpExec(Handle<JSRegExp> jsregexp,
   ASSERT_EQ(jsregexp->TypeTag(), JSRegExp::IRREGEXP);
 
   // Prepare space for the return values.
-  int number_of_capture_registers =
-      (IrregexpNumberOfCaptures(FixedArray::cast(jsregexp->data())) + 1) * 2;
-
 #ifndef V8_NATIVE_REGEXP
 #ifdef DEBUG
   if (FLAG_trace_regexp_bytecodes) {
@@ -373,101 +453,42 @@ Handle<Object> RegExpImpl::IrregexpExec(Handle<JSRegExp> jsregexp,
   }
 #endif
 #endif
-
-  if (!subject->IsFlat()) {
-    FlattenString(subject);
-  }
-
-  last_match_info->EnsureSize(number_of_capture_registers + kLastMatchOverhead);
-
-  Handle<FixedArray> array;
-
-  // Dispatch to the correct RegExp implementation.
-  Handle<FixedArray> regexp(FixedArray::cast(jsregexp->data()));
-
-#ifdef V8_NATIVE_REGEXP
-
-  OffsetsVector captures(number_of_capture_registers);
-  int* captures_vector = captures.vector();
-  NativeRegExpMacroAssembler::Result res;
-  do {
-    bool is_ascii = subject->IsAsciiRepresentation();
-    if (!EnsureCompiledIrregexp(jsregexp, is_ascii)) {
-      return Handle<Object>::null();
-    }
-    Handle<Code> code(RegExpImpl::IrregexpNativeCode(*regexp, is_ascii));
-    res = NativeRegExpMacroAssembler::Match(code,
-                                            subject,
-                                            captures_vector,
-                                            captures.length(),
-                                            previous_index);
-    // If result is RETRY, the string have changed representation, and we
-    // must restart from scratch.
-  } while (res == NativeRegExpMacroAssembler::RETRY);
-  if (res == NativeRegExpMacroAssembler::EXCEPTION) {
+  int required_registers = RegExpImpl::IrregexpPrepare(jsregexp, subject);
+  if (required_registers < 0) {
+    // Compiling failed with an exception.
     ASSERT(Top::has_pending_exception());
     return Handle<Object>::null();
   }
-  ASSERT(res == NativeRegExpMacroAssembler::SUCCESS
-      || res == NativeRegExpMacroAssembler::FAILURE);
 
-  if (res != NativeRegExpMacroAssembler::SUCCESS) return Factory::null_value();
+  OffsetsVector registers(required_registers);
 
-  array = Handle<FixedArray>(FixedArray::cast(last_match_info->elements()));
-  ASSERT(array->length() >= number_of_capture_registers + kLastMatchOverhead);
-  // The captures come in (start, end+1) pairs.
-  for (int i = 0; i < number_of_capture_registers; i += 2) {
-    // Capture values are relative to start_offset only.
-    // Convert them to be relative to start of string.
-    if (captures_vector[i] >= 0) {
-      captures_vector[i] += previous_index;
+  IrregexpResult res = IrregexpExecOnce(jsregexp,
+                                        subject,
+                                        previous_index,
+                                        Vector<int>(registers.vector(),
+                                                    registers.length()));
+  if (res == RE_SUCCESS) {
+    int capture_register_count =
+        (IrregexpNumberOfCaptures(FixedArray::cast(jsregexp->data())) + 1) * 2;
+    last_match_info->EnsureSize(capture_register_count + kLastMatchOverhead);
+    AssertNoAllocation no_gc;
+    int* register_vector = registers.vector();
+    FixedArray* array = FixedArray::cast(last_match_info->elements());
+    for (int i = 0; i < capture_register_count; i += 2) {
+      SetCapture(array, i, register_vector[i]);
+      SetCapture(array, i + 1, register_vector[i + 1]);
     }
-    if (captures_vector[i + 1] >= 0) {
-      captures_vector[i + 1] += previous_index;
-    }
-    SetCapture(*array, i, captures_vector[i]);
-    SetCapture(*array, i + 1, captures_vector[i + 1]);
+    SetLastCaptureCount(array, capture_register_count);
+    SetLastSubject(array, *subject);
+    SetLastInput(array, *subject);
+    return last_match_info;
   }
-
-#else  // ! V8_NATIVE_REGEXP
-
-  bool is_ascii = subject->IsAsciiRepresentation();
-  if (!EnsureCompiledIrregexp(jsregexp, is_ascii)) {
+  if (res == RE_EXCEPTION) {
+    ASSERT(Top::has_pending_exception());
     return Handle<Object>::null();
   }
-  // Now that we have done EnsureCompiledIrregexp we can get the number of
-  // registers.
-  int number_of_registers =
-      IrregexpNumberOfRegisters(FixedArray::cast(jsregexp->data()));
-  OffsetsVector registers(number_of_registers);
-  int* register_vector = registers.vector();
-  for (int i = number_of_capture_registers - 1; i >= 0; i--) {
-    register_vector[i] = -1;
-  }
-  Handle<ByteArray> byte_codes(IrregexpByteCode(*regexp, is_ascii));
-
-  if (!IrregexpInterpreter::Match(byte_codes,
-                                  subject,
-                                  register_vector,
-                                  previous_index)) {
-    return Factory::null_value();
-  }
-
-  array = Handle<FixedArray>(FixedArray::cast(last_match_info->elements()));
-  ASSERT(array->length() >= number_of_capture_registers + kLastMatchOverhead);
-  // The captures come in (start, end+1) pairs.
-  for (int i = 0; i < number_of_capture_registers; i += 2) {
-    SetCapture(*array, i, register_vector[i]);
-    SetCapture(*array, i + 1, register_vector[i + 1]);
-  }
-
-#endif  // V8_NATIVE_REGEXP
-
-  SetLastCaptureCount(*array, number_of_capture_registers);
-  SetLastSubject(*array, *subject);
-  SetLastInput(*array, *subject);
-
-  return last_match_info;
+  ASSERT(res == RE_FAILURE);
+  return Factory::null_value();
 }
 
 
@@ -4966,7 +4987,9 @@ int AssertionNode::ComputeFirstCharacterSet(int budget) {
       case AFTER_WORD_CHARACTER: {
         ASSERT_NOT_NULL(on_success());
         budget = on_success()->ComputeFirstCharacterSet(budget);
-        set_first_character_set(on_success()->first_character_set());
+        if (budget >= 0) {
+          set_first_character_set(on_success()->first_character_set());
+        }
         break;
       }
     }
@@ -4992,6 +5015,10 @@ int ActionNode::ComputeFirstCharacterSet(int budget) {
 int BackReferenceNode::ComputeFirstCharacterSet(int budget) {
   // We don't know anything about the first character of a backreference
   // at this point.
+  // The potential first characters are the first characters of the capture,
+  // and the first characters of the on_success node, depending on whether the
+  // capture can be empty and whether it is known to be participating or known
+  // not to be.
   return kComputeFirstCharacterSetFail;
 }
 
@@ -5011,8 +5038,11 @@ int TextNode::ComputeFirstCharacterSet(int budget) {
     } else {
       ASSERT(text.type == TextElement::CHAR_CLASS);
       RegExpCharacterClass* char_class = text.data.u_char_class;
+      ZoneList<CharacterRange>* ranges = char_class->ranges();
+      // TODO(lrn): Canonicalize ranges when they are created
+      // instead of waiting until now.
+      CharacterRange::Canonicalize(ranges);
       if (char_class->is_negated()) {
-        ZoneList<CharacterRange>* ranges = char_class->ranges();
         int length = ranges->length();
         int new_length = length + 1;
         if (length > 0) {
@@ -5026,7 +5056,7 @@ int TextNode::ComputeFirstCharacterSet(int budget) {
         CharacterRange::Negate(ranges, negated_ranges);
         set_first_character_set(negated_ranges);
       } else {
-        set_first_character_set(char_class->ranges());
+        set_first_character_set(ranges);
       }
     }
   }

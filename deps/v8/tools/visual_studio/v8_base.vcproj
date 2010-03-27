@@ -237,6 +237,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\cached-powers.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\char-predicates-inl.h"
 				>
 			</File>
@@ -250,6 +254,18 @@
 			</File>
 			<File
 				RelativePath="..\..\src\checks.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\circular-queue-inl.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\circular-queue.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\circular-queue.h"
 				>
 			</File>
 			<File
@@ -337,6 +353,18 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\cpu-profiler.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\cpu-profiler.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\cpu-profiler-inl.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\data-flow.cc"
 				>
 			</File>
@@ -381,6 +409,18 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\diy-fp.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\diy-fp.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\double.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\execution.cc"
 				>
 			</File>
@@ -409,11 +449,27 @@
                                 >
                         </File>
 			<File
+				RelativePath="..\..\src\fast-dtoa.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\fast-dtoa.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\flags.cc"
 				>
 			</File>
 			<File
 				RelativePath="..\..\src\flags.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\flow-graph.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\flow-graph.h"
 				>
 			</File>
 			<File
@@ -553,11 +609,19 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\jump-target-heavy-inl.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\jump-target.cc"
 				>
 			</File>
 			<File
 				RelativePath="..\..\src\ia32\jump-target-ia32.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\jump-target-heavy.cc"
 				>
 			</File>
 			<File
@@ -638,10 +702,6 @@
 			</File>
 			<File
 				RelativePath="..\..\src\natives.h"
-				>
-			</File>
-			<File
-				RelativePath="..\..\src\number-info.h"
 				>
 			</File>
 			<File
@@ -885,6 +945,14 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\type-info-inl.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\type-info.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\unicode-inl.h"
 				>
 			</File>
@@ -945,6 +1013,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\virtual-frame-heavy-inl.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\virtual-frame.h"
 				>
 			</File>
@@ -958,6 +1030,10 @@
 			</File>
 			<File
 				RelativePath="..\..\src\ia32\virtual-frame-ia32.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\virtual-frame-heavy.cc"
 				>
 			</File>
 			<File
