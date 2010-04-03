@@ -218,7 +218,8 @@ ssize_t DecodeBytes(v8::Handle<v8::Value> val, enum encoding encoding) {
 #endif
 
 // Returns number of bytes written.
-ssize_t DecodeWrite(char *buf, size_t buflen,
+ssize_t DecodeWrite(char *buf,
+                    size_t buflen,
                     v8::Handle<v8::Value> val,
                     enum encoding encoding) {
   HandleScope scope;
@@ -1198,7 +1199,6 @@ static Handle<Value> Binding(const Arguments& args) {
       exports->Set(String::New("http_old"),     String::New(native_http_old));
       exports->Set(String::New("ini"),          String::New(native_ini));
       exports->Set(String::New("mjsunit"),      String::New(native_mjsunit));
-      exports->Set(String::New("multipart"),    String::New(native_multipart));
       exports->Set(String::New("net"),          String::New(native_net));
       exports->Set(String::New("posix"),        String::New(native_posix));
       exports->Set(String::New("querystring"),  String::New(native_querystring));
