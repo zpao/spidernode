@@ -915,6 +915,104 @@ Handle<Value> EvalCX(const Arguments& args) {
   return scope.Close(result);
 }
 
+struct script_holder {
+  Persistent<Script> script;
+};
+
+// adapted from http://stackoverflow.com
+// /questions/173366/how-do-you-free-a-wrapped-c-object-when-associated-javascript-object-is-garbage
+void CleanupV8Point(Persistent<Value> external, void *) {
+  struct script_holder * holder  = (struct script_holder *) External::Unwrap(external);
+  holder->script.Dispose();
+  delete holder;
+}
+
+// evalnocx(code)
+// Compiles code without a context
+Handle<Value> EvalNoCX(const Arguments& args) {
+  HandleScope scope;
+
+  Local<String> code = args[0]->ToString();
+  Local<String> filename = args.Length() > 1 ? args[1]->ToString()
+                                             : String::New("evalnocx");
+
+  // Catch errors
+  TryCatch try_catch;
+
+  Local<Script> script = Script::New(code, filename);
+  Handle<Value> result;
+
+  if (script.IsEmpty()) {
+    result = ThrowException(try_catch.Exception());
+  } else {
+    struct script_holder * holder = new struct script_holder;
+    holder->script = Persistent<Script>::New(script);
+    result = Persistent<Value>::New(External::Wrap(holder));
+    Persistent<Value>(result).MakeWeak(NULL, &CleanupV8Point);
+  }
+
+  return scope.Close(result);
+}
+
+// evalrecx(script, sandbox={})
+// Executes compiled script in a new context
+Handle<Value> EvalReCX(const Arguments& args) {
+  HandleScope scope;
+
+  Local<Value> external = args[0];
+  Local<Object> sandbox = args.Length() > 1 ? args[1]->ToObject()
+                                            : Object::New();
+  // Create the new context
+  Persistent<Context> context = Context::New();
+
+  // Enter and compile script
+  context->Enter();
+
+  // Copy objects from global context, to our brand new context
+  Handle<Array> keys = sandbox->GetPropertyNames();
+
+  unsigned int i;
+  for (i = 0; i < keys->Length(); i++) {
+    Handle<String> key = keys->Get(Integer::New(i))->ToString();
+    Handle<Value> value = sandbox->Get(key);
+    context->Global()->Set(key, value);
+  }
+
+  // Catch errors
+  TryCatch try_catch;
+
+  Handle<Value> result;
+
+  struct script_holder * holder  = (struct script_holder *) External::Unwrap(external);
+  if (!holder) {
+    Local<Value> exception =
+      Exception::Error(String::New("'script' must be a result of previous evalnocx(code) call"));
+    result = ThrowException(exception);
+  } else {
+    Handle<Script> script = holder->script;
+
+    result = script->Run();
+    if (result.IsEmpty()) {
+      result = ThrowException(try_catch.Exception());
+    } else {
+      // success! copy changes back onto the sandbox object.
+      keys = context->Global()->GetPropertyNames();
+      for (i = 0; i < keys->Length(); i++) {
+        Handle<String> key = keys->Get(Integer::New(i))->ToString();
+        Handle<Value> value = context->Global()->Get(key);
+        sandbox->Set(key, value);
+      }
+    }
+  }
+
+  // Clean up, clean up, everybody everywhere!
+  context->DetachGlobal();
+  context->Exit();
+  context.Dispose();
+
+  return scope.Close(result);
+}
+
 Handle<Value> Compile(const Arguments& args) {
   HandleScope scope;
 
@@ -1279,6 +1377,8 @@ static void Load(int argc, char *argv[]) {
   NODE_SET_METHOD(process, "loop", Loop);
   NODE_SET_METHOD(process, "unloop", Unloop);
   NODE_SET_METHOD(process, "evalcx", EvalCX);
+  NODE_SET_METHOD(process, "evalnocx", EvalNoCX);
+  NODE_SET_METHOD(process, "evalrecx", EvalReCX);
   NODE_SET_METHOD(process, "compile", Compile);
   NODE_SET_METHOD(process, "_byteLength", ByteLength);
   NODE_SET_METHOD(process, "reallyExit", Exit);
