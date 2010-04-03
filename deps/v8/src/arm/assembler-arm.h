@@ -509,7 +509,10 @@ typedef int32_t Instr;
 
 
 extern const Instr kMovLrPc;
+extern const Instr kLdrPCMask;
 extern const Instr kLdrPCPattern;
+extern const Instr kBlxRegMask;
+extern const Instr kBlxRegPattern;
 
 
 class Assembler : public Malloced {
@@ -590,12 +593,34 @@ class Assembler : public Malloced {
   static const int kInstrSize = sizeof(Instr);
 
   // Distance between the instruction referring to the address of the call
-  // target (ldr pc, [target addr in const pool]) and the return address
+  // target and the return address.
+#ifdef USE_BLX
+  // Call sequence is:
+  //  ldr  ip, [pc, #...] @ call address
+  //  blx  ip
+  //                      @ return address
+  static const int kCallTargetAddressOffset = 2 * kInstrSize;
+#else
+  // Call sequence is:
+  //  mov  lr, pc
+  //  ldr  pc, [pc, #...] @ call address
+  //                      @ return address
   static const int kCallTargetAddressOffset = kInstrSize;
+#endif
 
   // Distance between start of patched return sequence and the emitted address
   // to jump to.
-  static const int kPatchReturnSequenceAddressOffset = kInstrSize;
+#ifdef USE_BLX
+  // Return sequence is:
+  //  ldr  ip, [pc, #0]   @ emited address and start
+  //  blx  ip
+  static const int kPatchReturnSequenceAddressOffset =  0 * kInstrSize;
+#else
+  // Return sequence is:
+  //  mov  lr, pc         @ start of sequence
+  //  ldr  pc, [pc, #-4]  @ emited address
+  static const int kPatchReturnSequenceAddressOffset =  kInstrSize;
+#endif
 
   // Difference between address of current opcode and value read from pc
   // register.
@@ -801,6 +826,12 @@ class Assembler : public Malloced {
             const Register base,
             int offset,  // Offset must be a multiple of 4.
             const Condition cond = al);
+
+  void vldr(const SwVfpRegister dst,
+            const Register base,
+            int offset,  // Offset must be a multiple of 4.
+            const Condition cond = al);
+
   void vstr(const DwVfpRegister src,
             const Register base,
             int offset,  // Offset must be a multiple of 4.
@@ -819,12 +850,27 @@ class Assembler : public Malloced {
   void vmov(const Register dst,
             const SwVfpRegister src,
             const Condition cond = al);
-  void vcvt(const DwVfpRegister dst,
-            const SwVfpRegister src,
-            const Condition cond = al);
-  void vcvt(const SwVfpRegister dst,
-            const DwVfpRegister src,
-            const Condition cond = al);
+  void vcvt_f64_s32(const DwVfpRegister dst,
+                    const SwVfpRegister src,
+                    const Condition cond = al);
+  void vcvt_f32_s32(const SwVfpRegister dst,
+                    const SwVfpRegister src,
+                    const Condition cond = al);
+  void vcvt_f64_u32(const DwVfpRegister dst,
+                    const SwVfpRegister src,
+                    const Condition cond = al);
+  void vcvt_s32_f64(const SwVfpRegister dst,
+                    const DwVfpRegister src,
+                    const Condition cond = al);
+  void vcvt_u32_f64(const SwVfpRegister dst,
+                    const DwVfpRegister src,
+                    const Condition cond = al);
+  void vcvt_f64_f32(const DwVfpRegister dst,
+                    const SwVfpRegister src,
+                    const Condition cond = al);
+  void vcvt_f32_f64(const SwVfpRegister dst,
+                    const DwVfpRegister src,
+                    const Condition cond = al);
 
   void vadd(const DwVfpRegister dst,
             const DwVfpRegister src1,

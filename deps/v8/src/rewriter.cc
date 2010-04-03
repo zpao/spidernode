@@ -213,8 +213,8 @@ void AstOptimizer::VisitFunctionLiteral(FunctionLiteral* node) {
 }
 
 
-void AstOptimizer::VisitFunctionBoilerplateLiteral(
-    FunctionBoilerplateLiteral* node) {
+void AstOptimizer::VisitSharedFunctionInfoLiteral(
+    SharedFunctionInfoLiteral* node) {
   USE(node);
 }
 
@@ -247,7 +247,9 @@ void AstOptimizer::VisitVariableProxy(VariableProxy* node) {
     }
 
     if (FLAG_safe_int32_compiler) {
-      if (var->IsStackAllocated() && !var->is_arguments()) {
+      if (var->IsStackAllocated() &&
+          !var->is_arguments() &&
+          var->mode() != Variable::CONST) {
         node->set_side_effect_free(true);
       }
     }
@@ -802,8 +804,8 @@ void Processor::VisitFunctionLiteral(FunctionLiteral* node) {
 }
 
 
-void Processor::VisitFunctionBoilerplateLiteral(
-    FunctionBoilerplateLiteral* node) {
+void Processor::VisitSharedFunctionInfoLiteral(
+    SharedFunctionInfoLiteral* node) {
   USE(node);
   UNREACHABLE();
 }

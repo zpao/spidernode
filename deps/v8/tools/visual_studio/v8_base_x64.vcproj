@@ -253,6 +253,18 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\circular-queue-inl.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\circular-queue.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\circular-queue.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\code-stubs.cc"
 				>
 			</File>
@@ -337,6 +349,18 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\cpu-profiler.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\cpu-profiler.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\cpu-profiler-inl.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\data-flow.cc"
 				>
 			</File>
@@ -414,6 +438,14 @@
 			</File>
 			<File
 				RelativePath="..\..\src\flags.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\flow-graph.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\flow-graph.h"
 				>
 			</File>
 			<File
@@ -554,11 +586,19 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\jump-target-heavy-inl.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\jump-target.cc"
 				>
 			</File>
 			<File
 				RelativePath="..\..\src\x64\jump-target-x64.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\jump-target-heavy.cc"
 				>
 			</File>
 			<File
@@ -639,10 +679,6 @@
 			</File>
 			<File
 				RelativePath="..\..\src\natives.h"
-				>
-			</File>
-			<File
-				RelativePath="..\..\src\number-info.h"
 				>
 			</File>
 			<File
@@ -886,6 +922,14 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\type-info-inl.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\type-info.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\unicode-inl.h"
 				>
 			</File>
@@ -946,6 +990,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\virtual-frame-heavy-inl.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\virtual-frame.h"
 				>
 			</File>
@@ -959,6 +1007,10 @@
 			</File>
 			<File
 				RelativePath="..\..\src\x64\virtual-frame-x64.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\virtual-frame-heavy.cc"
 				>
 			</File>
 			<File

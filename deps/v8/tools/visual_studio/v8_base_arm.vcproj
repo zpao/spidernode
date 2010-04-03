@@ -253,6 +253,18 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\circular-queue-inl.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\circular-queue.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\circular-queue.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\code-stubs.cc"
 				>
 			</File>
@@ -345,6 +357,18 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\cpu-profiler.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\cpu-profiler.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\cpu-profiler-inl.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\data-flow.cc"
 				>
 			</File>
@@ -422,6 +446,14 @@
 			</File>
 			<File
 				RelativePath="..\..\src\flags.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\flow-graph.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\flow-graph.h"
 				>
 			</File>
 			<File
@@ -557,11 +589,23 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\jump-target-inl.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\jump-target-light-inl.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\jump-target.cc"
 				>
 			</File>
 			<File
 				RelativePath="..\..\src\arm\jump-target-arm.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\jump-target-light.cc"
 				>
 			</File>
 			<File
@@ -642,10 +686,6 @@
 			</File>
 			<File
 				RelativePath="..\..\src\natives.h"
-				>
-			</File>
-			<File
-				RelativePath="..\..\src\number-info.h"
 				>
 			</File>
 			<File
@@ -897,6 +937,14 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\type-info-inl.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\type-info.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\unicode-inl.h"
 				>
 			</File>
@@ -957,6 +1005,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\virtual-frame-light-inl.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\virtual-frame.h"
 				>
 			</File>
@@ -970,6 +1022,10 @@
 			</File>
 			<File
 				RelativePath="..\..\src\arm\virtual-frame-arm.cc"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\virtual-frame-light.cc"
 				>
 			</File>
 			<File

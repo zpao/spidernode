@@ -2229,9 +2229,8 @@ void CodeGenerator::VisitDebuggerStatement(DebuggerStatement* node) {
 }
 
 
-void CodeGenerator::InstantiateBoilerplate(Handle<JSFunction> boilerplate) {
-  ASSERT(boilerplate->IsBoilerplate());
-
+void CodeGenerator::InstantiateFunction(
+    Handle<SharedFunctionInfo> function_info) {
   // The inevitable call will sync frame elements to memory anyway, so
   // we do it eagerly to allow us to push the arguments directly into
   // place.
@@ -2239,16 +2238,16 @@ void CodeGenerator::InstantiateBoilerplate(Handle<JSFunction> boilerplate) {
 
   // Use the fast case closure allocation code that allocates in new
   // space for nested functions that don't need literals cloning.
-  if (scope()->is_function_scope() && boilerplate->NumberOfLiterals() == 0) {
+  if (scope()->is_function_scope() && function_info->num_literals() == 0) {
     FastNewClosureStub stub;
-    frame_->Push(boilerplate);
+    frame_->Push(function_info);
     Result answer = frame_->CallStub(&stub, 1);
     frame_->Push(&answer);
   } else {
     // Call the runtime to instantiate the function boilerplate
     // object.
     frame_->EmitPush(rsi);
-    frame_->EmitPush(boilerplate);
+    frame_->EmitPush(function_info);
     Result result = frame_->CallRuntime(Runtime::kNewClosure, 2);
     frame_->Push(&result);
   }
@@ -2258,19 +2257,19 @@ void CodeGenerator::InstantiateBoilerplate(Handle<JSFunction> boilerplate) {
 void CodeGenerator::VisitFunctionLiteral(FunctionLiteral* node) {
   Comment cmnt(masm_, "[ FunctionLiteral");
 
-  // Build the function boilerplate and instantiate it.
-  Handle<JSFunction> boilerplate =
-      Compiler::BuildBoilerplate(node, script(), this);
+  // Build the function info and instantiate it.
+  Handle<SharedFunctionInfo> function_info =
+      Compiler::BuildFunctionInfo(node, script(), this);
   // Check for stack-overflow exception.
   if (HasStackOverflow()) return;
-  InstantiateBoilerplate(boilerplate);
+  InstantiateFunction(function_info);
 }
 
 
-void CodeGenerator::VisitFunctionBoilerplateLiteral(
-    FunctionBoilerplateLiteral* node) {
-  Comment cmnt(masm_, "[ FunctionBoilerplateLiteral");
-  InstantiateBoilerplate(node->boilerplate());
+void CodeGenerator::VisitSharedFunctionInfoLiteral(
+    SharedFunctionInfoLiteral* node) {
+  Comment cmnt(masm_, "[ SharedFunctionInfoLiteral");
+  InstantiateFunction(node->shared_function_info());
 }
 
 
@@ -3282,13 +3281,7 @@ void CodeGenerator::VisitCountOperation(CountOperation* node) {
 }
 
 
-void CodeGenerator::VisitBinaryOperation(BinaryOperation* node) {
-  // TODO(X64): This code was copied verbatim from codegen-ia32.
-  //     Either find a reason to change it or move it to a shared location.
-
-  Comment cmnt(masm_, "[ BinaryOperation");
-  Token::Value op = node->op();
-
+void CodeGenerator::GenerateLogicalBooleanOperation(BinaryOperation* node) {
   // According to ECMA-262 section 11.11, page 58, the binary logical
   // operators must yield the result of one of the two expressions
   // before any ToBoolean() conversions. This means that the value
@@ -3298,7 +3291,7 @@ void CodeGenerator::VisitBinaryOperation(BinaryOperation* node) {
   // control flow), we force the right hand side to do the same. This
   // is necessary because we assume that if we get control flow on the
   // last path out of an expression we got it on all paths.
-  if (op == Token::AND) {
+  if (node->op() == Token::AND) {
     JumpTarget is_true;
     ControlDestination dest(&is_true, destination()->false_target(), true);
     LoadCondition(node->left(), &dest, false);
@@ -3361,7 +3354,8 @@ void CodeGenerator::VisitBinaryOperation(BinaryOperation* node) {
       exit.Bind();
     }
 
-  } else if (op == Token::OR) {
+  } else {
+    ASSERT(node->op() == Token::OR);
     JumpTarget is_false;
     ControlDestination dest(destination()->true_target(), &is_false, false);
     LoadCondition(node->left(), &dest, false);
@@ -3422,7 +3416,14 @@ void CodeGenerator::VisitBinaryOperation(BinaryOperation* node) {
       // Exit (always with a materialized value).
       exit.Bind();
     }
+  }
+}
 
+void CodeGenerator::VisitBinaryOperation(BinaryOperation* node) {
+  Comment cmnt(masm_, "[ BinaryOperation");
+
+  if (node->op() == Token::AND || node->op() == Token::OR) {
+    GenerateLogicalBooleanOperation(node);
   } else {
     // NOTE: The code below assumes that the slow cases (calls to runtime)
     // never return a constant/immutable object.
@@ -4369,7 +4370,7 @@ void CodeGenerator::ToBoolean(ControlDestination* dest) {
 
   if (value.is_number()) {
     Comment cmnt(masm_, "ONLY_NUMBER");
-    // Fast case if NumberInfo indicates only numbers.
+    // Fast case if TypeInfo indicates only numbers.
     if (FLAG_debug_code) {
       __ AbortIfNotNumber(value.reg(), "ToBoolean operand is not a number.");
     }
@@ -5068,9 +5069,9 @@ void CodeGenerator::Comparison(AstNode* node,
       Condition left_is_smi = masm_->CheckSmi(left_side.reg());
       is_smi.Branch(left_is_smi);
 
-      bool is_for_loop_compare = (node->AsCompareOperation() != NULL)
-          && node->AsCompareOperation()->is_for_loop_condition();
-      if (!is_for_loop_compare && right_val->IsSmi()) {
+      bool is_loop_condition = (node->AsExpression() != NULL) &&
+          node->AsExpression()->is_loop_condition();
+      if (!is_loop_condition && right_val->IsSmi()) {
         // Right side is a constant smi and left side has been checked
         // not to be a smi.
         JumpTarget not_number;
@@ -5292,8 +5293,8 @@ void CodeGenerator::GenericBinaryOperation(Token::Value op,
   }
 
   // Get number type of left and right sub-expressions.
-  NumberInfo operands_type =
-      NumberInfo::Combine(left.number_info(), right.number_info());
+  TypeInfo operands_type =
+      TypeInfo::Combine(left.type_info(), right.type_info());
 
   Result answer;
   if (left_is_non_smi_constant || right_is_non_smi_constant) {
@@ -5325,13 +5326,13 @@ void CodeGenerator::GenericBinaryOperation(Token::Value op,
     }
   }
 
-  // Set NumberInfo of result according to the operation performed.
+  // Set TypeInfo of result according to the operation performed.
   // We rely on the fact that smis have a 32 bit payload on x64.
   ASSERT(kSmiValueSize == 32);
-  NumberInfo result_type = NumberInfo::Unknown();
+  TypeInfo result_type = TypeInfo::Unknown();
   switch (op) {
     case Token::COMMA:
-      result_type = right.number_info();
+      result_type = right.type_info();
       break;
     case Token::OR:
     case Token::AND:
@@ -5342,37 +5343,37 @@ void CodeGenerator::GenericBinaryOperation(Token::Value op,
     case Token::BIT_XOR:
     case Token::BIT_AND:
       // Result is always a smi.
-      result_type = NumberInfo::Smi();
+      result_type = TypeInfo::Smi();
       break;
     case Token::SAR:
     case Token::SHL:
       // Result is always a smi.
-      result_type = NumberInfo::Smi();
+      result_type = TypeInfo::Smi();
       break;
     case Token::SHR:
       // Result of x >>> y is always a smi if y >= 1, otherwise a number.
       result_type = (right.is_constant() && right.handle()->IsSmi()
                      && Smi::cast(*right.handle())->value() >= 1)
-          ? NumberInfo::Smi()
-          : NumberInfo::Number();
+          ? TypeInfo::Smi()
+          : TypeInfo::Number();
       break;
     case Token::ADD:
       // Result could be a string or a number. Check types of inputs.
       result_type = operands_type.IsNumber()
-          ? NumberInfo::Number()
-          : NumberInfo::Unknown();
+          ? TypeInfo::Number()
+          : TypeInfo::Unknown();
       break;
     case Token::SUB:
     case Token::MUL:
     case Token::DIV:
     case Token::MOD:
       // Result is always a number.
-      result_type = NumberInfo::Number();
+      result_type = TypeInfo::Number();
       break;
     default:
       UNREACHABLE();
   }
-  answer.set_number_info(result_type);
+  answer.set_type_info(result_type);
   frame_->Push(&answer);
 }
 
@@ -6361,12 +6362,12 @@ void Reference::SetValue(InitState init_state) {
 
 
 void FastNewClosureStub::Generate(MacroAssembler* masm) {
-  // Clone the boilerplate in new space. Set the context to the
-  // current context in rsi.
+  // Create a new closure from the given function info in new
+  // space. Set the context to the current context in rsi.
   Label gc;
   __ AllocateInNewSpace(JSFunction::kSize, rax, rbx, rcx, &gc, TAG_OBJECT);
 
-  // Get the boilerplate function from the stack.
+  // Get the function info from the stack.
   __ movq(rdx, Operand(rsp, 1 * kPointerSize));
 
   // Compute the function map in the current global context and set that
@@ -6376,18 +6377,16 @@ void FastNewClosureStub::Generate(MacroAssembler* masm) {
   __ movq(rcx, Operand(rcx, Context::SlotOffset(Context::FUNCTION_MAP_INDEX)));
   __ movq(FieldOperand(rax, JSObject::kMapOffset), rcx);
 
-  // Clone the rest of the boilerplate fields. We don't have to update
-  // the write barrier because the allocated object is in new space.
-  for (int offset = kPointerSize;
-       offset < JSFunction::kSize;
-       offset += kPointerSize) {
-    if (offset == JSFunction::kContextOffset) {
-      __ movq(FieldOperand(rax, offset), rsi);
-    } else {
-      __ movq(rbx, FieldOperand(rdx, offset));
-      __ movq(FieldOperand(rax, offset), rbx);
-    }
-  }
+  // Initialize the rest of the function. We don't have to update the
+  // write barrier because the allocated object is in new space.
+  __ LoadRoot(rbx, Heap::kEmptyFixedArrayRootIndex);
+  __ LoadRoot(rcx, Heap::kTheHoleValueRootIndex);
+  __ movq(FieldOperand(rax, JSObject::kPropertiesOffset), rbx);
+  __ movq(FieldOperand(rax, JSObject::kElementsOffset), rbx);
+  __ movq(FieldOperand(rax, JSFunction::kPrototypeOrInitialMapOffset), rcx);
+  __ movq(FieldOperand(rax, JSFunction::kSharedFunctionInfoOffset), rdx);
+  __ movq(FieldOperand(rax, JSFunction::kContextOffset), rsi);
+  __ movq(FieldOperand(rax, JSFunction::kLiteralsOffset), rbx);
 
   // Return and remove the on-stack parameter.
   __ ret(1 * kPointerSize);
@@ -7182,12 +7181,6 @@ void RegExpExecStub::Generate(MacroAssembler* masm) {
   // Read the value from the static offsets vector buffer and make it a smi.
   __ movl(rdi, Operand(rcx, rdx, times_int_size, 0));
   __ Integer32ToSmi(rdi, rdi, &runtime);
-  // Add previous index (from its stack slot) if value is not negative.
-  Label capture_negative;
-  // Negative flag set by smi convertion above.
-  __ j(negative, &capture_negative);
-  __ SmiAdd(rdi, rdi, rax, &runtime);  // Add previous index.
-  __ bind(&capture_negative);
   // Store the smi value in the last match info.
   __ movq(FieldOperand(rbx,
                        rdx,
@@ -8408,14 +8401,15 @@ const char* GenericBinaryOpStub::GetName() {
   }
 
   OS::SNPrintF(Vector<char>(name_, len),
-               "GenericBinaryOpStub_%s_%s%s_%s%s_%s%s",
+               "GenericBinaryOpStub_%s_%s%s_%s%s_%s%s_%s",
                op_name,
                overwrite_name,
                (flags_ & NO_SMI_CODE_IN_STUB) ? "_NoSmiInStub" : "",
                args_in_registers_ ? "RegArgs" : "StackArgs",
                args_reversed_ ? "_R" : "",
                use_sse3_ ? "SSE3" : "SSE2",
-               operands_type_.ToString());
+               static_operands_type_.ToString(),
+               BinaryOpIC::GetName(runtime_operands_type_));
   return name_;
 }
 
@@ -8565,8 +8559,8 @@ Result GenericBinaryOpStub::GenerateCall(MacroAssembler* masm,
 
 
 void GenericBinaryOpStub::GenerateSmiCode(MacroAssembler* masm, Label* slow) {
-  // 1. Move arguments into edx, eax except for DIV and MOD, which need the
-  // dividend in eax and edx free for the division.  Use eax, ebx for those.
+  // 1. Move arguments into rdx, rax except for DIV and MOD, which need the
+  // dividend in rax and rdx free for the division.  Use rax, rbx for those.
   Comment load_comment(masm, "-- Load arguments");
   Register left = rdx;
   Register right = rax;
@@ -8665,7 +8659,7 @@ void GenericBinaryOpStub::GenerateSmiCode(MacroAssembler* masm, Label* slow) {
       break;
   }
 
-  // 4. Emit return of result in eax.
+  // 4. Emit return of result in rax.
   GenerateReturn(masm);
 
   // 5. For some operations emit inline code to perform floating point
@@ -8726,20 +8720,35 @@ void GenericBinaryOpStub::GenerateSmiCode(MacroAssembler* masm, Label* slow) {
 
 void GenericBinaryOpStub::Generate(MacroAssembler* masm) {
   Label call_runtime;
-  if (HasSmiCodeInStub()) {
+
+  if (ShouldGenerateSmiCode()) {
     GenerateSmiCode(masm, &call_runtime);
   } else if (op_ != Token::MOD) {
-    GenerateLoadArguments(masm);
+    if (!HasArgsInRegisters()) {
+      GenerateLoadArguments(masm);
+    }
   }
   // Floating point case.
-  switch (op_) {
-    case Token::ADD:
-    case Token::SUB:
-    case Token::MUL:
-    case Token::DIV: {
-      // rax: y
-      // rdx: x
-      if (operands_type_.IsNumber()) {
+  if (ShouldGenerateFPCode()) {
+    switch (op_) {
+      case Token::ADD:
+      case Token::SUB:
+      case Token::MUL:
+      case Token::DIV: {
+        if (runtime_operands_type_ == BinaryOpIC::DEFAULT &&
+            HasSmiCodeInStub()) {
+          // Execution reaches this point when the first non-smi argument occurs
+          // (and only if smi code is generated). This is the right moment to
+          // patch to HEAP_NUMBERS state. The transition is attempted only for
+          // the four basic operations. The stub stays in the DEFAULT state
+          // forever for all other operations (also if smi code is skipped).
+          GenerateTypeTransition(masm);
+        }
+
+        Label not_floats;
+        // rax: y
+        // rdx: x
+      if (static_operands_type_.IsNumber()) {
         if (FLAG_debug_code) {
           // Assert at runtime that inputs are only numbers.
           __ AbortIfNotNumber(rdx, "GenericBinaryOpStub operand not a number.");
@@ -8748,118 +8757,132 @@ void GenericBinaryOpStub::Generate(MacroAssembler* masm) {
       } else {
         FloatingPointHelper::CheckNumberOperands(masm, &call_runtime);
       }
-      // Fast-case: Both operands are numbers.
-      // xmm4 and xmm5 are volatile XMM registers.
-      FloatingPointHelper::LoadFloatOperands(masm, xmm4, xmm5);
+        // Fast-case: Both operands are numbers.
+        // xmm4 and xmm5 are volatile XMM registers.
+        FloatingPointHelper::LoadFloatOperands(masm, xmm4, xmm5);
 
-      switch (op_) {
-        case Token::ADD: __ addsd(xmm4, xmm5); break;
-        case Token::SUB: __ subsd(xmm4, xmm5); break;
-        case Token::MUL: __ mulsd(xmm4, xmm5); break;
-        case Token::DIV: __ divsd(xmm4, xmm5); break;
-        default: UNREACHABLE();
-      }
-      // Allocate a heap number, if needed.
-      Label skip_allocation;
-      OverwriteMode mode = mode_;
-      if (HasArgsReversed()) {
-        if (mode == OVERWRITE_RIGHT) {
-          mode = OVERWRITE_LEFT;
-        } else if (mode == OVERWRITE_LEFT) {
-          mode = OVERWRITE_RIGHT;
+        switch (op_) {
+          case Token::ADD: __ addsd(xmm4, xmm5); break;
+          case Token::SUB: __ subsd(xmm4, xmm5); break;
+          case Token::MUL: __ mulsd(xmm4, xmm5); break;
+          case Token::DIV: __ divsd(xmm4, xmm5); break;
+          default: UNREACHABLE();
         }
-      }
-      switch (mode) {
-        case OVERWRITE_LEFT:
-          __ JumpIfNotSmi(rdx, &skip_allocation);
-          __ AllocateHeapNumber(rbx, rcx, &call_runtime);
-          __ movq(rdx, rbx);
-          __ bind(&skip_allocation);
-          __ movq(rax, rdx);
-          break;
-        case OVERWRITE_RIGHT:
-          // If the argument in rax is already an object, we skip the
-          // allocation of a heap number.
-          __ JumpIfNotSmi(rax, &skip_allocation);
-          // Fall through!
-        case NO_OVERWRITE:
-          // Allocate a heap number for the result. Keep rax and rdx intact
-          // for the possible runtime call.
-          __ AllocateHeapNumber(rbx, rcx, &call_runtime);
-          __ movq(rax, rbx);
-          __ bind(&skip_allocation);
-          break;
-        default: UNREACHABLE();
-      }
-      __ movsd(FieldOperand(rax, HeapNumber::kValueOffset), xmm4);
-      GenerateReturn(masm);
-    }
-    case Token::MOD: {
-      // For MOD we go directly to runtime in the non-smi case.
-      break;
-    }
-    case Token::BIT_OR:
-    case Token::BIT_AND:
-    case Token::BIT_XOR:
-    case Token::SAR:
-    case Token::SHL:
-    case Token::SHR: {
-      Label skip_allocation, non_smi_result;
-      FloatingPointHelper::LoadAsIntegers(masm, use_sse3_, &call_runtime);
-      switch (op_) {
-        case Token::BIT_OR:  __ orl(rax, rcx); break;
-        case Token::BIT_AND: __ andl(rax, rcx); break;
-        case Token::BIT_XOR: __ xorl(rax, rcx); break;
-        case Token::SAR: __ sarl_cl(rax); break;
-        case Token::SHL: __ shll_cl(rax); break;
-        case Token::SHR: __ shrl_cl(rax); break;
-        default: UNREACHABLE();
-      }
-      if (op_ == Token::SHR) {
-        // Check if result is non-negative. This can only happen for a shift
-        // by zero, which also doesn't update the sign flag.
-        __ testl(rax, rax);
-        __ j(negative, &non_smi_result);
-      }
-      __ JumpIfNotValidSmiValue(rax, &non_smi_result);
-      // Tag smi result, if possible, and return.
-      __ Integer32ToSmi(rax, rax);
-      GenerateReturn(masm);
-
-      // All ops except SHR return a signed int32 that we load in a HeapNumber.
-      if (op_ != Token::SHR && non_smi_result.is_linked()) {
-        __ bind(&non_smi_result);
-        // Allocate a heap number if needed.
-        __ movsxlq(rbx, rax);  // rbx: sign extended 32-bit result
-        switch (mode_) {
+        // Allocate a heap number, if needed.
+        Label skip_allocation;
+        OverwriteMode mode = mode_;
+        if (HasArgsReversed()) {
+          if (mode == OVERWRITE_RIGHT) {
+            mode = OVERWRITE_LEFT;
+          } else if (mode == OVERWRITE_LEFT) {
+            mode = OVERWRITE_RIGHT;
+          }
+        }
+        switch (mode) {
           case OVERWRITE_LEFT:
+            __ JumpIfNotSmi(rdx, &skip_allocation);
+            __ AllocateHeapNumber(rbx, rcx, &call_runtime);
+            __ movq(rdx, rbx);
+            __ bind(&skip_allocation);
+            __ movq(rax, rdx);
+            break;
           case OVERWRITE_RIGHT:
-            // If the operand was an object, we skip the
+            // If the argument in rax is already an object, we skip the
             // allocation of a heap number.
-            __ movq(rax, Operand(rsp, mode_ == OVERWRITE_RIGHT ?
-                                 1 * kPointerSize : 2 * kPointerSize));
             __ JumpIfNotSmi(rax, &skip_allocation);
             // Fall through!
           case NO_OVERWRITE:
-            __ AllocateHeapNumber(rax, rcx, &call_runtime);
+            // Allocate a heap number for the result. Keep rax and rdx intact
+            // for the possible runtime call.
+            __ AllocateHeapNumber(rbx, rcx, &call_runtime);
+            __ movq(rax, rbx);
             __ bind(&skip_allocation);
             break;
           default: UNREACHABLE();
         }
-        // Store the result in the HeapNumber and return.
-        __ movq(Operand(rsp, 1 * kPointerSize), rbx);
-        __ fild_s(Operand(rsp, 1 * kPointerSize));
-        __ fstp_d(FieldOperand(rax, HeapNumber::kValueOffset));
+        __ movsd(FieldOperand(rax, HeapNumber::kValueOffset), xmm4);
         GenerateReturn(masm);
+        __ bind(&not_floats);
+        if (runtime_operands_type_ == BinaryOpIC::DEFAULT &&
+            !HasSmiCodeInStub()) {
+            // Execution reaches this point when the first non-number argument
+            // occurs (and only if smi code is skipped from the stub, otherwise
+            // the patching has already been done earlier in this case branch).
+            // A perfect moment to try patching to STRINGS for ADD operation.
+            if (op_ == Token::ADD) {
+              GenerateTypeTransition(masm);
+            }
+        }
+        break;
       }
+      case Token::MOD: {
+        // For MOD we go directly to runtime in the non-smi case.
+        break;
+      }
+      case Token::BIT_OR:
+      case Token::BIT_AND:
+      case Token::BIT_XOR:
+      case Token::SAR:
+      case Token::SHL:
+      case Token::SHR: {
+        Label skip_allocation, non_smi_result;
+        FloatingPointHelper::LoadAsIntegers(masm, use_sse3_, &call_runtime);
+        switch (op_) {
+          case Token::BIT_OR:  __ orl(rax, rcx); break;
+          case Token::BIT_AND: __ andl(rax, rcx); break;
+          case Token::BIT_XOR: __ xorl(rax, rcx); break;
+          case Token::SAR: __ sarl_cl(rax); break;
+          case Token::SHL: __ shll_cl(rax); break;
+          case Token::SHR: __ shrl_cl(rax); break;
+          default: UNREACHABLE();
+        }
+        if (op_ == Token::SHR) {
+          // Check if result is non-negative. This can only happen for a shift
+          // by zero, which also doesn't update the sign flag.
+          __ testl(rax, rax);
+          __ j(negative, &non_smi_result);
+        }
+        __ JumpIfNotValidSmiValue(rax, &non_smi_result);
+        // Tag smi result, if possible, and return.
+        __ Integer32ToSmi(rax, rax);
+        GenerateReturn(masm);
 
-      // SHR should return uint32 - go to runtime for non-smi/negative result.
-      if (op_ == Token::SHR) {
-        __ bind(&non_smi_result);
+        // All ops except SHR return a signed int32 that we load in
+        // a HeapNumber.
+        if (op_ != Token::SHR && non_smi_result.is_linked()) {
+          __ bind(&non_smi_result);
+          // Allocate a heap number if needed.
+          __ movsxlq(rbx, rax);  // rbx: sign extended 32-bit result
+          switch (mode_) {
+            case OVERWRITE_LEFT:
+            case OVERWRITE_RIGHT:
+              // If the operand was an object, we skip the
+              // allocation of a heap number.
+              __ movq(rax, Operand(rsp, mode_ == OVERWRITE_RIGHT ?
+                                   1 * kPointerSize : 2 * kPointerSize));
+              __ JumpIfNotSmi(rax, &skip_allocation);
+              // Fall through!
+            case NO_OVERWRITE:
+              __ AllocateHeapNumber(rax, rcx, &call_runtime);
+              __ bind(&skip_allocation);
+              break;
+            default: UNREACHABLE();
+          }
+          // Store the result in the HeapNumber and return.
+          __ movq(Operand(rsp, 1 * kPointerSize), rbx);
+          __ fild_s(Operand(rsp, 1 * kPointerSize));
+          __ fstp_d(FieldOperand(rax, HeapNumber::kValueOffset));
+          GenerateReturn(masm);
+        }
+
+        // SHR should return uint32 - go to runtime for non-smi/negative result.
+        if (op_ == Token::SHR) {
+          __ bind(&non_smi_result);
+        }
+        break;
       }
-      break;
+      default: UNREACHABLE(); break;
     }
-    default: UNREACHABLE(); break;
   }
 
   // If all else fails, use the runtime system to get the correct
@@ -8868,15 +8891,7 @@ void GenericBinaryOpStub::Generate(MacroAssembler* masm) {
   __ bind(&call_runtime);
 
   if (HasArgsInRegisters()) {
-    __ pop(rcx);
-    if (HasArgsReversed()) {
-      __ push(rax);
-      __ push(rdx);
-    } else {
-      __ push(rdx);
-      __ push(rax);
-    }
-    __ push(rcx);
+    GenerateRegisterArgsPush(masm);
   }
 
   switch (op_) {
@@ -8894,8 +8909,14 @@ void GenericBinaryOpStub::Generate(MacroAssembler* masm) {
 
       // Test for string arguments before calling runtime.
       Label not_strings, both_strings, not_string1, string1, string1_smi2;
+
+      // If this stub has already generated FP-specific code then the arguments
+      // are already in rdx, rax
+      if (!ShouldGenerateFPCode() && !HasArgsInRegisters()) {
+        GenerateLoadArguments(masm);
+      }
+
       Condition is_smi;
-      Result answer;
       is_smi = masm->CheckSmi(lhs);
       __ j(is_smi, &not_string1);
       __ CmpObjectType(lhs, FIRST_NONSTRING_TYPE, r8);
@@ -8974,15 +8995,22 @@ void GenericBinaryOpStub::Generate(MacroAssembler* masm) {
     default:
       UNREACHABLE();
   }
+
+  // TODO(kaznacheev) Remove this (along with clearing) if it does not harm
+  // performance.
+  // Generate an unreachable reference to the DEFAULT stub so that it can be
+  // found at the end of this stub when clearing ICs at GC.
+  if (runtime_operands_type_ != BinaryOpIC::DEFAULT) {
+    GenericBinaryOpStub uninit(MinorKey(), BinaryOpIC::DEFAULT);
+    __ TailCallStub(&uninit);
+  }
 }
 
 
 void GenericBinaryOpStub::GenerateLoadArguments(MacroAssembler* masm) {
-  // If arguments are not passed in registers read them from the stack.
-  if (!HasArgsInRegisters()) {
-    __ movq(rax, Operand(rsp, 1 * kPointerSize));
-    __ movq(rdx, Operand(rsp, 2 * kPointerSize));
-  }
+  ASSERT(!HasArgsInRegisters());
+  __ movq(rax, Operand(rsp, 1 * kPointerSize));
+  __ movq(rdx, Operand(rsp, 2 * kPointerSize));
 }
 
 
@@ -8997,58 +9025,137 @@ void GenericBinaryOpStub::GenerateReturn(MacroAssembler* masm) {
 }
 
 
+void GenericBinaryOpStub::GenerateRegisterArgsPush(MacroAssembler* masm) {
+  ASSERT(HasArgsInRegisters());
+  __ pop(rcx);
+  if (HasArgsReversed()) {
+    __ push(rax);
+    __ push(rdx);
+  } else {
+    __ push(rdx);
+    __ push(rax);
+  }
+  __ push(rcx);
+}
+
+
+void GenericBinaryOpStub::GenerateTypeTransition(MacroAssembler* masm) {
+  Label get_result;
+
+  // Keep a copy of operands on the stack and make sure they are also in
+  // rdx, rax.
+  if (HasArgsInRegisters()) {
+    GenerateRegisterArgsPush(masm);
+  } else {
+    GenerateLoadArguments(masm);
+  }
+
+  // Internal frame is necessary to handle exceptions properly.
+  __ EnterInternalFrame();
+
+  // Push arguments on stack if the stub expects them there.
+  if (!HasArgsInRegisters()) {
+    __ push(rdx);
+    __ push(rax);
+  }
+  // Call the stub proper to get the result in rax.
+  __ call(&get_result);
+  __ LeaveInternalFrame();
+
+  // Left and right arguments are already on stack.
+  __ pop(rcx);
+  // Push the operation result. The tail call to BinaryOp_Patch will
+  // return it to the original caller..
+  __ push(rax);
+
+  // Push this stub's key.
+  __ movq(rax, Immediate(MinorKey()));
+  __ Integer32ToSmi(rax, rax);
+  __ push(rax);
+
+  // Although the operation and the type info are encoded into the key,
+  // the encoding is opaque, so push them too.
+  __ movq(rax, Immediate(op_));
+  __ Integer32ToSmi(rax, rax);
+  __ push(rax);
+
+  __ movq(rax, Immediate(runtime_operands_type_));
+  __ Integer32ToSmi(rax, rax);
+  __ push(rax);
+
+  __ push(rcx);
+
+  // Perform patching to an appropriate fast case and return the result.
+  __ TailCallExternalReference(
+      ExternalReference(IC_Utility(IC::kBinaryOp_Patch)),
+      6,
+      1);
+
+  // The entry point for the result calculation is assumed to be immediately
+  // after this sequence.
+  __ bind(&get_result);
+}
+
+
 Handle<Code> GetBinaryOpStub(int key, BinaryOpIC::TypeInfo type_info) {
-  return Handle<Code>::null();
+  GenericBinaryOpStub stub(key, type_info);
+  return stub.GetCode();
 }
 
 
 int CompareStub::MinorKey() {
-  // Encode the three parameters in a unique 16 bit value.
-  ASSERT(static_cast<unsigned>(cc_) < (1 << 14));
-  int nnn_value = (never_nan_nan_ ? 2 : 0);
-  if (cc_ != equal) nnn_value = 0;  // Avoid duplicate stubs.
-  return (static_cast<unsigned>(cc_) << 2) | nnn_value | (strict_ ? 1 : 0);
+  // Encode the three parameters in a unique 16 bit value. To avoid duplicate
+  // stubs the never NaN NaN condition is only taken into account if the
+  // condition is equals.
+  ASSERT(static_cast<unsigned>(cc_) < (1 << 13));
+  return ConditionField::encode(static_cast<unsigned>(cc_))
+         | StrictField::encode(strict_)
+         | NeverNanNanField::encode(cc_ == equal ? never_nan_nan_ : false)
+         | IncludeNumberCompareField::encode(include_number_compare_);
 }
 
 
+// Unfortunately you have to run without snapshots to see most of these
+// names in the profile since most compare stubs end up in the snapshot.
 const char* CompareStub::GetName() {
+  if (name_ != NULL) return name_;
+  const int kMaxNameLength = 100;
+  name_ = Bootstrapper::AllocateAutoDeletedArray(kMaxNameLength);
+  if (name_ == NULL) return "OOM";
+
+  const char* cc_name;
   switch (cc_) {
-    case less: return "CompareStub_LT";
-    case greater: return "CompareStub_GT";
-    case less_equal: return "CompareStub_LE";
-    case greater_equal: return "CompareStub_GE";
-    case not_equal: {
-      if (strict_) {
-        if (never_nan_nan_) {
-          return "CompareStub_NE_STRICT_NO_NAN";
-        } else {
-          return "CompareStub_NE_STRICT";
-        }
-      } else {
-        if (never_nan_nan_) {
-          return "CompareStub_NE_NO_NAN";
-        } else {
-          return "CompareStub_NE";
-        }
-      }
-    }
-    case equal: {
-      if (strict_) {
-        if (never_nan_nan_) {
-          return "CompareStub_EQ_STRICT_NO_NAN";
-        } else {
-          return "CompareStub_EQ_STRICT";
-        }
-      } else {
-        if (never_nan_nan_) {
-          return "CompareStub_EQ_NO_NAN";
-        } else {
-          return "CompareStub_EQ";
-        }
-      }
-    }
-    default: return "CompareStub";
+    case less: cc_name = "LT"; break;
+    case greater: cc_name = "GT"; break;
+    case less_equal: cc_name = "LE"; break;
+    case greater_equal: cc_name = "GE"; break;
+    case equal: cc_name = "EQ"; break;
+    case not_equal: cc_name = "NE"; break;
+    default: cc_name = "UnknownCondition"; break;
   }
+
+  const char* strict_name = "";
+  if (strict_ && (cc_ == equal || cc_ == not_equal)) {
+    strict_name = "_STRICT";
+  }
+
+  const char* never_nan_nan_name = "";
+  if (never_nan_nan_ && (cc_ == equal || cc_ == not_equal)) {
+    never_nan_nan_name = "_NO_NAN";
+  }
+
+  const char* include_number_compare_name = "";
+  if (!include_number_compare_) {
+    include_number_compare_name = "_NO_NUMBER";
+  }
+
+  OS::SNPrintF(Vector<char>(name_, kMaxNameLength),
+               "CompareStub_%s%s%s%s",
+               cc_name,
+               strict_name,
+               never_nan_nan_name,
+               include_number_compare_name);
+  return name_;
 }
 
 

@@ -27,6 +27,7 @@ Timer::Initialize (Handle<Object> target)
 
   NODE_SET_PROTOTYPE_METHOD(constructor_template, "start", Timer::Start);
   NODE_SET_PROTOTYPE_METHOD(constructor_template, "stop", Timer::Stop);
+  NODE_SET_PROTOTYPE_METHOD(constructor_template, "again", Timer::Again);
 
   constructor_template->InstanceTemplate()->SetAccessor(repeat_symbol,
       RepeatGetter, RepeatSetter);
@@ -90,7 +91,7 @@ Timer::OnTimeout (EV_P_ ev_timer *watcher, int revents)
 
 Timer::~Timer ()
 {
-  ev_timer_stop (EV_DEFAULT_UC_ &watcher_);
+  ev_timer_stop(EV_DEFAULT_UC_ &watcher_);
 }
 
 Handle<Value>
@@ -113,14 +114,15 @@ Timer::Start (const Arguments& args)
   if (args.Length() != 2)
     return ThrowException(String::New("Bad arguments"));
 
+  bool was_active = ev_is_active(&timer->watcher_);
+
   ev_tstamp after = NODE_V8_UNIXTIME(args[0]);
   ev_tstamp repeat = NODE_V8_UNIXTIME(args[1]);
-
   ev_timer_init(&timer->watcher_, Timer::OnTimeout, after, repeat);
   timer->watcher_.data = timer;
   ev_timer_start(EV_DEFAULT_UC_ &timer->watcher_);
 
-  timer->Ref();
+  if (!was_active) timer->Ref();
 
   return Undefined();
 }
@@ -139,4 +141,31 @@ void Timer::Stop () {
     ev_timer_stop(EV_DEFAULT_UC_ &watcher_);
     Unref();
   }
+}
+
+
+Handle<Value> Timer::Again(const Arguments& args) {
+  HandleScope scope;
+  Timer *timer = ObjectWrap::Unwrap<Timer>(args.Holder());
+
+  int was_active = ev_is_active(&timer->watcher_);
+
+  if (args.Length() > 0) {
+    ev_tstamp repeat = NODE_V8_UNIXTIME(args[0]);
+    if (repeat > 0) timer->watcher_.repeat = repeat;
+  }
+
+  ev_timer_again(EV_DEFAULT_UC_ &timer->watcher_);
+
+  // ev_timer_again can start or stop the watcher.
+  // So we need to check what happened and adjust the ref count
+  // appropriately.
+
+  if (ev_is_active(&timer->watcher_)) {
+    if (!was_active) timer->Ref();
+  } else {
+    if (was_active) timer->Unref();
+  }
+
+  return Undefined();
 }

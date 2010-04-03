@@ -145,7 +145,7 @@ namespace internal {
   F(Math_log, 1, 1) \
   F(Math_pow, 2, 1) \
   F(Math_pow_cfunction, 2, 1) \
-  F(Math_round, 1, 1) \
+  F(RoundNumber, 1, 1) \
   F(Math_sin, 1, 1) \
   F(Math_sqrt, 1, 1) \
   F(Math_tan, 1, 1) \
@@ -153,6 +153,7 @@ namespace internal {
   /* Regular expressions */ \
   F(RegExpCompile, 3, 1) \
   F(RegExpExec, 4, 1) \
+  F(RegExpExecMultiple, 4, 1) \
   \
   /* Strings */ \
   F(StringCharCodeAt, 2, 1) \

@@ -73,11 +73,10 @@ static void GenerateDictionaryLoad(MacroAssembler* masm,
   // Check for the absence of an interceptor.
   // Load the map into r0.
   __ mov(r0, FieldOperand(receiver, JSObject::kMapOffset));
-  // Test the has_named_interceptor bit in the map.
-  __ test(FieldOperand(r0, Map::kInstanceAttributesOffset),
-          Immediate(1 << (Map::kHasNamedInterceptor + (3 * 8))));
 
-  // Jump to miss if the interceptor bit is set.
+  // Bail out if the receiver has a named interceptor.
+  __ test(FieldOperand(r0, Map::kBitFieldOffset),
+          Immediate(1 << Map::kHasNamedInterceptor));
   __ j(not_zero, miss_label, not_taken);
 
   // Bail out if we have a JS global proxy object.
@@ -202,16 +201,9 @@ static void GenerateNumberDictionaryLoad(MacroAssembler* masm,
   __ xor_(r0, Operand(r1));
 
   // Compute capacity mask.
-  const int kCapacityOffset =
-      NumberDictionary::kHeaderSize +
-      NumberDictionary::kCapacityIndex * kPointerSize;
-  __ mov(r1, FieldOperand(elements, kCapacityOffset));
+  __ mov(r1, FieldOperand(elements, NumberDictionary::kCapacityOffset));
   __ shr(r1, kSmiTagSize);  // convert smi to int
   __ dec(r1);
-
-  const int kElementsStartOffset =
-      NumberDictionary::kHeaderSize +
-      NumberDictionary::kElementsStartIndex * kPointerSize;
 
   // Generate an unrolled loop that performs a few probes before giving up.
   const int kProbes = 4;
@@ -232,7 +224,7 @@ static void GenerateNumberDictionaryLoad(MacroAssembler* masm,
     __ cmp(key, FieldOperand(elements,
                              r2,
                              times_pointer_size,
-                             kElementsStartOffset));
+                             NumberDictionary::kElementsStartOffset));
     if (i != (kProbes - 1)) {
       __ j(equal, &done, taken);
     } else {
@@ -242,32 +234,17 @@ static void GenerateNumberDictionaryLoad(MacroAssembler* masm,
 
   __ bind(&done);
   // Check that the value is a normal propety.
-  const int kDetailsOffset = kElementsStartOffset + 2 * kPointerSize;
+  const int kDetailsOffset =
+      NumberDictionary::kElementsStartOffset + 2 * kPointerSize;
   ASSERT_EQ(NORMAL, 0);
   __ test(FieldOperand(elements, r2, times_pointer_size, kDetailsOffset),
           Immediate(PropertyDetails::TypeField::mask() << kSmiTagSize));
   __ j(not_zero, miss);
 
   // Get the value at the masked, scaled index.
-  const int kValueOffset = kElementsStartOffset + kPointerSize;
+  const int kValueOffset =
+      NumberDictionary::kElementsStartOffset + kPointerSize;
   __ mov(key, FieldOperand(elements, r2, times_pointer_size, kValueOffset));
-}
-
-
-// Helper function used to check that a value is either not an object
-// or is loaded if it is an object.
-static void GenerateCheckNonObjectOrLoaded(MacroAssembler* masm, Label* miss,
-                                           Register value, Register scratch) {
-  Label done;
-  // Check if the value is a Smi.
-  __ test(value, Immediate(kSmiTagMask));
-  __ j(zero, &done, not_taken);
-  // Check if the object has been loaded.
-  __ mov(scratch, FieldOperand(value, JSFunction::kMapOffset));
-  __ mov(scratch, FieldOperand(scratch, Map::kBitField2Offset));
-  __ test(scratch, Immediate(1 << Map::kNeedsLoading));
-  __ j(not_zero, miss, not_taken);
-  __ bind(&done);
 }
 
 
@@ -495,7 +472,6 @@ void KeyedLoadIC::GenerateGeneric(MacroAssembler* masm) {
                          ecx,
                          edi,
                          DICTIONARY_CHECK_DONE);
-  GenerateCheckNonObjectOrLoaded(masm, &slow, ecx, ebx);
   __ mov(eax, ecx);
   __ IncrementCounter(&Counters::keyed_load_generic_symbol, 1);
   __ ret(0);
@@ -1146,11 +1122,6 @@ static void GenerateNormalHelper(MacroAssembler* masm,
   __ CmpObjectType(edi, JS_FUNCTION_TYPE, eax);
   __ j(not_equal, miss, not_taken);
 
-  // Check that the function has been loaded.  eax holds function's map.
-  __ mov(eax, FieldOperand(eax, Map::kBitField2Offset));
-  __ test(eax, Immediate(1 << Map::kNeedsLoading));
-  __ j(not_zero, miss, not_taken);
-
   // Patch the receiver on stack with the global proxy if necessary.
   if (is_global_object) {
     __ mov(edx, FieldOperand(edx, GlobalObject::kGlobalReceiverOffset));
@@ -1341,7 +1312,6 @@ void LoadIC::GenerateNormal(MacroAssembler* masm) {
                          edi,
                          ebx,
                          CHECK_DICTIONARY);
-  GenerateCheckNonObjectOrLoaded(masm, &miss, edi, edx);
   __ mov(eax, edi);
   __ ret(0);
 

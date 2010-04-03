@@ -125,8 +125,8 @@ def configure(conf):
   #if Options.options.debug:
   #  conf.check(lib='profiler', uselib_store='PROFILER')
 
-  #if Options.options.efence:
-  #  conf.check(lib='efence', libpath=['/usr/lib', '/usr/local/lib'], uselib_store='EFENCE')
+  if Options.options.efence:
+    conf.check(lib='efence', libpath=['/usr/lib', '/usr/local/lib'], uselib_store='EFENCE')
 
   if not conf.check(lib="execinfo", libpath=['/usr/lib', '/usr/local/lib'], uselib_store="EXECINFO"):
     # Note on Darwin/OS X: This will fail, but will still be used as the
@@ -167,6 +167,16 @@ def configure(conf):
       conf.fatal("Cannot find udns")
 
   conf.define("HAVE_CONFIG_H", 1)
+
+  if sys.platform.startswith("sunos"):
+    conf.env.append_value ('CCFLAGS', '-threads')
+    conf.env.append_value ('CXXFLAGS', '-threads')
+    #conf.env.append_value ('LINKFLAGS', ' -threads')
+  else:
+    threadflags='-pthread'
+    conf.env.append_value ('CCFLAGS', threadflags)
+    conf.env.append_value ('CXXFLAGS', threadflags)
+    conf.env.append_value ('LINKFLAGS', threadflags)
 
   conf.env.append_value("CCFLAGS", "-DX_STACKSIZE=%d" % (1024*64))
 
@@ -272,10 +282,8 @@ def build_v8(bld):
   v8.uselib = "EXECINFO"
   bld.env["CPPPATH_V8"] = "deps/v8/include"
   t = join(bld.srcnode.abspath(bld.env_of_name("default")), v8.target)
-  if sys.platform.startswith("sunos"):
-    bld.env_of_name('default')["LINKFLAGS_V8"] = ["-mt", t]
-  else:
-    bld.env_of_name('default')["LINKFLAGS_V8"] = ["-pthread", t]
+  bld.env_of_name('default').append_value("LINKFLAGS_V8", t)
+
 
   ### v8 debug
   if bld.env["USE_DEBUG"]:
@@ -284,10 +292,7 @@ def build_v8(bld):
     v8_debug.target = bld.env["staticlib_PATTERN"] % "v8_g"
     v8_debug.uselib = "EXECINFO"
     t = join(bld.srcnode.abspath(bld.env_of_name("debug")), v8_debug.target)
-    if sys.platform.startswith("sunos"):
-      bld.env_of_name('debug')["LINKFLAGS_V8"] = ["-mt", t]
-    else:
-      bld.env_of_name('debug')["LINKFLAGS_V8"] = ["-pthread", t]
+    bld.env_of_name('debug').append_value("LINKFLAGS_V8", t)
 
   bld.install_files('${PREFIX}/include/node/', 'deps/v8/include/*.h')
 
@@ -393,6 +398,10 @@ def build(bld):
   node.target       = "node"
   node.source = """
     src/node.cc
+    src/node_buffer.cc
+    src/node_http_parser.cc
+    src/node_net2.cc
+    src/node_io_watcher.cc
     src/node_child_process.cc
     src/node_constants.cc
     src/node_dns.cc

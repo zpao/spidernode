@@ -88,6 +88,17 @@ char* Top::Iterate(ObjectVisitor* v, char* thread_storage) {
 }
 
 
+void Top::IterateThread(ThreadVisitor* v) {
+  v->VisitThread(&thread_local_);
+}
+
+
+void Top::IterateThread(ThreadVisitor* v, char* t) {
+  ThreadLocalTop* thread = reinterpret_cast<ThreadLocalTop*>(t);
+  v->VisitThread(thread);
+}
+
+
 void Top::Iterate(ObjectVisitor* v, ThreadLocalTop* thread) {
   v->VisitPointer(&(thread->pending_exception_));
   v->VisitPointer(&(thread->pending_message_obj_));
@@ -668,7 +679,7 @@ void Top::PrintCurrentStackTrace(FILE* out) {
 
 
 void Top::ComputeLocation(MessageLocation* target) {
-  *target = MessageLocation(empty_script(), -1, -1);
+  *target = MessageLocation(Handle<Script>(Heap::empty_script()), -1, -1);
   StackTraceFrameIterator it;
   if (!it.done()) {
     JavaScriptFrame* frame = it.frame();

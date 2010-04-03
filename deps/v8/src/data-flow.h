@@ -37,6 +37,9 @@
 namespace v8 {
 namespace internal {
 
+// Forward declarations.
+class Node;
+
 class BitVector: public ZoneObject {
  public:
   explicit BitVector(int length)
@@ -205,323 +208,6 @@ struct ReachingDefinitionsData BASE_EMBEDDED {
 };
 
 
-// Flow-graph nodes.
-class Node: public ZoneObject {
- public:
-  Node() : number_(-1), mark_(false) {}
-
-  virtual ~Node() {}
-
-  virtual bool IsExitNode() { return false; }
-  virtual bool IsBlockNode() { return false; }
-  virtual bool IsBranchNode() { return false; }
-  virtual bool IsJoinNode() { return false; }
-
-  virtual void AddPredecessor(Node* predecessor) = 0;
-  virtual void AddSuccessor(Node* successor) = 0;
-
-  bool IsMarkedWith(bool mark) { return mark_ == mark; }
-  void MarkWith(bool mark) { mark_ = mark; }
-
-  // Perform a depth first search and record preorder and postorder
-  // traversal orders.
-  virtual void Traverse(bool mark,
-                        ZoneList<Node*>* preorder,
-                        ZoneList<Node*>* postorder) = 0;
-
-  int number() { return number_; }
-  void set_number(int number) { number_ = number; }
-
-  // Functions used by data-flow analyses.
-  virtual void InitializeReachingDefinitions(int definition_count,
-                                             List<BitVector*>* variables,
-                                             WorkList<Node>* worklist,
-                                             bool mark);
-  virtual void ComputeRDOut(BitVector* result) = 0;
-  virtual void UpdateRDIn(WorkList<Node>* worklist, bool mark) = 0;
-  virtual void PropagateReachingDefinitions(List<BitVector*>* variables);
-
-#ifdef DEBUG
-  void AssignNodeNumber();
-  void PrintReachingDefinitions();
-  virtual void PrintText() = 0;
-#endif
-
- protected:
-  ReachingDefinitionsData rd_;
-
- private:
-  int number_;
-  bool mark_;
-
-  DISALLOW_COPY_AND_ASSIGN(Node);
-};
-
-
-// An exit node has a arbitrarily many predecessors and no successors.
-class ExitNode: public Node {
- public:
-  ExitNode() : predecessors_(4) {}
-
-  bool IsExitNode() { return true; }
-
-  void AddPredecessor(Node* predecessor) {
-    ASSERT(predecessor != NULL);
-    predecessors_.Add(predecessor);
-  }
-
-  void AddSuccessor(Node* successor) { UNREACHABLE(); }
-
-  void Traverse(bool mark,
-                ZoneList<Node*>* preorder,
-                ZoneList<Node*>* postorder);
-
-  void ComputeRDOut(BitVector* result);
-  void UpdateRDIn(WorkList<Node>* worklist, bool mark);
-
-#ifdef DEBUG
-  void PrintText();
-#endif
-
- private:
-  ZoneList<Node*> predecessors_;
-
-  DISALLOW_COPY_AND_ASSIGN(ExitNode);
-};
-
-
-// Block nodes have a single successor and predecessor and a list of
-// instructions.
-class BlockNode: public Node {
- public:
-  BlockNode() : predecessor_(NULL), successor_(NULL), instructions_(4) {}
-
-  static BlockNode* cast(Node* node) {
-    ASSERT(node->IsBlockNode());
-    return reinterpret_cast<BlockNode*>(node);
-  }
-
-  bool IsBlockNode() { return true; }
-
-  bool is_empty() { return instructions_.is_empty(); }
-
-  void AddPredecessor(Node* predecessor) {
-    ASSERT(predecessor_ == NULL && predecessor != NULL);
-    predecessor_ = predecessor;
-  }
-
-  void AddSuccessor(Node* successor) {
-    ASSERT(successor_ == NULL && successor != NULL);
-    successor_ = successor;
-  }
-
-  void AddInstruction(AstNode* instruction) {
-    instructions_.Add(instruction);
-  }
-
-  void Traverse(bool mark,
-                ZoneList<Node*>* preorder,
-                ZoneList<Node*>* postorder);
-
-  void InitializeReachingDefinitions(int definition_count,
-                                     List<BitVector*>* variables,
-                                     WorkList<Node>* worklist,
-                                     bool mark);
-  void ComputeRDOut(BitVector* result);
-  void UpdateRDIn(WorkList<Node>* worklist, bool mark);
-  void PropagateReachingDefinitions(List<BitVector*>* variables);
-
-#ifdef DEBUG
-  void PrintText();
-#endif
-
- private:
-  Node* predecessor_;
-  Node* successor_;
-  ZoneList<AstNode*> instructions_;
-
-  DISALLOW_COPY_AND_ASSIGN(BlockNode);
-};
-
-
-// Branch nodes have a single predecessor and a pair of successors.
-class BranchNode: public Node {
- public:
-  BranchNode() : predecessor_(NULL), successor0_(NULL), successor1_(NULL) {}
-
-  bool IsBranchNode() { return true; }
-
-  void AddPredecessor(Node* predecessor) {
-    ASSERT(predecessor_ == NULL && predecessor != NULL);
-    predecessor_ = predecessor;
-  }
-
-  void AddSuccessor(Node* successor) {
-    ASSERT(successor1_ == NULL && successor != NULL);
-    if (successor0_ == NULL) {
-      successor0_ = successor;
-    } else {
-      successor1_ = successor;
-    }
-  }
-
-  void Traverse(bool mark,
-                ZoneList<Node*>* preorder,
-                ZoneList<Node*>* postorder);
-
-  void ComputeRDOut(BitVector* result);
-  void UpdateRDIn(WorkList<Node>* worklist, bool mark);
-
-#ifdef DEBUG
-  void PrintText();
-#endif
-
- private:
-  Node* predecessor_;
-  Node* successor0_;
-  Node* successor1_;
-
-  DISALLOW_COPY_AND_ASSIGN(BranchNode);
-};
-
-
-// Join nodes have arbitrarily many predecessors and a single successor.
-class JoinNode: public Node {
- public:
-  JoinNode() : predecessors_(2), successor_(NULL) {}
-
-  static JoinNode* cast(Node* node) {
-    ASSERT(node->IsJoinNode());
-    return reinterpret_cast<JoinNode*>(node);
-  }
-
-  bool IsJoinNode() { return true; }
-
-  void AddPredecessor(Node* predecessor) {
-    ASSERT(predecessor != NULL);
-    predecessors_.Add(predecessor);
-  }
-
-  void AddSuccessor(Node* successor) {
-    ASSERT(successor_ == NULL && successor != NULL);
-    successor_ = successor;
-  }
-
-  void Traverse(bool mark,
-                ZoneList<Node*>* preorder,
-                ZoneList<Node*>* postorder);
-
-  void ComputeRDOut(BitVector* result);
-  void UpdateRDIn(WorkList<Node>* worklist, bool mark);
-
-#ifdef DEBUG
-  void PrintText();
-#endif
-
- private:
-  ZoneList<Node*> predecessors_;
-  Node* successor_;
-
-  DISALLOW_COPY_AND_ASSIGN(JoinNode);
-};
-
-
-// Flow graphs have a single entry and single exit.  The empty flowgraph is
-// represented by both entry and exit being NULL.
-class FlowGraph BASE_EMBEDDED {
- public:
-  static FlowGraph Empty() {
-    FlowGraph graph;
-    graph.entry_ = new BlockNode();
-    graph.exit_ = graph.entry_;
-    return graph;
-  }
-
-  bool is_empty() const {
-    return entry_ == exit_ && BlockNode::cast(entry_)->is_empty();
-  }
-  Node* entry() const { return entry_; }
-  Node* exit() const { return exit_; }
-
-  // Add a single instruction to the end of this flowgraph.
-  void AppendInstruction(AstNode* instruction);
-
-  // Add a single node to the end of this flow graph.
-  void AppendNode(Node* node);
-
-  // Add a flow graph fragment to the end of this one.
-  void AppendGraph(FlowGraph* graph);
-
-  // Concatenate an if-then-else flow-graph to this one.  Control is split
-  // and merged, so the graph remains single-entry, single-exit.
-  void Split(BranchNode* branch,
-             FlowGraph* left,
-             FlowGraph* right,
-             JoinNode* merge);
-
-  // Concatenate a forward loop (e.g., while or for loop) flow-graph to this
-  // one.  Control is split by the condition and merged back from the back
-  // edge at end of the body to the beginning of the condition.  The single
-  // (free) exit of the result graph is the right (false) arm of the branch
-  // node.
-  void Loop(JoinNode* merge,
-            FlowGraph* condition,
-            BranchNode* branch,
-            FlowGraph* body);
-
-#ifdef DEBUG
-  void PrintText(ZoneList<Node*>* postorder);
-#endif
-
- private:
-  FlowGraph() : entry_(NULL), exit_(NULL) {}
-
-  Node* entry_;
-  Node* exit_;
-};
-
-
-// Construct a flow graph from a function literal.  Build pre- and postorder
-// traversal orders as a byproduct.
-class FlowGraphBuilder: public AstVisitor {
- public:
-  FlowGraphBuilder()
-      : graph_(FlowGraph::Empty()),
-        global_exit_(NULL),
-        preorder_(4),
-        postorder_(4),
-        definitions_(4) {
-  }
-
-  void Build(FunctionLiteral* lit);
-
-  FlowGraph* graph() { return &graph_; }
-  ZoneList<Node*>* postorder() { return &postorder_; }
-  ZoneList<Expression*>* definitions() { return &definitions_; }
-
- private:
-  ExitNode* global_exit() { return global_exit_; }
-
-  // AST node visit functions.
-#define DECLARE_VISIT(type) virtual void Visit##type(type* node);
-  AST_NODE_LIST(DECLARE_VISIT)
-#undef DECLARE_VISIT
-
-  FlowGraph graph_;
-  ExitNode* global_exit_;
-  ZoneList<Node*> preorder_;
-  ZoneList<Node*> postorder_;
-
-  // The flow graph builder collects a list of definitions (assignments and
-  // count operations) to stack-allocated variables to use for reaching
-  // definitions analysis.  AST node numbers in the AST are used to refer
-  // into this list.
-  ZoneList<Expression*> definitions_;
-
-  DISALLOW_COPY_AND_ASSIGN(FlowGraphBuilder);
-};
-
-
 // This class is used to number all expressions in the AST according to
 // their evaluation order (post-order left-to-right traversal).
 class AstLabeler: public AstVisitor {
@@ -547,55 +233,6 @@ class AstLabeler: public AstVisitor {
   CompilationInfo* info_;
 
   DISALLOW_COPY_AND_ASSIGN(AstLabeler);
-};
-
-
-class VarUseMap : public HashMap {
- public:
-  VarUseMap() : HashMap(VarMatch) {}
-
-  ZoneList<Expression*>* Lookup(Variable* var);
-
- private:
-  static bool VarMatch(void* key1, void* key2) { return key1 == key2; }
-};
-
-
-class DefinitionInfo : public ZoneObject {
- public:
-  explicit DefinitionInfo() : last_use_(NULL) {}
-
-  Expression* last_use() { return last_use_; }
-  void set_last_use(Expression* expr) { last_use_ = expr; }
-
- private:
-  Expression* last_use_;
-  Register location_;
-};
-
-
-class LivenessAnalyzer : public AstVisitor {
- public:
-  LivenessAnalyzer() {}
-
-  void Analyze(FunctionLiteral* fun);
-
- private:
-  void VisitStatements(ZoneList<Statement*>* stmts);
-
-  void RecordUse(Variable* var, Expression* expr);
-  void RecordDef(Variable* var, Expression* expr);
-
-
-  // AST node visit functions.
-#define DECLARE_VISIT(type) virtual void Visit##type(type* node);
-  AST_NODE_LIST(DECLARE_VISIT)
-#undef DECLARE_VISIT
-
-  // Map for tracking the live variables.
-  VarUseMap live_vars_;
-
-  DISALLOW_COPY_AND_ASSIGN(LivenessAnalyzer);
 };
 
 
@@ -638,15 +275,11 @@ class AssignedVariablesAnalyzer : public AstVisitor {
 class ReachingDefinitions BASE_EMBEDDED {
  public:
   ReachingDefinitions(ZoneList<Node*>* postorder,
-                      ZoneList<Expression*>* definitions,
+                      ZoneList<Expression*>* body_definitions,
                       int variable_count)
       : postorder_(postorder),
-        definitions_(definitions),
-        variables_(variable_count) {
-    int definition_count = definitions->length();
-    for (int i = 0; i < variable_count; i++) {
-      variables_.Add(new BitVector(definition_count));
-    }
+        body_definitions_(body_definitions),
+        variable_count_(variable_count) {
   }
 
   static int IndexFor(Variable* var, int variable_count);
@@ -658,13 +291,44 @@ class ReachingDefinitions BASE_EMBEDDED {
   ZoneList<Node*>* postorder_;
 
   // A list of all the definitions in the body.
-  ZoneList<Expression*>* definitions_;
+  ZoneList<Expression*>* body_definitions_;
 
-  // For each variable, the set of all its definitions.
-  List<BitVector*> variables_;
+  int variable_count_;
 
   DISALLOW_COPY_AND_ASSIGN(ReachingDefinitions);
 };
+
+
+class TypeAnalyzer BASE_EMBEDDED {
+ public:
+  TypeAnalyzer(ZoneList<Node*>* postorder,
+              ZoneList<Expression*>* body_definitions,
+               int variable_count,
+               int param_count)
+      : postorder_(postorder),
+        body_definitions_(body_definitions),
+        variable_count_(variable_count),
+        param_count_(param_count) {}
+
+  void Compute();
+
+ private:
+  // Get the primitity of definition number i. Definitions are numbered
+  // by the flow graph builder.
+  bool IsPrimitiveDef(int def_num);
+
+  ZoneList<Node*>* postorder_;
+  ZoneList<Expression*>* body_definitions_;
+  int variable_count_;
+  int param_count_;
+
+  DISALLOW_COPY_AND_ASSIGN(TypeAnalyzer);
+};
+
+
+void MarkLiveCode(ZoneList<Node*>* nodes,
+                  ZoneList<Expression*>* body_definitions,
+                  int variable_count);
 
 
 } }  // namespace v8::internal
