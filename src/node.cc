@@ -1063,6 +1063,35 @@ Handle<Value> Compile(const Arguments& args) {
   return scope.Close(result);
 }
 
+Handle<Value> EvalHere(const Arguments& args) {
+  HandleScope scope;
+
+  if (args.Length() < 1) {
+    return ThrowException(Exception::TypeError(
+          String::New("needs at least 'script' argument.")));
+  }
+
+  Local<Value> external = args[0];
+
+  TryCatch try_catch;
+
+  Handle<Value> result;
+
+  struct script_holder * holder  = (struct script_holder *) External::Unwrap(external);
+  if (!holder) {
+    Local<Value> exception =
+      Exception::Error(String::New("'script' must be a result of previous evalnocx(code) call"));
+    result = ThrowException(exception);
+  } else {
+    Handle<Script> script = holder->script;
+
+    result = script->Run();
+    if (try_catch.HasCaught()) result = ThrowException(try_catch.Exception());
+  }
+
+  return scope.Close(result);
+}
+
 static void OnFatalError(const char* location, const char* message) {
   if (location) {
     fprintf(stderr, "FATAL ERROR: %s %s\n", location, message);
@@ -1404,6 +1433,7 @@ static void Load(int argc, char *argv[]) {
   NODE_SET_METHOD(process, "evalnocx", EvalNoCX);
   NODE_SET_METHOD(process, "evalrecx", EvalReCX);
   NODE_SET_METHOD(process, "compile", Compile);
+  NODE_SET_METHOD(process, "evalhere", EvalHere);
   NODE_SET_METHOD(process, "_byteLength", ByteLength);
   NODE_SET_METHOD(process, "reallyExit", Exit);
   NODE_SET_METHOD(process, "chdir", Chdir);
