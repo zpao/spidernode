@@ -936,7 +936,7 @@ Handle<Value> EvalMachine(const Arguments& args) {
       ReportException(try_catch, true, false);
       result = ThrowException(try_catch.Exception());
     }
- } else {
+  } else {
     struct script_holder * holder  = (struct script_holder *) External::Unwrap(external);
     if (!holder) {
       Local<Value> exception =
