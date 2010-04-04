@@ -860,70 +860,6 @@ Handle<Value> DLOpen(const v8::Arguments& args) {
   return Undefined();
 }
 
-// evalcx(code, sandbox={})
-// Executes code in a new context
-Handle<Value> EvalCX(const Arguments& args) {
-  HandleScope scope;
-
-  if (args.Length() < 1) {
-    return ThrowException(Exception::TypeError(
-          String::New("needs at least 'code' argument.")));
-  }
-
-  Local<String> code = args[0]->ToString();
-  Local<Object> sandbox = args.Length() > 1 ? args[1]->ToObject()
-                                            : Object::New();
-  Local<String> filename = args.Length() > 2 ? args[2]->ToString()
-                                             : String::New("evalcx.<anonymous>");
-  // Create the new context
-  Persistent<Context> context = Context::New();
-
-  // Enter and compile script
-  context->Enter();
-
-  // Copy objects from global context, to our brand new context
-  Handle<Array> keys = sandbox->GetPropertyNames();
-
-  unsigned int i;
-  for (i = 0; i < keys->Length(); i++) {
-    Handle<String> key = keys->Get(Integer::New(i))->ToString();
-    Handle<Value> value = sandbox->Get(key);
-    context->Global()->Set(key, value);
-  }
-
-  // Catch errors
-  TryCatch try_catch;
-
-  Local<Script> script = Script::Compile(code, filename);
-  Handle<Value> result;
-
-  if (script.IsEmpty()) {
-    // Hack because I can't get a proper stacktrace on SyntaxError
-    ReportException(try_catch, true, false);
-    result = ThrowException(try_catch.Exception());
-  } else {
-    result = script->Run();
-    if (result.IsEmpty()) {
-      result = ThrowException(try_catch.Exception());
-    } else {
-      // success! copy changes back onto the sandbox object.
-      keys = context->Global()->GetPropertyNames();
-      for (i = 0; i < keys->Length(); i++) {
-        Handle<String> key = keys->Get(Integer::New(i))->ToString();
-        Handle<Value> value = context->Global()->Get(key);
-        sandbox->Set(key, value);
-      }
-    }
-  }
-
-  // Clean up, clean up, everybody everywhere!
-  context->DetachGlobal();
-  context->Exit();
-  context.Dispose();
-
-  return scope.Close(result);
-}
-
 struct script_holder {
   Persistent<Script> script;
 };
@@ -936,86 +872,93 @@ void CleanupV8Point(Persistent<Value> external, void *) {
   delete holder;
 }
 
-// evalnocx(code)
-// Compiles code without a context
-Handle<Value> EvalNoCX(const Arguments& args) {
+enum EvalInputFlags { compileCode, unwrapExternal };
+enum EvalContextFlags { thisContext, newContext };
+enum EvalOutputFlags { returnResult, wrapExternal };
+
+template <EvalInputFlags iFlag, EvalContextFlags cFlag, EvalOutputFlags oFlag>
+Handle<Value> EvalMachine(const Arguments& args) {
   HandleScope scope;
 
   if (args.Length() < 1) {
     return ThrowException(Exception::TypeError(
-          String::New("needs at least 'code' argument.")));
+          String::New(iFlag == compileCode ? "needs at least 'code' argument." :
+              "needs at least 'script' argument")
+          ));
   }
 
-  Local<String> code = args[0]->ToString();
-  Local<String> filename = args.Length() > 1 ? args[1]->ToString()
-                                             : String::New("evalnocx.<anonymous>");
+  Local<String> code;
+  Local<Value> external;
+  if (iFlag == compileCode) { code = args[0]->ToString(); } else { external = args[0]; }
 
-  // Catch errors
-  TryCatch try_catch;
-
-  Local<Script> script = Script::New(code, filename);
-  Handle<Value> result;
-
-  if (script.IsEmpty()) {
-    // Hack because I can't get a proper stacktrace on SyntaxError
-    ReportException(try_catch, true, false);
-    result = ThrowException(try_catch.Exception());
+  Local<Object> sandbox;
+  size_t fnIndex;
+  if (cFlag == newContext) {
+    sandbox = args.Length() > 1 ? args[1]->ToObject() : Object::New();
+    fnIndex = 2;
   } else {
-    struct script_holder * holder = new struct script_holder;
-    holder->script = Persistent<Script>::New(script);
-    result = Persistent<Value>::New(External::Wrap(holder));
-    Persistent<Value>(result).MakeWeak(NULL, &CleanupV8Point);
+    fnIndex = 1;
   }
+  Local<String> filename = args.Length() > fnIndex ? args[fnIndex]->ToString()
+                                             : String::New("evalmachine.<anonymous>");
 
-  return scope.Close(result);
-}
-
-// evalrecx(script, sandbox={})
-// Executes compiled script in a new context
-Handle<Value> EvalReCX(const Arguments& args) {
-  HandleScope scope;
-
-  if (args.Length() < 1) {
-    return ThrowException(Exception::TypeError(
-          String::New("needs at least 'script' argument.")));
-  }
-
-  Local<Value> external = args[0];
-  Local<Object> sandbox = args.Length() > 1 ? args[1]->ToObject()
-                                            : Object::New();
-  // Create the new context
-  Persistent<Context> context = Context::New();
-
-  // Enter and compile script
-  context->Enter();
-
-  // Copy objects from global context, to our brand new context
-  Handle<Array> keys = sandbox->GetPropertyNames();
-
+  Persistent<Context> context;
+  Local<Array> keys;
   unsigned int i;
-  for (i = 0; i < keys->Length(); i++) {
-    Handle<String> key = keys->Get(Integer::New(i))->ToString();
-    Handle<Value> value = sandbox->Get(key);
-    context->Global()->Set(key, value);
+  if (cFlag == newContext) {
+    // Create the new context
+    context = Context::New();
+
+    // Enter and compile script
+    context->Enter();
+
+    // Copy objects from global context, to our brand new context
+    keys = sandbox->GetPropertyNames();
+
+    for (i = 0; i < keys->Length(); i++) {
+      Handle<String> key = keys->Get(Integer::New(i))->ToString();
+      Handle<Value> value = sandbox->Get(key);
+      context->Global()->Set(key, value);
+    }
   }
 
   // Catch errors
   TryCatch try_catch;
 
   Handle<Value> result;
+  Handle<Script> script;
 
-  struct script_holder * holder  = (struct script_holder *) External::Unwrap(external);
-  if (!holder) {
-    Local<Value> exception =
-      Exception::Error(String::New("'script' must be a result of previous evalnocx(code) call"));
-    result = ThrowException(exception);
-  } else {
-    Handle<Script> script = holder->script;
+  if (iFlag == compileCode) {
+    // well, here Script::New would suffice in all cases, but maybe Compile has a little better performance where possible
+    script = oFlag == returnResult ? Script::Compile(code, filename) : Script::New(code, filename);
+    if (script.IsEmpty()) {
+      // Hack because I can't get a proper stacktrace on SyntaxError
+      ReportException(try_catch, true, false);
+      result = ThrowException(try_catch.Exception());
+    }
+ } else {
+    struct script_holder * holder  = (struct script_holder *) External::Unwrap(external);
+    if (!holder) {
+      Local<Value> exception =
+        Exception::Error(String::New("'script' must be a result of previous evalnocx(code) call"));
+      result = ThrowException(exception);
+    } else {
+      script = holder->script;
+    }
+  }
 
-    result = script->Run();
+  if (result.IsEmpty()) {
+    if (oFlag == returnResult) {
+      result = script->Run();
+    } else {
+      struct script_holder * holder = new struct script_holder;
+      holder->script = Persistent<Script>::New(script);
+      result = Persistent<Value>::New(External::Wrap(holder));
+      Persistent<Value>(result).MakeWeak(NULL, &CleanupV8Point);
+    }
     if (result.IsEmpty()) {
       result = ThrowException(try_catch.Exception());
-    } else {
+    } else if (cFlag == newContext) {
       // success! copy changes back onto the sandbox object.
       keys = context->Global()->GetPropertyNames();
       for (i = 0; i < keys->Length(); i++) {
@@ -1026,67 +969,11 @@ Handle<Value> EvalReCX(const Arguments& args) {
     }
   }
 
-  // Clean up, clean up, everybody everywhere!
-  context->DetachGlobal();
-  context->Exit();
-  context.Dispose();
-
-  return scope.Close(result);
-}
-
-Handle<Value> Compile(const Arguments& args) {
-  HandleScope scope;
-
-  if (args.Length() < 1) {
-    return ThrowException(Exception::TypeError(
-          String::New("needs at least 'code' argument.")));
-  }
-
-  Local<String> code = args[0]->ToString();
-  Local<String> filename = args.Length() > 1 ? args[1]->ToString()
-                                             : String::New("compile.<anonymous>");
-
-  TryCatch try_catch;
-
-  Local<Script> script = Script::Compile(code, filename);
-  Handle<Value> result;
-
-  if (script.IsEmpty()) {
-    // Hack because I can't get a proper stacktrace on SyntaxError
-    ReportException(try_catch, true, false);
-    result = ThrowException(try_catch.Exception());
-  } else {
-    result = script->Run();
-    if (try_catch.HasCaught()) result = ThrowException(try_catch.Exception());
-  }
-
-  return scope.Close(result);
-}
-
-Handle<Value> EvalHere(const Arguments& args) {
-  HandleScope scope;
-
-  if (args.Length() < 1) {
-    return ThrowException(Exception::TypeError(
-          String::New("needs at least 'script' argument.")));
-  }
-
-  Local<Value> external = args[0];
-
-  TryCatch try_catch;
-
-  Handle<Value> result;
-
-  struct script_holder * holder  = (struct script_holder *) External::Unwrap(external);
-  if (!holder) {
-    Local<Value> exception =
-      Exception::Error(String::New("'script' must be a result of previous evalnocx(code) call"));
-    result = ThrowException(exception);
-  } else {
-    Handle<Script> script = holder->script;
-
-    result = script->Run();
-    if (try_catch.HasCaught()) result = ThrowException(try_catch.Exception());
+  if (cFlag == newContext) {
+    // Clean up, clean up, everybody everywhere!
+    context->DetachGlobal();
+    context->Exit();
+    context.Dispose();
   }
 
   return scope.Close(result);
@@ -1429,11 +1316,11 @@ static void Load(int argc, char *argv[]) {
   // define various internal methods
   NODE_SET_METHOD(process, "loop", Loop);
   NODE_SET_METHOD(process, "unloop", Unloop);
-  NODE_SET_METHOD(process, "evalcx", EvalCX);
-  NODE_SET_METHOD(process, "evalnocx", EvalNoCX);
-  NODE_SET_METHOD(process, "evalrecx", EvalReCX);
-  NODE_SET_METHOD(process, "compile", Compile);
-  NODE_SET_METHOD(process, "evalhere", EvalHere);
+  NODE_SET_METHOD(process, "evalcx", (EvalMachine<compileCode, newContext, returnResult>));
+  NODE_SET_METHOD(process, "evalnocx", (EvalMachine<compileCode, thisContext, wrapExternal>));
+  NODE_SET_METHOD(process, "evalrecx", (EvalMachine<unwrapExternal, newContext, returnResult>));
+  NODE_SET_METHOD(process, "compile", (EvalMachine<compileCode, thisContext, returnResult>));
+  NODE_SET_METHOD(process, "evalhere", (EvalMachine<unwrapExternal, thisContext, returnResult>));
   NODE_SET_METHOD(process, "_byteLength", ByteLength);
   NODE_SET_METHOD(process, "reallyExit", Exit);
   NODE_SET_METHOD(process, "chdir", Chdir);
