@@ -340,7 +340,7 @@ const char* ToCString(const v8::String::Utf8Value& value) {
   return *value ? *value : "<str conversion failed>";
 }
 
-static void ReportException(TryCatch &try_catch, bool show_line = false) {
+static void ReportException(TryCatch &try_catch, bool show_line = false, bool show_rest = true) {
   Handle<Message> message = try_catch.Message();
 
   Handle<Value> error = try_catch.Exception();
@@ -374,11 +374,13 @@ static void ReportException(TryCatch &try_catch, bool show_line = false) {
     fprintf(stderr, "\n");
   }
 
-  if (stack.IsEmpty()) {
-    message->PrintCurrentStackTrace(stderr);
-  } else {
-    String::Utf8Value trace(stack);
-    fprintf(stderr, "%s\n", *trace);
+  if (show_rest) {
+    if (stack.IsEmpty()) {
+      message->PrintCurrentStackTrace(stderr);
+    } else {
+      String::Utf8Value trace(stack);
+      fprintf(stderr, "%s\n", *trace);
+    }
   }
   fflush(stderr);
 }
@@ -863,11 +865,16 @@ Handle<Value> DLOpen(const v8::Arguments& args) {
 Handle<Value> EvalCX(const Arguments& args) {
   HandleScope scope;
 
+  if (args.Length() < 1) {
+    return ThrowException(Exception::TypeError(
+          String::New("needs at least 'code' argument.")));
+  }
+
   Local<String> code = args[0]->ToString();
   Local<Object> sandbox = args.Length() > 1 ? args[1]->ToObject()
                                             : Object::New();
   Local<String> filename = args.Length() > 2 ? args[2]->ToString()
-                                             : String::New("evalcx");
+                                             : String::New("evalcx.<anonymous>");
   // Create the new context
   Persistent<Context> context = Context::New();
 
@@ -891,6 +898,8 @@ Handle<Value> EvalCX(const Arguments& args) {
   Handle<Value> result;
 
   if (script.IsEmpty()) {
+    // Hack because I can't get a proper stacktrace on SyntaxError
+    ReportException(try_catch, true, false);
     result = ThrowException(try_catch.Exception());
   } else {
     result = script->Run();
@@ -932,9 +941,14 @@ void CleanupV8Point(Persistent<Value> external, void *) {
 Handle<Value> EvalNoCX(const Arguments& args) {
   HandleScope scope;
 
+  if (args.Length() < 1) {
+    return ThrowException(Exception::TypeError(
+          String::New("needs at least 'code' argument.")));
+  }
+
   Local<String> code = args[0]->ToString();
   Local<String> filename = args.Length() > 1 ? args[1]->ToString()
-                                             : String::New("evalnocx");
+                                             : String::New("evalnocx.<anonymous>");
 
   // Catch errors
   TryCatch try_catch;
@@ -943,6 +957,8 @@ Handle<Value> EvalNoCX(const Arguments& args) {
   Handle<Value> result;
 
   if (script.IsEmpty()) {
+    // Hack because I can't get a proper stacktrace on SyntaxError
+    ReportException(try_catch, true, false);
     result = ThrowException(try_catch.Exception());
   } else {
     struct script_holder * holder = new struct script_holder;
@@ -958,6 +974,11 @@ Handle<Value> EvalNoCX(const Arguments& args) {
 // Executes compiled script in a new context
 Handle<Value> EvalReCX(const Arguments& args) {
   HandleScope scope;
+
+  if (args.Length() < 1) {
+    return ThrowException(Exception::TypeError(
+          String::New("needs at least 'script' argument.")));
+  }
 
   Local<Value> external = args[0];
   Local<Object> sandbox = args.Length() > 1 ? args[1]->ToObject()
@@ -1016,25 +1037,28 @@ Handle<Value> EvalReCX(const Arguments& args) {
 Handle<Value> Compile(const Arguments& args) {
   HandleScope scope;
 
-  if (args.Length() < 2) {
+  if (args.Length() < 1) {
     return ThrowException(Exception::TypeError(
-          String::New("needs two arguments.")));
+          String::New("needs at least 'code' argument.")));
   }
 
-  Local<String> source = args[0]->ToString();
-  Local<String> filename = args[1]->ToString();
+  Local<String> code = args[0]->ToString();
+  Local<String> filename = args.Length() > 1 ? args[1]->ToString()
+                                             : String::New("compile.<anonymous>");
 
   TryCatch try_catch;
 
-  Local<Script> script = Script::Compile(source, filename);
-  if (try_catch.HasCaught()) {
-    // Hack because I can't get a proper stacktrace on SyntaxError
-    ReportException(try_catch, true);
-    exit(1);
-  }
+  Local<Script> script = Script::Compile(code, filename);
+  Handle<Value> result;
 
-  Local<Value> result = script->Run();
-  if (try_catch.HasCaught()) return try_catch.ReThrow();
+  if (script.IsEmpty()) {
+    // Hack because I can't get a proper stacktrace on SyntaxError
+    ReportException(try_catch, true, false);
+    result = ThrowException(try_catch.Exception());
+  } else {
+    result = script->Run();
+    if (try_catch.HasCaught()) result = ThrowException(try_catch.Exception());
+  }
 
   return scope.Close(result);
 }
