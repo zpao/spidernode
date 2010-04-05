@@ -892,13 +892,10 @@ Handle<Value> EvalMachine(const Arguments& args) {
   if (iFlag == compileCode) { code = args[0]->ToString(); } else { external = args[0]; }
 
   Local<Object> sandbox;
-  size_t fnIndex;
   if (cFlag == newContext) {
     sandbox = args.Length() > 1 ? args[1]->ToObject() : Object::New();
-    fnIndex = 2;
-  } else {
-    fnIndex = 1;
   }
+  const size_t fnIndex = cFlag == newContext ? 2 : 1;
   Local<String> filename = args.Length() > fnIndex ? args[fnIndex]->ToString()
                                              : String::New("evalmachine.<anonymous>");
 
