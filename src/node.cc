@@ -105,7 +105,7 @@ static void CheckIdleness(EV_P_ ev_timer *watcher, int revents) {
 
   //fprintf(stderr, "check idle\n");
 
-  ev_tstamp idle_time = ev_now() - last_active;
+  ev_tstamp idle_time = ev_now(EV_DEFAULT_UC) - last_active;
 
   if (idle_time > GC_INTERVAL) {
     if (needs_gc) {
@@ -149,7 +149,7 @@ static void Activity(EV_P_ ev_check *watcher, int revents) {
   //fprintf(stderr, "activity, pending: %d\n", pending);
 
   if (pending) {
-    last_active = ev_now();
+    last_active = ev_now(EV_DEFAULT_UC);
     ev_idle_stop(EV_DEFAULT_UC_ &gc_idle);
 
     if (!needs_gc) {
@@ -327,6 +327,7 @@ ssize_t DecodeWrite(char *buf,
 
   uint16_t * twobytebuf = new uint16_t[buflen];
 
+  str->Flatten();
   str->Write(twobytebuf, 0, buflen);
 
   for (size_t i = 0; i < buflen; i++) {
@@ -674,6 +675,7 @@ int getmem(size_t *rss, size_t *vsize) {
 #include <sys/param.h>
 #include <sys/sysctl.h>
 #include <sys/user.h>
+#include <paths.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -686,7 +688,7 @@ int getmem(size_t *rss, size_t *vsize) {
 
   pid = getpid();
 
-  kd = kvm_open(NULL, NULL, NULL, O_RDONLY, "kvm_open");
+  kd = kvm_open(NULL, _PATH_DEVNULL, NULL, O_RDONLY, "kvm_open");
   if (kd == NULL) goto error;
 
   kinfo = kvm_getprocs(kd, KERN_PROC_PID, pid, &nprocs);
