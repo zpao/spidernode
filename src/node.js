@@ -357,6 +357,7 @@ var pathModule = createInternalModule("path", function (exports) {
         directory === ".."
         && directories.length
         && prev !== ".."
+        && prev !== "."
         && prev !== undefined
         && (prev !== "" || keepBlanks)
       ) {
