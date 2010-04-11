@@ -85,11 +85,6 @@ package a module as a directory.
 paths onto it, or at startup with the `NODE_PATH` environmental
 variable (which should be a list of paths, colon separated).
 
-Use `process.mixin()` to include modules into the global namespace.
-
-    process.mixin(GLOBAL, require('./circle'), require('sys'));
-    puts('The area of a circle of radius 4 is ' + area(4));
-
 
 ## Buffers
 
@@ -319,8 +314,8 @@ The filename of the script being executed.
 The dirname of the script being executed.
 
 ### module
-A reference to the current module (of type `process.Module`). In particular
-`module.exports` is the same as the `exports` object. See `src/process.js`
+A reference to the current module (of type `require("module").Module`). In particular
+`module.exports` is the same as the `exports` object. See `lib/module.js`
 for more information.
 
 
