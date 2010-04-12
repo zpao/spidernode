@@ -1448,7 +1448,9 @@ Read only.
 ### request.httpVersion
 
 The HTTP protocol version as a string. Read only. Examples:
-`'1.1'`, `'1.0'`
+`'1.1'`, `'1.0'`.
+Also `request.httpVersionMajor` is the first integer and
+`request.httpVersionMinor` is the second.
 
 
 ### request.setEncoding(encoding='binary')
@@ -1674,6 +1676,8 @@ The 3-digit HTTP response status code. E.G. `404`.
 
 The HTTP version of the connected-to server. Probably either
 `'1.1'` or `'1.0'`.
+Also `response.httpVersionMajor` is the first integer and
+`response.httpVersionMinor` is the second.
 
 ### response.headers
 
@@ -1934,7 +1938,7 @@ resolves the IP addresses which are returned.
         var a = addresses[i];
         dns.reverse(a, function (err, domains) {
           if (err) {
-            puts('reverse for ' + a + ' failed: ' + e.message);
+            sys.puts('reverse for ' + a + ' failed: ' + err.message);
           } else {
             sys.puts('reverse for ' + a + ': ' + JSON.stringify(domains));
           }
