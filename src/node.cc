@@ -21,7 +21,10 @@
 #include <node_cares.h>
 #include <node_net.h>
 #include <node_file.h>
-#include <node_idle_watcher.h>
+#if 0
+// not in use
+# include <node_idle_watcher.h>
+#endif
 #include <node_http.h>
 #include <node_http_parser.h>
 #include <node_signal_watcher.h>
@@ -71,6 +74,10 @@ static bool use_debug_agent = false;
 static bool debug_wait_connect = false;
 static int debug_port=5858;
 
+static ev_prepare next_tick_watcher;
+static ev_idle tick_spinner;
+static bool need_tick_cb;
+static Persistent<String> tick_callback_sym;
 
 static ev_async eio_want_poll_notifier;
 static ev_async eio_done_poll_notifier;
@@ -144,6 +151,7 @@ static void Activity(EV_P_ ev_check *watcher, int revents) {
 
   pending -= ev_is_pending(&gc_timer);
   pending -= ev_is_pending(&gc_idle);
+  pending -= ev_is_pending(&next_tick_watcher);
   //if (ev_is_pending(&gc_check)) pending--; // This probably never happens?
 
   //fprintf(stderr, "activity, pending: %d\n", pending);
@@ -158,6 +166,52 @@ static void Activity(EV_P_ ev_check *watcher, int revents) {
     }
 
     needs_gc = true;
+  }
+}
+
+
+static Handle<Value> NeedTickCallback(const Arguments& args) {
+  HandleScope scope;
+  need_tick_cb = true;
+  ev_idle_start(EV_DEFAULT_UC_ &tick_spinner);
+  return Undefined();
+}
+
+
+static void Spin(EV_P_ ev_idle *watcher, int revents) {
+  assert(watcher == &tick_spinner);
+  assert(revents == EV_IDLE);
+}
+
+
+static void Tick(EV_P_ ev_prepare *watcher, int revents) {
+  assert(watcher == &next_tick_watcher);
+  assert(revents == EV_PREPARE);
+
+  // Avoid entering a V8 scope.
+  if (!need_tick_cb) return;
+
+  need_tick_cb = false;
+  ev_idle_stop(EV_DEFAULT_UC_ &tick_spinner);
+
+  HandleScope scope;
+
+  if (tick_callback_sym.IsEmpty()) {
+    // Lazily set the symbol
+    tick_callback_sym =
+      Persistent<String>::New(String::NewSymbol("_tickCallback"));
+  }
+
+  Local<Value> cb_v = process->Get(tick_callback_sym);
+  if (!cb_v->IsFunction()) return;
+  Local<Function> cb = Local<Function>::Cast(cb_v);
+
+  TryCatch try_catch;
+
+  cb->Call(process, 0, NULL);
+
+  if (try_catch.HasCaught()) {
+    FatalException(try_catch);
   }
 }
 
@@ -1356,6 +1410,7 @@ static void Load(int argc, char *argv[]) {
   NODE_SET_METHOD(process, "evalcx", EvalCX);
   NODE_SET_METHOD(process, "compile", Compile);
   NODE_SET_METHOD(process, "_byteLength", ByteLength);
+  NODE_SET_METHOD(process, "_needTickCallback", NeedTickCallback);
   NODE_SET_METHOD(process, "reallyExit", Exit);
   NODE_SET_METHOD(process, "chdir", Chdir);
   NODE_SET_METHOD(process, "cwd", Cwd);
@@ -1378,10 +1433,10 @@ static void Load(int argc, char *argv[]) {
                EventEmitter::constructor_template->GetFunction());
 
 
-
   // Initialize the C++ modules..................filename of module
   IOWatcher::Initialize(process);              // io_watcher.cc
-  IdleWatcher::Initialize(process);            // idle_watcher.cc
+  // Not in use at the moment.
+  //IdleWatcher::Initialize(process);            // idle_watcher.cc
   Timer::Initialize(process);                  // timer.cc
   DefineConstants(process);                    // constants.cc
 
@@ -1534,6 +1589,11 @@ int main(int argc, char *argv[]) {
   ev_default_loop(EVFLAG_AUTO);
 #endif
 
+  ev_prepare_init(&node::next_tick_watcher, node::Tick);
+  ev_prepare_start(EV_DEFAULT_UC_ &node::next_tick_watcher);
+  ev_unref(EV_DEFAULT_UC);
+
+  ev_idle_init(&node::tick_spinner, node::Spin);
 
   ev_init(&node::gc_timer, node::CheckIdleness);
   node::gc_timer.repeat = GC_INTERVAL;
