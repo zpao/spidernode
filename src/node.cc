@@ -1309,6 +1309,7 @@ static Handle<Value> Binding(const Arguments& args) {
       exports->Set(String::New("utils"),        String::New(native_utils));
       exports->Set(String::New("module"),       String::New(native_module));
       exports->Set(String::New("events"),       String::New(native_events));
+      exports->Set(String::New("path"),         String::New(native_path));
       binding_cache->Set(module, exports);
     }
 
