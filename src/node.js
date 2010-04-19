@@ -72,9 +72,8 @@ process.compile("(function (exports) {"
                + process.binding("natives").module
                + "\n})", "module")(module);
 
-// TODO: make sure that event module gets loaded here once it's
-// factored out of module.js
-// module.require("events");
+// load event module to turn process into an EventEmitter.
+module.require("events");
 
 // Signal Handlers
 
@@ -145,15 +144,26 @@ process.openStdin = function () {
   return stdin;
 };
 
-
 process.exit = function (code) {
   process.emit("exit");
   process.reallyExit(code);
 };
 
 
-module.runMain();
+// figure out the paths, and then load the arg
+var path = module.requireNative("path")
+  , cwd = process.cwd()
 
+// Make process.argv[0] and process.argv[1] into full paths.
+if (process.argv[0].indexOf('/') > 0) {
+  process.argv[0] = path.join(cwd, process.argv[0]);
+}
+if (process.argv[1].charAt(0) != "/") {
+  process.argv[1] = path.join(cwd, process.argv[1]);
+}
+
+// Load the main module--the command line argument.
+module.main(process.argv[1]);
 
 // All our arguments are loaded. We've evaluated all of the scripts. We
 // might even have created TCP servers. Now we enter the main eventloop. If
