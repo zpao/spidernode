@@ -56,40 +56,12 @@ try {
   assert.equal("blah", e.message);
 }
 
-var errorThrownAsync = false;
-require.async("../fixtures/throws_error1", function(err, a) {
-  if (err) {
-    errorThrownAsync = true;
-    assert.equal("blah", err.message);
-  }
-});
-
 assert.equal(require('path').dirname(__filename), __dirname);
 
-var asyncRun = false;
-require.async('../fixtures/a1', function (err, a) {
-  if (err) throw err;
-  assert.equal("A", a.A());
-  asyncRun = true;
-});
-
-debug('load custom file types with registerExtension');
-require.registerExtension('.test', function(content) {
-  assert.equal("this is custom source\n", content);
-
-  return content.replace("this is custom source", "exports.test = 'passed'");
-});
-
-assert.equal(require('../fixtures/registerExt').test, "passed");
-
-debug('load custom file types that return non-strings');
-require.registerExtension('.test', function(content) {
-  return {
-    custom: 'passed'
-  };
-});
-
-assert.equal(require('../fixtures/registerExt2').custom, 'passed');
+debug("load modules by absolute id, then change require.paths, and load another module with the same absolute id.");
+// this will throw if it fails.
+var foo = require("../fixtures/require-path/p1/foo");
+process.assert(foo.bar.expect === foo.bar.actual);
 
 process.addListener("exit", function () {
   assert.equal(true, a.A instanceof Function);
@@ -108,10 +80,6 @@ process.addListener("exit", function () {
   assert.equal("D done", d2.D());
 
   assert.equal(true, errorThrown);
-
-  assert.equal(true, asyncRun);
-
-  assert.equal(true, errorThrownAsync);
 
   puts("exit");
 });
