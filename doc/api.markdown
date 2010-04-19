@@ -314,8 +314,8 @@ The filename of the script being executed.
 The dirname of the script being executed.
 
 ### module
-A reference to the current module (of type `process.Module`). In particular
-`module.exports` is the same as the `exports` object. See `src/process.js`
+A reference to the current module (of type `require("module").Module`). In particular
+`module.exports` is the same as the `exports` object. See `lib/module.js`
 for more information.
 
 
