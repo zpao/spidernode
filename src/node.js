@@ -109,79 +109,14 @@ process.assert = function (x, msg) {
 process.evalcx = process.binding('evals').Script.runInNewContext;
 
 // Event
-
-var eventsModule = createInternalModule('events', function (exports) {
-  exports.EventEmitter = process.EventEmitter;
-
-  // process.EventEmitter is defined in src/node_events.cc
-  // process.EventEmitter.prototype.emit() is also defined there.
-  process.EventEmitter.prototype.addListener = function (type, listener) {
-    if (typeof listener != 'function') {
-      throw new Error('addListener only takes functions');
-    }
-
-    if (!this._events) this._events = {};
-
-    // To avoid recursion in the case that type == "newListeners"! Before
-    // adding it to the listeners, first emit "newListeners".
-    this.emit("newListener", type, listener);
-
-    if (!this._events[type]) {
-      // Optimize the case of one listener. Don't need the extra array object.
-      this._events[type] = listener;
-    } else if (this._events[type] instanceof Array) {
-      // If we've already got an array, just append.
-      this._events[type].push(listener);
-    } else {
-      // Adding the second element, need to change to array.
-      this._events[type] = [this._events[type], listener];
-    }
-
-    return this;
-  };
-
-  process.EventEmitter.prototype.removeListener = function (type, listener) {
-    if (typeof listener != 'function') {
-      throw new Error('removeListener only takes functions');
-    }
-
-    // does not use listeners(), so no side effect of creating _events[type]
-    if (!this._events || !this._events[type]) return this;
-
-    var list = this._events[type];
-
-    if (list instanceof Array) {
-      var i = list.indexOf(listener);
-      if (i < 0) return this;
-      list.splice(i, 1);
-    } else {
-      this._events[type] = null;
-    }
-
-    return this;
-  };
-
-  process.EventEmitter.prototype.removeAllListeners = function (type) {
-    // does not use listeners(), so no side effect of creating _events[type]
-    if (!type || !this._events || !this._events[type]) return this;
-    this._events[type] = null;
-  };
-
-  process.EventEmitter.prototype.listeners = function (type) {
-    if (!this._events) this._events = {};
-    if (!this._events[type]) this._events[type] = [];
-    if (!(this._events[type] instanceof Array)) {
-      this._events[type] = [this._events[type]];
-    }
-    return this._events[type];
-  };
-
-  exports.Promise = removed('Promise has been removed. See http://groups.google.com/group/nodejs/msg/0c483b891c56fea2 for more information.');
-  process.Promise = exports.Promise;
-});
-
+var eventsModule = createInternalModule
+  ( 'events'
+  , process.compile
+    ( "(function (exports) {" + natives.events + "})"
+    , "events"
+    )
+  );
 var events = eventsModule.exports;
-
 
 // nextTick()
 
@@ -267,72 +202,13 @@ function debug (x) {
   }
 }
 
-
-var pathModule = createInternalModule("path", function (exports) {
-  exports.join = function () {
-    return exports.normalize(Array.prototype.join.call(arguments, "/"));
-  };
-
-  exports.normalizeArray = function (parts, keepBlanks) {
-    var directories = [], prev;
-    for (var i = 0, l = parts.length - 1; i <= l; i++) {
-      var directory = parts[i];
-
-      // if it's blank, but it's not the first thing, and not the last thing, skip it.
-      if (directory === "" && i !== 0 && i !== l && !keepBlanks) continue;
-
-      // if it's a dot, and there was some previous dir already, then skip it.
-      if (directory === "." && prev !== undefined) continue;
-
-      if (
-        directory === ".."
-        && directories.length
-        && prev !== ".."
-        && prev !== "."
-        && prev !== undefined
-        && (prev !== "" || keepBlanks)
-      ) {
-        directories.pop();
-        prev = directories.slice(-1)[0]
-      } else {
-        if (prev === ".") directories.pop();
-        directories.push(directory);
-        prev = directory;
-      }
-    }
-    return directories;
-  };
-
-  exports.normalize = function (path, keepBlanks) {
-    return exports.normalizeArray(path.split("/"), keepBlanks).join("/");
-  };
-
-  exports.dirname = function (path) {
-    return path.substr(0, path.lastIndexOf("/")) || ".";
-  };
-
-  exports.filename = function () {
-    throw new Error("path.filename is deprecated. Please use path.basename instead.");
-  };
-  exports.basename = function (path, ext) {
-    var f = path.substr(path.lastIndexOf("/") + 1);
-    if (ext && f.substr(-1 * ext.length) === ext) {
-      f = f.substr(0, f.length - ext.length);
-    }
-    return f;
-  };
-
-  exports.extname = function (path) {
-    var index = path.lastIndexOf('.');
-    return index < 0 ? '' : path.substring(index);
-  };
-
-  exports.exists = function (path, callback) {
-    requireNative('fs').stat(path, function (err, stats) {
-      if (callback) callback(err ? false : true);
-    });
-  };
-});
+var pathModule = createInternalModule
+  ( 'path'
+  , process.compile
+    ( "(function (exports) {" + natives.path + "})"
+    , "path"
+    )
+  );
 
 var path = pathModule.exports;
 
