@@ -35,6 +35,10 @@
 #include <node_stdio.h>
 #include <node_natives.h>
 #include <node_version.h>
+#ifdef HAVE_OPENSSL
+#include <node_crypto.h>
+#endif
+#include <node_script.h>
 
 #include <v8-debug.h>
 
@@ -519,7 +523,7 @@ Local<Value> ExecuteString(Local<String> source, Local<Value> filename) {
   HandleScope scope;
   TryCatch try_catch;
 
-  Local<Script> script = Script::Compile(source, filename);
+  Local<v8::Script> script = v8::Script::Compile(source, filename);
   if (script.IsEmpty()) {
     ReportException(try_catch);
     exit(1);
@@ -990,118 +994,29 @@ Handle<Value> DLOpen(const v8::Arguments& args) {
   return Undefined();
 }
 
-struct script_holder {
-  Persistent<Script> script;
-};
 
-// adapted from http://stackoverflow.com
-// /questions/173366/how-do-you-free-a-wrapped-c-object-when-associated-javascript-object-is-garbage
-void CleanupV8Point(Persistent<Value> external, void *) {
-  struct script_holder * holder  = (struct script_holder *) External::Unwrap(external);
-  holder->script.Dispose();
-  delete holder;
-}
-
-enum EvalInputFlags { compileCode, unwrapExternal };
-enum EvalContextFlags { thisContext, newContext };
-enum EvalOutputFlags { returnResult, wrapExternal };
-
-template <EvalInputFlags iFlag, EvalContextFlags cFlag, EvalOutputFlags oFlag>
-Handle<Value> EvalMachine(const Arguments& args) {
+Handle<Value> Compile(const Arguments& args) {
   HandleScope scope;
 
-  if (args.Length() < 1) {
+  if (args.Length() < 2) {
     return ThrowException(Exception::TypeError(
-          String::New(iFlag == compileCode ? "needs at least 'code' argument." :
-              "needs at least 'script' argument")
-          ));
+          String::New("needs two arguments.")));
   }
 
-  Local<String> code;
-  Local<Value> external;
-  if (iFlag == compileCode) { code = args[0]->ToString(); } else { external = args[0]; }
+  Local<String> source = args[0]->ToString();
+  Local<String> filename = args[1]->ToString();
 
-  Local<Object> sandbox;
-  if (cFlag == newContext) {
-    sandbox = args.Length() > 1 ? args[1]->ToObject() : Object::New();
-  }
-  const size_t fnIndex = cFlag == newContext ? 2 : 1;
-  Local<String> filename = args.Length() > fnIndex ? args[fnIndex]->ToString()
-                                             : String::New("evalmachine.<anonymous>");
-
-  Persistent<Context> context;
-  Local<Array> keys;
-  unsigned int i;
-  if (cFlag == newContext) {
-    // Create the new context
-    context = Context::New();
-
-    // Enter and compile script
-    context->Enter();
-
-    // Copy objects from global context, to our brand new context
-    keys = sandbox->GetPropertyNames();
-
-    for (i = 0; i < keys->Length(); i++) {
-      Handle<String> key = keys->Get(Integer::New(i))->ToString();
-      Handle<Value> value = sandbox->Get(key);
-      context->Global()->Set(key, value);
-    }
-  }
-
-  // Catch errors
   TryCatch try_catch;
 
-  Handle<Value> result;
-  Handle<Script> script;
-
-  if (iFlag == compileCode) {
-    // well, here Script::New would suffice in all cases, but maybe Compile has a little better performance where possible
-    script = oFlag == returnResult ? Script::Compile(code, filename) : Script::New(code, filename);
-    if (script.IsEmpty()) {
-      // Hack because I can't get a proper stacktrace on SyntaxError
-      ReportException(try_catch, true, false);
-      result = ThrowException(try_catch.Exception());
-    }
-  } else {
-    struct script_holder * holder  = (struct script_holder *) External::Unwrap(external);
-    if (!holder) {
-      Local<Value> exception =
-        Exception::Error(String::New("'script' must be a result of previous evalnocx(code) call"));
-      result = ThrowException(exception);
-    } else {
-      script = holder->script;
-    }
+  Local<v8::Script> script = v8::Script::Compile(source, filename);
+  if (try_catch.HasCaught()) {
+    // Hack because I can't get a proper stacktrace on SyntaxError
+    ReportException(try_catch, true);
+    exit(1);
   }
 
-  if (result.IsEmpty()) {
-    if (oFlag == returnResult) {
-      result = script->Run();
-    } else {
-      struct script_holder * holder = new struct script_holder;
-      holder->script = Persistent<Script>::New(script);
-      result = Persistent<Value>::New(External::Wrap(holder));
-      Persistent<Value>(result).MakeWeak(NULL, &CleanupV8Point);
-    }
-    if (result.IsEmpty()) {
-      result = ThrowException(try_catch.Exception());
-    } else if (cFlag == newContext) {
-      // success! copy changes back onto the sandbox object.
-      keys = context->Global()->GetPropertyNames();
-      for (i = 0; i < keys->Length(); i++) {
-        Handle<String> key = keys->Get(Integer::New(i))->ToString();
-        Handle<Value> value = context->Global()->Get(key);
-        sandbox->Set(key, value);
-      }
-    }
-  }
-
-  if (cFlag == newContext) {
-    // Clean up, clean up, everybody everywhere!
-    context->DetachGlobal();
-    context->Exit();
-    context.Dispose();
-  }
+  Local<Value> result = script->Run();
+  if (try_catch.HasCaught()) return try_catch.ReThrow();
 
   return scope.Close(result);
 }
@@ -1345,6 +1260,24 @@ static Handle<Value> Binding(const Arguments& args) {
       Buffer::Initialize(exports);
       binding_cache->Set(module, exports);
     }
+  #ifdef HAVE_OPENSSL
+  } else if (!strcmp(*module_v, "crypto")) {
+    if (binding_cache->Has(module)) {
+      exports = binding_cache->Get(module)->ToObject();
+    } else {
+      exports = Object::New();
+      InitCrypto(exports);
+      binding_cache->Set(module, exports);
+    }
+  #endif
+  } else if (!strcmp(*module_v, "evals")) {
+    if (binding_cache->Has(module)) {
+      exports = binding_cache->Get(module)->ToObject();
+    } else {
+      exports = Object::New();
+      node::Script::Initialize(exports);
+      binding_cache->Set(module, exports);
+    }
 
   } else if (!strcmp(*module_v, "natives")) {
     if (binding_cache->Has(module)) {
@@ -1363,6 +1296,7 @@ static Handle<Value> Binding(const Arguments& args) {
       exports->Set(String::New("fs"),           String::New(native_fs));
       exports->Set(String::New("http"),         String::New(native_http));
       exports->Set(String::New("http_old"),     String::New(native_http_old));
+      exports->Set(String::New("crypto"),       String::New(native_crypto));
       exports->Set(String::New("ini"),          String::New(native_ini));
       exports->Set(String::New("mjsunit"),      String::New(native_mjsunit));
       exports->Set(String::New("net"),          String::New(native_net));
@@ -1444,11 +1378,7 @@ static void Load(int argc, char *argv[]) {
   // define various internal methods
   NODE_SET_METHOD(process, "loop", Loop);
   NODE_SET_METHOD(process, "unloop", Unloop);
-  NODE_SET_METHOD(process, "evalcx", (EvalMachine<compileCode, newContext, returnResult>));
-  NODE_SET_METHOD(process, "evalnocx", (EvalMachine<compileCode, thisContext, wrapExternal>));
-  NODE_SET_METHOD(process, "evalrecx", (EvalMachine<unwrapExternal, newContext, returnResult>));
-  NODE_SET_METHOD(process, "compile", (EvalMachine<compileCode, thisContext, returnResult>));
-  NODE_SET_METHOD(process, "evalhere", (EvalMachine<unwrapExternal, thisContext, returnResult>));
+  NODE_SET_METHOD(process, "compile", Compile);
   NODE_SET_METHOD(process, "_byteLength", ByteLength);
   NODE_SET_METHOD(process, "_needTickCallback", NeedTickCallback);
   NODE_SET_METHOD(process, "reallyExit", Exit);

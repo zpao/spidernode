@@ -1,19 +1,18 @@
 require("../common");
 
-debug('evalhere a string');
-var script = process.evalnocx('"passed";');
-var result = process.evalhere(script);
+var Script = process.binding('evals').Script;
+
+debug('run a string');
+var result = Script.runInThisContext('"passed";');
 assert.equal('passed', result);
 
-debug('compile a thrown error');
-script = process.evalnocx('throw new Error("test");');
+debug('thrown error');
 assert.throws(function() {
-  process.evalhere(script);
+  Script.runInThisContext('throw new Error("test");');
 });
 
 hello = 5;
-script = process.evalnocx('hello = 2');
-process.evalhere(script);
+Script.runInThisContext('hello = 2');
 assert.equal(2, hello);
 
 
@@ -23,15 +22,12 @@ code = "foo = 1;"
      + "if (typeof baz !== 'undefined') throw new Error('test fail');";
 foo = 2;
 obj = { foo : 0, baz : 3 };
-script = process.evalnocx(code);
-process.evalhere(script);
+var baz = Script.runInThisContext(code);
 assert.equal(0, obj.foo);
 assert.equal(2, bar);
 assert.equal(1, foo);
 
 debug("call a function");
 f = function () { foo = 100 };
-script = process.evalnocx("f()");
-process.evalhere(script);
+Script.runInThisContext("f()");
 assert.equal(100, foo);
-

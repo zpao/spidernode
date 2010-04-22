@@ -106,6 +106,7 @@ process.assert = function (x, msg) {
   if (!x) throw new Error(msg || "assertion error");
 };
 
+process.evalcx = process.binding('evals').Script.runInNewContext;
 
 // Event
 
@@ -115,8 +116,8 @@ var eventsModule = createInternalModule('events', function (exports) {
   // process.EventEmitter is defined in src/node_events.cc
   // process.EventEmitter.prototype.emit() is also defined there.
   process.EventEmitter.prototype.addListener = function (type, listener) {
-    if (!(listener instanceof Function)) {
-      throw new Error('addListener only takes instances of Function');
+    if (typeof listener != 'function') {
+      throw new Error('addListener only takes functions');
     }
 
     if (!this._events) this._events = {};
@@ -140,8 +141,8 @@ var eventsModule = createInternalModule('events', function (exports) {
   };
 
   process.EventEmitter.prototype.removeListener = function (type, listener) {
-    if (!(listener instanceof Function)) {
-      throw new Error('removeListener only takes instances of Function');
+    if (typeof listener != 'function') {
+      throw new Error('removeListener only takes functions');
     }
 
     // does not use listeners(), so no side effect of creating _events[type]

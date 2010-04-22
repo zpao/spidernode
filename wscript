@@ -134,6 +134,24 @@ def configure(conf):
     if sys.platform.startswith("freebsd"):
       conf.fatal("Install the libexecinfo port from /usr/ports/devel/libexecinfo.")
 
+  if conf.check_cfg(package='openssl',
+                    args='--cflags --libs',
+                    uselib_store='OPENSSL'):
+    conf.env["USE_OPENSSL"] = True
+    conf.env.append_value("CXXFLAGS", "-DHAVE_OPENSSL=1")
+  else:
+    libssl = conf.check_cc(lib='ssl',
+                           header_name='openssl/ssl.h',
+                           function_name='SSL_library_init',
+                           libpath=['/usr/lib', '/usr/local/lib', '/opt/local/lib', '/usr/sfw/lib'],
+                           uselib_store='OPENSSL')
+    libcrypto = conf.check_cc(lib='crypto',
+                              header_name='openssl/crypto.h',
+                              uselib_store='OPENSSL')
+    if libcrypto and libssl:
+      conf.env["USE_OPENSSL"] = True
+      conf.env.append_value("CXXFLAGS", "-DHAVE_OPENSSL=1")
+
   if conf.check_cfg(package='gnutls',
                     args='--cflags --libs',
                     atleast_version='2.5.0',
@@ -385,7 +403,11 @@ def build(bld):
     src/node_stat_watcher.cc
     src/node_stdio.cc
     src/node_timer.cc
+    src/node_script.cc
   """
+  if bld.env["USE_OPENSSL"]:
+    node.source += "src/node_crypto.cc"
+
   if not bld.env["USE_SYSTEM"]:
     node.includes = """
       src/ 
@@ -403,7 +425,7 @@ def build(bld):
 
     node.add_objects = 'cares ev eio evcom http_parser coupling'
     node.uselib_local = ''
-    node.uselib = 'RT GNUTLS GPGERROR CARES V8 EXECINFO DL KVM SOCKET NSL'
+    node.uselib = 'RT OPENSSL GNUTLS GPGERROR UDNS V8 EXECINFO DL KVM SOCKET NSL'
   else:
     node.includes = """
       src/
@@ -414,7 +436,7 @@ def build(bld):
     """
     node.add_objects = 'eio evcom http_parser coupling'
     node.uselib_local = 'eio'
-    node.uselib = 'RT EV GNUTLS GPGERROR CARES V8 EXECINFO DL KVM SOCKET NSL'
+    node.uselib = 'RT EV OPENSSL GNUTLS GPGERROR UDNS V8 EXECINFO DL KVM SOCKET NSL'
 
   node.install_path = '${PREFIX}/lib'
   node.install_path = '${PREFIX}/bin'

@@ -102,6 +102,18 @@ Node supports 3 string encodings. UTF-8 (`'utf8'`), ASCII (`'ascii'`), and
 Binary (`'binary'`). `'ascii'` and `'binary'` only look at the first 8 bits
 of the 16bit JavaScript string characters.
 
+### Buffer.byteLength(string, encoding)
+Gives the actual byte length of a string.  This is not the same as
+`String.prototype.length` since that returns the number of *characters* in a
+string.
+
+    // Takes in a UTF8 string, gives back a buffer
+    function stringToBuffer(string) {
+      var buffer = new Buffer(Buffer.byteLength(string));
+      buffer.utf8Write(string);
+      return buffer;
+    };
+
 ### new Buffer(size)
 Allocates a new buffer of `size` octets.
 
@@ -444,7 +456,7 @@ This will generate:
 
     $ node process-2.js one two=three four
     0: node
-    1: /Users/mjr/work/node_docs/data/v0.1.31/examples/process-2.js
+    1: /Users/mjr/work/node/process-2.js
     2: one
     3: two=three
     4: four
@@ -490,7 +502,9 @@ Example of using `process.compile` and `eval` to run the same code:
 `process.compile` does not have access to the local scope, so `localVar` is unchanged.
 `eval` does have access to the local scope, so `localVar` is changed.
 
-See also: `process.evalcx`
+In case of syntax error in `code`, `process.compile` exits node.
+
+See also: `Script`
 
 
 ### process.cwd()
@@ -503,27 +517,6 @@ Returns the current working directory of the process.
 ### process.env
 
 An object containing the user environment. See environ(7).
-
-
-
-### process.evalcx(code, sandbox, filename)
-
-Similar to `eval` and `process.compile`.  `process.evalcx` compiles `code` to run in `sandbox`
-as if it were loaded from `filename`.  The object `sandbox` will be used as the global object for
-`code`.  `sandbox` and `filename` are optional.
-
-    var sys = require('sys'),
-        sandbox = {
-          animal: 'cat',
-          count: 2
-        };
-
-    process.evalcx('count += 1; name = 'kitty'', sandbox, 'myfile.js');
-    sys.puts(sys.inspect(sandbox));
-
-Note that running untrusted code is a tricky business requiring great care.  To prevent accidental
-global variable leakage, `process.evalcx` is quite useful, but to safely run untrusted code, many more steps
-must be taken.
 
 
 
@@ -941,6 +934,128 @@ if it runs longer than `timeout` milliseconds. The child process is killed with
 `killSignal` (default: `'SIGKILL'`). `maxBuffer` specifies the largest
 amount of data allowed on stdout or stderr - if this value is exceeded then
 the child process is killed.
+
+
+
+## Script
+
+`Script` class provides with compiling, remembering and running pieces of Javascript code. You can get `Script` class by issuing
+
+    var Script = process.binding('evals').Script;
+
+
+
+### Script.runInThisContext(code, filename='evalmachine.< anonymous >')
+
+Similar to `process.compile`.  `Script.runInThisContext` compiles `code` as if it were loaded from `filename`,
+runs it and returns the result. Running code does not have access to local scope. `filename` is optional.
+
+Example of using `Script.runInThisContext` and `eval` to run the same code:
+
+    var sys = require('sys'),
+        localVar = 123,
+        usingscript, evaled;
+
+    usingscript = Script.runInThisContext('localVar = 1;', 'myfile.js');
+    sys.puts('localVar: ' + localVar + ', usingscript: ' + usingscript);
+    evaled = eval('localVar = 1;');
+    sys.puts('localVar: ' + localVar + ', evaled: ' + evaled);
+
+    // localVar: 123, usingscript: 1
+    // localVar: 1, evaled: 1
+
+`Script.runInThisContext` does not have access to the local scope, so `localVar` is unchanged.
+`eval` does have access to the local scope, so `localVar` is changed.
+
+In case of syntax error in `code`, `Script.runInThisContext` emits the syntax error to stderr
+and throws.an exception.
+
+
+
+### Script.runInNewContext(code, sandbox={}, filename='evalmachine.< anonymous >')
+
+`Script.runInNewContext` compiles `code` to run in `sandbox` as if it were loaded from `filename`,
+then runs it and returns the result. Running code does not have access to local scope and
+the object `sandbox` will be used as the global object for `code`.
+`sandbox` and `filename` are optional.
+
+    var sys = require('sys'),
+        sandbox = {
+          animal: 'cat',
+          count: 2
+        };
+
+    Script.runInNewContext('count += 1; name = 'kitty'', sandbox, 'myfile.js');
+    sys.puts(sys.inspect(sandbox));
+
+Note that running untrusted code is a tricky business requiring great care.  To prevent accidental
+global variable leakage, `Script.runInNewContext` is quite useful, but to safely run untrusted code, many more steps
+must be taken.
+
+In case of syntax error in `code`, `Script.runInThisContext` emits the syntax error to stderr
+and throws.an exception.
+
+
+
+### new Script(code, filename='evalmachine.< anonymous >')
+
+`new Script` compiles `code` as if it were loaded from `filename`,
+but does not run it. Instead, it returns Script object representing this compiled code.
+This script can be run later many times using methods below.
+The returned script is not bound to any global object,
+it is bound before each run, just for that run. `filename` is optional.
+
+In case of syntax error in `code`, `new Script` emits the syntax error to stderr
+and throws.an exception.
+
+
+
+### script.runInThisContext()
+
+Similar to "static" version in `Script.runInThisContext`, but now being a method of precompiled Script object.
+`script.runInThisContext` runs the code of `script` and returns the result. Running code does not have access to local scope
+and is run for actual `global` object (v8: in actual context).
+
+Example of using `script.runInThisContext` and `eval` to run the same code:
+
+    var sys = require('sys'),
+        localVar = 123,
+        script, usingscript, evaled;
+
+    script = new Script('localVar = 1', 'myfile.js');
+    usingscript = script.runInThisContext();
+    sys.puts('localVar: ' + localVar + ', usingscript: ' + usingscript);
+    evaled = eval('localVar = 1;');
+    sys.puts('localVar: ' + localVar + ', evaled: ' + evaled);
+
+    // localVar: 123, usingscript: 1
+    // localVar: 1, evaled: 1
+
+`script.runInThisContext` does not have access to the local scope, so `localVar` is unchanged.
+`eval` does have access to the local scope, so `localVar` is changed.
+
+
+
+### script.runInNewContext(sandbox={})
+
+Similar to "static" version in `Script.runInNewContext`, but now being a method of precompiled Script object.
+`script.runInNewContext` runs the code of `script` in a `sandbox` and returns the result.
+Running code does not have access to local scope and the object `sandbox` will be used as the global object for the code.
+`sandbox`is optional.
+
+    var sys = require('sys'),
+        script = new Script('count += 1; name = 'kitty'', 'myfile.js'),
+        sandbox = {
+          animal: 'cat',
+          count: 2
+        };
+
+    script.runInNewContext(sandbox);
+    sys.puts(sys.inspect(sandbox));
+
+Note that running untrusted code is a tricky business requiring great care.  To prevent accidental
+global variable leakage, `Script.runInNewContext` is quite useful, but to safely run untrusted code, many more steps
+must be taken.
 
 
 
@@ -1369,6 +1484,8 @@ hostname is omitted, the server will accept connections directed to any
 address.
 
 To listen to a unix socket, supply a filename instead of port and hostname.
+
+**If you give a port number as a string, the system will interpret it as a filename in the current directory and create a unix socket.**
 
 This function is asynchronous. `listening` will be emitted when the server
 is ready to accept connections.
@@ -1925,6 +2042,15 @@ Disables the Nagle algorithm. By default TCP connections use the Nagle
 algorithm, they buffer data before sending it off. Setting `noDelay` will
 immediately fire off data each time `stream.write()` is called.
 
+### stream.setKeepAlive(enable=false, initialDelay)
+
+Enable/disable keep-alive functionality, and optionally set the initial
+delay before the first keepalive probe is sent on an idle stream.
+Set `initialDelay` (in milliseconds) to set the delay between the last
+data packet received and the first keepalive probe. Setting 0 for
+initialDelay will leave the value unchanged from the default
+(or previous) setting.
+
 
 ## DNS
 
@@ -2239,38 +2365,129 @@ The unescape function used by `querystring.parse`, provided so that it could be 
 ## REPL
 
 A Read-Eval-Print-Loop is available both as a standalone program and easily
-includable in other programs. 
+includable in other programs.  REPL provides a way to interactively run
+JavaScript and see the results.  It can be used for debugging, testing, or
+just trying things out.
 
 The standalone REPL is called `node-repl` and is installed at
-`$PREFIX/bin/node-repl`. It's recommended to use it with the program
-`rlwrap` for a better user interface. I set 
+`$PREFIX/bin/node-repl`.
 
-    alias node-repl='rlwrap node-repl'
+    mjr:~$ /usr/local/bin/node-repl
+    Welcome to the Node.js REPL.
+    Enter ECMAScript at the prompt.
+    Tip 1: Use 'rlwrap node-repl' for a better interface
+    Tip 2: Type Control-D to exit.
+    Type '.help' for options.
+    node> a = [ 1, 2, 3];
+    [ 1, 2, 3 ]
+    node> a.forEach(function (v) {
+    ...   sys.puts(v);
+    ...   });
+    1
+    2
+    3
 
-in my zsh configuration.
 
-Inside the REPL, Control+D will exit. The special variable `_` (underscore) contains the
-result of the last expression.
+### repl.start(prompt, stream)
 
-The library is called `/repl.js` and it can be used like this:
+Starts a REPL with `prompt` as the prompt and `stream` for all I/O.  `pomrpt`
+is optional and defaults to `node> `.  `stream` is optional and defaults to 
+`process.openStdin()`.
 
-    var sys = require('sys'),
-        net = require('net'),
-       repl = require('repl');
-    nconnections = 0;
-    net.createServer(function (c) {
-      sys.error('Connection!');
-      nconnections += 1;
-      c.end();
-    }).listen(5000);
-    repl.start('simple tcp server> ');
+Multiple REPLs may be started against the same running instance of node.  Each
+will share the same global object but will have unique I/O.
 
-The repl provides access to any variables in the global scope. You can expose a variable 
-to the repl explicitly by assigning it to the `repl.scope` object:
+Here is an example that starts a REPL on stdin, a Unix socket, and a TCP socket:
 
-    var count = 5;
-    repl.start();
-    repl.scope.count = count;
+    var sys = require("sys"),
+        net = require("net"),
+        repl = require("repl");
+
+    connections = 0;
+
+    repl.start("node via stdin> ");
+
+    net.createServer(function (socket) {
+      connections += 1;
+      repl.start("node via Unix socket> ", socket);
+    }).listen("/tmp/node-repl-sock");
+
+    net.createServer(function (socket) {
+      connections += 1;
+      repl.start("node via TCP socket> ", socket);
+    }).listen(5001);
+
+Running this program from the command line will start a REPL on stdin.  Other
+REPL clients may connect through the Unix socket or TCP socket. `telnet` is useful
+for connecting to TCP sockets, and `socat` can be used to connect to both Unix and
+TCP sockets.
+
+By starting a REPL from a Unix socket-based server instead of stdin, you can 
+connect to a long-running node process without restarting it.
+
+
+### readline support
+
+Interactive command history for REPL is available from external programs like `rlwrap`
+or `socat`.  These programs are available from many Unix package managers.
+
+To start the standalone REPL with `rlwrap`:
+
+    rlwarp node-repl
+    
+It might be convenient to use this alias in your shell configuration:
+
+    alias repl='rlwrap node-repl'
+
+Using `socat` to connect to a Unix socket:
+
+    socat READLINE UNIX-CONNECT:/tmp/node-repl-sock
+
+Using `socat` to connect to a TCP socket on localhost:
+
+    socat READLINE TCP-CONNECT:localhost:5001
+
+
+### REPL Features
+
+Inside the REPL, Control+D will exit.  Multi-line expressions can be input.
+
+The special variable `_` (underscore) contains the result of the last expression.
+
+    node> [ "a", "b", "c" ]
+    [ 'a', 'b', 'c' ]
+    node> _.length 
+    3
+    node> _ += 1
+    4
+
+The REPL provides access to any variables in the global scope. You can expose a variable 
+to the REPL explicitly by assigning it to the `scope` object associated with each
+`REPLServer`.  For example:
+
+    // repl_test.js
+    var repl = require("repl"),
+        message = "message";
+
+    repl.start().scope.m = message;
+
+Things in the `scope` object appear as local within the REPL:
+
+    mjr:~$ node repl_test.js 
+    node> m
+    'message'
+
+There are a few special REPL commands:
+
+  - `.break` - While inputting a multi-line expression, sometimes you get lost or just don't care 
+  about completing it.  `.break` will start over.
+  
+  - `.clear` - Resets the `scope` object to an empty object and clears any multi-line expression.
+  
+  - `.exit` - Close the I/O stream, which will cause the REPL to exit.
+
+  - `.help` - Show this list of special commands.
+  
 
 
 ## Addons
