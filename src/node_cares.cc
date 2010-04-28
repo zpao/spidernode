@@ -4,6 +4,10 @@
 #include <v8.h>
 #include <ares.h>
 
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+
 #include <arpa/nameser.h>
 #include <arpa/inet.h>
 
@@ -77,12 +81,12 @@ struct QueryArg {
 
 
 Persistent<FunctionTemplate> Channel::constructor_template;
-static Persistent<String> errno_symbol;
 static Persistent<String> priority_symbol;
 static Persistent<String> weight_symbol;
 static Persistent<String> port_symbol;
 static Persistent<String> name_symbol;
 static Persistent<String> callback_symbol;
+static Persistent<String> exchange_symbol;
 
 
 void Cares::Initialize(Handle<Object> target) {
@@ -98,17 +102,18 @@ void Cares::Initialize(Handle<Object> target) {
 
   target->Set(String::NewSymbol("SOCKET_BAD"), Integer::New(ARES_SOCKET_BAD));
 
-  errno_symbol = NODE_PSYMBOL("errno");
   priority_symbol = NODE_PSYMBOL("priority");
   weight_symbol = NODE_PSYMBOL("weight");
   port_symbol = NODE_PSYMBOL("port");
   name_symbol = NODE_PSYMBOL("name");
+  exchange_symbol = NODE_PSYMBOL("exchange");
 
   target->Set(String::NewSymbol("AF_INET"), Integer::New(AF_INET));
   target->Set(String::NewSymbol("AF_INET6"), Integer::New(AF_INET6));
 
   target->Set(String::NewSymbol("A"), Integer::New(ns_t_a));
   target->Set(String::NewSymbol("AAAA"), Integer::New(ns_t_aaaa));
+  target->Set(String::NewSymbol("MX"), Integer::New(ns_t_mx));
   target->Set(String::NewSymbol("NS"), Integer::New(ns_t_ns));
   target->Set(String::NewSymbol("PTR"), Integer::New(ns_t_ptr));
   target->Set(String::NewSymbol("TXT"), Integer::New(ns_t_txt));
@@ -166,9 +171,7 @@ static Local<Array> HostEntToNames(struct hostent* hostent) {
 static void ResolveError(Persistent<Function> &cb, int status) {
   HandleScope scope;
 
-  Local<Value> e = Exception::Error(String::NewSymbol(ares_strerror(status)));
-  Local<Object> obj = e->ToObject();
-  obj->Set(errno_symbol, Integer::New(status));
+  Local<Value> e = ErrnoException(status, NULL, ares_strerror(status));
 
   TryCatch try_catch;
 
@@ -285,6 +288,34 @@ static void ParseAnswerAAAA(QueryArg *arg, unsigned char* abuf, int alen) {
   ares_free_hostent(host);
 
   Local<Value> argv[2] = { Local<Value>::New(Null()), addresses};
+  cb_call(arg->js_cb, 2, argv);
+}
+
+static void ParseAnswerMX(QueryArg *arg, unsigned char* abuf, int alen) {
+  HandleScope scope;
+
+  struct ares_mx_reply *mx_out;
+
+  int status = ares_parse_mx_reply(abuf, alen, &mx_out);
+  if (status != ARES_SUCCESS) {
+    ResolveError(arg->js_cb, status);
+    return;
+  }
+
+  Local<Array> mx_records = Array::New();
+
+  struct ares_mx_reply *current = mx_out;
+  for (int i = 0; current; ++i, current = current->next) {
+    Local<Object> mx = Object::New();
+
+    mx->Set(priority_symbol, Integer::New(current->priority));
+    mx->Set(exchange_symbol, String::New(current->host));
+
+    mx_records->Set(Integer::New(i), mx);
+  }
+  ares_free_data(mx_out);
+
+  Local<Value> argv[2] = { Local<Value>::New(Null()), mx_records };
   cb_call(arg->js_cb, 2, argv);
 }
 
@@ -469,6 +500,10 @@ Handle<Value> Channel::Query(const Arguments& args) {
 
     case ns_t_aaaa:
       parse_cb = ParseAnswerAAAA;
+      break;
+
+    case ns_t_mx:
+      parse_cb = ParseAnswerMX;
       break;
 
     case ns_t_ns:

@@ -436,6 +436,12 @@ void CheckDebuggerUnloaded(bool check_functions) {
 }
 
 
+void ForceUnloadDebugger() {
+  Debugger::never_unload_debugger_ = false;
+  Debugger::UnloadDebugger();
+}
+
+
 } }  // namespace v8::internal
 
 
@@ -5439,7 +5445,7 @@ TEST(DebugBreakInMessageHandler) {
 }
 
 
-#ifdef V8_NATIVE_REGEXP
+#ifndef V8_INTERPRETED_REGEXP
 // Debug event handler which gets the function on the top frame and schedules a
 // break a number of times.
 static void DebugEventDebugBreak(
@@ -5506,7 +5512,7 @@ TEST(RegExpDebugBreak) {
   CHECK_EQ(1, break_point_hit_count);
   CHECK_EQ("f", last_function_hit);
 }
-#endif  // V8_NATIVE_REGEXP
+#endif  // V8_INTERPRETED_REGEXP
 
 
 // Common part of EvalContextData and NestedBreakEventContextData tests.
@@ -6139,3 +6145,5 @@ TEST(CallingContextIsNotDebugContext) {
   debugger_context = v8::Handle<v8::Context>();
   CheckDebuggerUnloaded();
 }
+
+

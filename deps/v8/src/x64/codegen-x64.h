@@ -488,6 +488,10 @@ class CodeGenerator: public AstVisitor {
                   Condition cc,
                   bool strict,
                   ControlDestination* destination);
+  void GenerateInlineNumberComparison(Result* left_side,
+                                      Result* right_side,
+                                      Condition cc,
+                                      ControlDestination* dest);
 
   // To prevent long attacker-controlled byte sequences, integer constants
   // from the JavaScript source are loaded in two parts if they are larger
@@ -583,6 +587,9 @@ class CodeGenerator: public AstVisitor {
   void GenerateRegExpExec(ZoneList<Expression*>* args);
 
   void GenerateRegExpConstructResult(ZoneList<Expression*>* args);
+
+  // Support for fast native caches.
+  void GenerateGetFromCache(ZoneList<Expression*>* args);
 
   // Fast support for number to string.
   void GenerateNumberToString(ZoneList<Expression*>* args);
@@ -936,6 +943,10 @@ class NumberToStringStub: public CodeStub {
                                               Label* not_found);
 
  private:
+  static void GenerateConvertHashCodeToIndex(MacroAssembler* masm,
+                                             Register hash,
+                                             Register mask);
+
   Major MajorKey() { return NumberToString; }
   int MinorKey() { return 0; }
 

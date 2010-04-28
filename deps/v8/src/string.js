@@ -175,9 +175,9 @@ function StringLocaleCompare(other) {
 // ECMA-262 section 15.5.4.10
 function StringMatch(regexp) {
   var subject = TO_STRING_INLINE(this);
-  if (IS_REGEXP(regexp)) { 
-    if (!regexp.global) return regexp.exec(subject); 
-    
+  if (IS_REGEXP(regexp)) {
+    if (!regexp.global) return regexp.exec(subject);
+
     var cache = regExpCache;
     var saveAnswer = false;
 
@@ -435,63 +435,63 @@ function StringReplaceRegExpWithFunction(subject, regexp, replace) {
       // array to use in the future, or until the original is written back.
       resultArray = $Array(16);
     }
-    try {
-      // Must handle exceptions thrown by the replace functions correctly,
-      // including unregistering global regexps.
-      var res = %RegExpExecMultiple(regexp,
-                                    subject,
-                                    lastMatchInfo,
-                                    resultArray);
-      regexp.lastIndex = 0;
-      if (IS_NULL(res)) {
-        // No matches at all.
-        return subject;
-      }
-      var len = res.length;
-      var i = 0;
-      if (NUMBER_OF_CAPTURES(lastMatchInfo) == 2) {
-        var match_start = 0;
-        while (i < len) {
-          var elem = res[i];
-          if (%_IsSmi(elem)) {
-            if (elem > 0) {
-              match_start = (elem >> 11) + (elem & 0x7ff);
-            } else {
-              match_start = res[++i] - elem;
-            }
-          } else {
-            var func_result = replace.call(null, elem, match_start, subject);
-            if (!IS_STRING(func_result)) {
-              func_result = NonStringToString(func_result);
-            }
-            res[i] = func_result;
-            match_start += elem.length;
-          }
-          i++;
-        }
-      } else {
-        while (i < len) {
-          var elem = res[i];
-          if (!%_IsSmi(elem)) {
-            // elem must be an Array.
-            // Use the apply argument as backing for global RegExp properties.
-            lastMatchInfoOverride = elem;
-            var func_result = replace.apply(null, elem);
-            if (!IS_STRING(func_result)) {
-              func_result = NonStringToString(func_result);
-            }
-            res[i] = func_result;
-          }
-          i++;
-        }
-      }
-      var result = new ReplaceResultBuilder(subject, res);
-      return result.generate();
-    } finally {
-      lastMatchInfoOverride = null;
-      resultArray.length = 0;
-      reusableReplaceArray = resultArray;
+
+    var res = %RegExpExecMultiple(regexp,
+                                  subject,
+                                  lastMatchInfo,
+                                  resultArray);
+    regexp.lastIndex = 0;
+    if (IS_NULL(res)) {
+      // No matches at all.
+      return subject;
     }
+    var len = res.length;
+    var i = 0;
+    if (NUMBER_OF_CAPTURES(lastMatchInfo) == 2) {
+      var match_start = 0;
+      var override = [null, 0, subject];
+      while (i < len) {
+        var elem = res[i];
+        if (%_IsSmi(elem)) {
+          if (elem > 0) {
+            match_start = (elem >> 11) + (elem & 0x7ff);
+          } else {
+            match_start = res[++i] - elem;
+          }
+        } else {
+          override[0] = elem;
+          override[1] = match_start;
+          lastMatchInfoOverride = override;
+          var func_result = replace.call(null, elem, match_start, subject);
+          if (!IS_STRING(func_result)) {
+            func_result = NonStringToString(func_result);
+          }
+          res[i] = func_result;
+          match_start += elem.length;
+        }
+        i++;
+      }
+    } else {
+      while (i < len) {
+        var elem = res[i];
+        if (!%_IsSmi(elem)) {
+          // elem must be an Array.
+          // Use the apply argument as backing for global RegExp properties.
+          lastMatchInfoOverride = elem;
+          var func_result = replace.apply(null, elem);
+          if (!IS_STRING(func_result)) {
+            func_result = NonStringToString(func_result);
+          }
+          res[i] = func_result;
+        }
+        i++;
+      }
+    }
+    var resultBuilder = new ReplaceResultBuilder(subject, res);
+    var result = resultBuilder.generate();
+    resultArray.length = 0;
+    reusableReplaceArray = resultArray;
+    return result;
   } else { // Not a global regexp, no need to loop.
     var matchInfo = DoRegExpExec(regexp, subject, 0);
     if (IS_NULL(matchInfo)) return subject;
@@ -529,14 +529,19 @@ function ApplyReplacementFunction(replace, matchInfo, subject) {
   return replace.apply(null, parameters);
 }
 
-
 // ECMA-262 section 15.5.4.12
 function StringSearch(re) {
-  var regexp = new $RegExp(re);
+  var regexp;
+  if (IS_STRING(re)) {
+    regexp = %_GetFromCache(STRING_TO_REGEXP_CACHE_ID, re);
+  } else if (IS_REGEXP(re)) {
+    regexp = re;
+  } else {
+    regexp = new $RegExp(re);
+  }
   var s = TO_STRING_INLINE(this);
   var match = DoRegExpExec(regexp, s, 0);
   if (match) {
-    lastMatchInfo = match;
     return match[CAPTURE0];
   }
   return -1;
@@ -925,10 +930,10 @@ ReplaceResultBuilder.prototype.add = function(str) {
 
 ReplaceResultBuilder.prototype.addSpecialSlice = function(start, end) {
   var len = end - start;
-  if (len == 0) return;
+  if (start < 0 || len <= 0) return;
   var elements = this.elements;
   if (start < 0x80000 && len < 0x800) {
-    elements[elements.length] = (start << 11) + len;
+    elements[elements.length] = (start << 11) | len;
   } else {
     // 0 < len <= String::kMaxLength and Smi::kMaxValue >= String::kMaxLength,
     // so -len is a smi.

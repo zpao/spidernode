@@ -50,15 +50,32 @@ namespace internal {
 #define V8_HOST_ARCH_MIPS 1
 #define V8_HOST_ARCH_32_BIT 1
 #else
-#error Your host architecture was not detected as supported by v8
+#error Host architecture was not detected as supported by v8
 #endif
 
+// Check for supported combinations of host and target architectures.
+#if defined(V8_TARGET_ARCH_IA32) && !defined(V8_HOST_ARCH_IA32)
+#error Target architecture ia32 is only supported on ia32 host
+#endif
+#if defined(V8_TARGET_ARCH_X64) && !defined(V8_HOST_ARCH_X64)
+#error Target architecture x64 is only supported on x64 host
+#endif
+#if (defined(V8_TARGET_ARCH_ARM) && \
+    !(defined(V8_HOST_ARCH_IA32) || defined(V8_HOST_ARCH_ARM)))
+#error Target architecture arm is only supported on arm and ia32 host
+#endif
+#if (defined(V8_TARGET_ARCH_MIPS) && \
+    !(defined(V8_HOST_ARCH_IA32) || defined(V8_HOST_ARCH_MIPS)))
+#error Target architecture mips is only supported on mips and ia32 host
+#endif
+
+// Define unaligned read for the target architectures supporting it.
 #if defined(V8_TARGET_ARCH_X64) || defined(V8_TARGET_ARCH_IA32)
 #define V8_TARGET_CAN_READ_UNALIGNED 1
 #elif V8_TARGET_ARCH_ARM
 #elif V8_TARGET_ARCH_MIPS
 #else
-#error Your target architecture is not supported by v8
+#error Target architecture is not supported by v8
 #endif
 
 // Support for alternative bool type. This is only enabled if the code is
@@ -146,6 +163,9 @@ const intptr_t kIntptrSignBit = V8_INT64_C(0x8000000000000000);
 const int kPointerSizeLog2 = 2;
 const intptr_t kIntptrSignBit = 0x80000000;
 #endif
+
+// Mask for the sign bit in a smi.
+const intptr_t kSmiSignMask = kIntptrSignBit;
 
 const int kObjectAlignmentBits = kPointerSizeLog2;
 const intptr_t kObjectAlignment = 1 << kObjectAlignmentBits;
@@ -428,7 +448,11 @@ enum PropertyType {
   CONSTANT_TRANSITION = 6,  // only in fast mode
   NULL_DESCRIPTOR     = 7,  // only in fast mode
   // All properties before MAP_TRANSITION are real.
-  FIRST_PHANTOM_PROPERTY_TYPE = MAP_TRANSITION
+  FIRST_PHANTOM_PROPERTY_TYPE = MAP_TRANSITION,
+  // There are no IC stubs for NULL_DESCRIPTORS. Therefore,
+  // NULL_DESCRIPTOR can be used as the type flag for IC stubs for
+  // nonexistent properties.
+  NONEXISTENT = NULL_DESCRIPTOR
 };
 
 

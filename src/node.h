@@ -5,7 +5,6 @@
 #include <ev.h>
 #include <eio.h>
 #include <v8.h>
-#include <evcom.h>
 #include <sys/types.h> /* struct stat */
 #include <sys/stat.h>
 
@@ -77,5 +76,10 @@ static inline void cb_destroy(v8::Persistent<v8::Function> * cb) {
   delete cb;
 }
 
+v8::Local<v8::Value> ErrnoException(int errorno,
+                                    const char *syscall = NULL,
+                                    const char *msg = "");
+
+const char *signo_string(int errorno);
 }  // namespace node
 #endif  // SRC_NODE_H_

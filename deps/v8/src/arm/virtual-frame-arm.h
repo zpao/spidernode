@@ -308,6 +308,18 @@ class VirtualFrame : public ZoneObject {
                      InvokeJSFlags flag,
                      int arg_count);
 
+  // Call load IC. Receiver is on the stack and the property name is in r2.
+  // Result is returned in r0.
+  void CallLoadIC(RelocInfo::Mode mode);
+
+  // Call keyed load IC. Key and receiver are on the stack. Result is returned
+  // in r0.
+  void CallKeyedLoadIC();
+
+  // Call keyed store IC. Key and receiver are on the stack and the value is in
+  // r0. Result is returned in r0.
+  void CallKeyedStoreIC();
+
   // Call into an IC stub given the number of arguments it removes
   // from the stack.  Register arguments to the IC stub are implicit,
   // and depend on the type of IC stub.
@@ -335,6 +347,13 @@ class VirtualFrame : public ZoneObject {
   // Look at the top of the stack.  The register returned is aliased and
   // must be copied to a scratch register before modification.
   Register Peek();
+
+  // Flushes all registers, but it puts a copy of the top-of-stack in r0.
+  void SpillAllButCopyTOSToR0();
+
+  // Flushes all registers, but it puts a copy of the top-of-stack in r1
+  // and the next value on the stack in r0.
+  void SpillAllButCopyTOSToR1R0();
 
   // Pop and save an element from the top of the expression stack and
   // emit a corresponding pop instruction.
@@ -376,8 +395,15 @@ class VirtualFrame : public ZoneObject {
   static const int kPreallocatedElements = 5 + 8;  // 8 expression stack slots.
 
   // 5 states for the top of stack, which can be in memory or in r0 and r1.
-  enum TopOfStack { NO_TOS_REGISTERS, R0_TOS, R1_TOS, R1_R0_TOS, R0_R1_TOS,
-                    TOS_STATES};
+  enum TopOfStack {
+    NO_TOS_REGISTERS,
+    R0_TOS,
+    R1_TOS,
+    R1_R0_TOS,
+    R0_R1_TOS,
+    TOS_STATES
+  };
+
   static const int kMaxTOSRegisters = 2;
 
   static const bool kR0InUse[TOS_STATES];

@@ -22,41 +22,30 @@ process.error = removed("process.error() has moved. Use require('sys') to bring 
 process.watchFile = removed("process.watchFile() has moved to fs.watchFile()");
 process.unwatchFile = removed("process.unwatchFile() has moved to fs.unwatchFile()");
 process.mixin = removed('process.mixin() has been removed.');
-
-GLOBAL.node = {};
-
-node.createProcess = removed("node.createProcess() has been changed to process.createChildProcess() update your code");
 process.createChildProcess = removed("childProcess API has changed. See doc/api.txt.");
-node.exec = removed("process.exec() has moved. Use require('sys') to bring it back.");
-node.inherits = removed("node.inherits() has moved. Use require('sys') to access it.");
 process.inherits = removed("process.inherits() has moved to sys.inherits.");
-
-node.http = {};
-node.http.createServer = removed("node.http.createServer() has moved. Use require('http') to access it.");
-node.http.createClient = removed("node.http.createClient() has moved. Use require('http') to access it.");
-
-node.tcp = {};
-node.tcp.createServer = removed("node.tcp.createServer() has moved. Use require('tcp') to access it.");
-node.tcp.createConnection = removed("node.tcp.createConnection() has moved. Use require('tcp') to access it.");
-
-node.dns = {};
-node.dns.createConnection = removed("node.dns.createConnection() has moved. Use require('dns') to access it.");
 
 process.assert = function (x, msg) {
   if (!x) throw new Error(msg || "assertion error");
 };
 
-process.evalcx = process.binding('evals').Script.runInNewContext;
+var evalcxMsg;
+process.evalcx = function () {
+  if (!evalcxMsg) {
+    process.binding('stdio').writeError(evalcxMsg =
+      "process.evalcx is deprecated. Use Script.runInNewContext instead.\n");
+  }
+  return process.binding('evals').Script
+    .runInNewContext.apply(null, arguments);
+};
 
 // nextTick()
 
 var nextTickQueue = [];
 
 process._tickCallback = function () {
-  var l = nextTickQueue.length;
-  while (l--) {
-    var cb = nextTickQueue.shift();
-    cb();
+  for (var l = nextTickQueue.length; l; l--) {
+    nextTickQueue.shift()();
   }
 };
 
@@ -130,19 +119,44 @@ global.clearInterval = global.clearTimeout;
 var stdout;
 process.__defineGetter__('stdout', function () {
   if (stdout) return stdout;
-  var net = module.requireNative('net');
-  stdout = new net.Stream(process.binding('stdio').stdoutFD);
+
+  var binding = process.binding('stdio'),
+      net = module.requireNative('net'),
+      fs = module.requireNative('fs'),
+      fd = binding.stdoutFD;
+
+  if (binding.isStdoutBlocking()) {
+    stdout = new fs.WriteStream(null, {fd: fd});
+  } else {
+    stdout = new net.Stream(fd);
+    // FIXME Should probably have an option in net.Stream to create a stream from
+    // an existing fd which is writable only. But for now we'll just add
+    // this hack and set the `readable` member to false.
+    // Test: ./node test/fixtures/echo.js < /etc/passwd
+    stdout.readable = false;
+  }
+
   return stdout;
 });
 
 var stdin;
 process.openStdin = function () {
   if (stdin) return stdin;
-  var net = module.requireNative('net');
-  var fd = process.binding('stdio').openStdin();
-  stdin = new net.Stream(fd);
+
+var binding = process.binding('stdio'),
+    net = module.requireNative('net'),
+    fs = module.requireNative('fs'),
+    fd = binding.openStdin();
+
+  if (binding.isStdinBlocking()) {
+    stdin = new net.Stream(fd);
+    stdin.readable = true;
+  } else {
+    stdin = new fs.ReadStream(null, {fd: fd});
+  }
+
   stdin.resume();
-  stdin.readable = true;
+
   return stdin;
 };
 

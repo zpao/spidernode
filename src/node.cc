@@ -19,13 +19,11 @@
 #include <node_net2.h>
 #include <node_events.h>
 #include <node_cares.h>
-#include <node_net.h>
 #include <node_file.h>
 #if 0
 // not in use
 # include <node_idle_watcher.h>
 #endif
-#include <node_http.h>
 #include <node_http_parser.h>
 #include <node_signal_watcher.h>
 #include <node_stat_watcher.h>
@@ -49,6 +47,9 @@ extern char **environ;
 namespace node {
 
 static Persistent<Object> process;
+
+static Persistent<String> errno_symbol;
+static Persistent<String> syscall_symbol;
 
 static Persistent<String> dev_symbol;
 static Persistent<String> ino_symbol;
@@ -275,6 +276,501 @@ static void EIODonePoll(void) {
   // Signal the main thread that we should stop calling eio_poll().
   // from the idle watcher.
   ev_async_send(EV_DEFAULT_UC_ &eio_done_poll_notifier);
+}
+
+
+static inline const char *errno_string(int errorno) {
+#define ERRNO_CASE(e)  case e: return #e;
+  switch (errorno) {
+
+#ifdef EACCES
+  ERRNO_CASE(EACCES);
+#endif
+
+#ifdef EADDRINUSE
+  ERRNO_CASE(EADDRINUSE);
+#endif
+
+#ifdef EADDRNOTAVAIL
+  ERRNO_CASE(EADDRNOTAVAIL);
+#endif
+
+#ifdef EAFNOSUPPORT
+  ERRNO_CASE(EAFNOSUPPORT);
+#endif
+
+#ifdef EAGAIN
+  ERRNO_CASE(EAGAIN);
+#endif
+
+#ifdef EWOULDBLOCK
+# if EAGAIN != EWOULDBLOCK
+  ERRNO_CASE(EWOULDBLOCK);
+# endif
+#endif
+
+#ifdef EALREADY
+  ERRNO_CASE(EALREADY);
+#endif
+
+#ifdef EBADF
+  ERRNO_CASE(EBADF);
+#endif
+
+#ifdef EBADMSG
+  ERRNO_CASE(EBADMSG);
+#endif
+
+#ifdef EBUSY
+  ERRNO_CASE(EBUSY);
+#endif
+
+#ifdef ECANCELED
+  ERRNO_CASE(ECANCELED);
+#endif
+
+#ifdef ECHILD
+  ERRNO_CASE(ECHILD);
+#endif
+
+#ifdef ECONNABORTED
+  ERRNO_CASE(ECONNABORTED);
+#endif
+
+#ifdef ECONNREFUSED
+  ERRNO_CASE(ECONNREFUSED);
+#endif
+
+#ifdef ECONNRESET
+  ERRNO_CASE(ECONNRESET);
+#endif
+
+#ifdef EDEADLK
+  ERRNO_CASE(EDEADLK);
+#endif
+
+#ifdef EDESTADDRREQ
+  ERRNO_CASE(EDESTADDRREQ);
+#endif
+
+#ifdef EDOM
+  ERRNO_CASE(EDOM);
+#endif
+
+#ifdef EDQUOT
+  ERRNO_CASE(EDQUOT);
+#endif
+
+#ifdef EEXIST
+  ERRNO_CASE(EEXIST);
+#endif
+
+#ifdef EFAULT
+  ERRNO_CASE(EFAULT);
+#endif
+
+#ifdef EFBIG
+  ERRNO_CASE(EFBIG);
+#endif
+
+#ifdef EHOSTUNREACH
+  ERRNO_CASE(EHOSTUNREACH);
+#endif
+
+#ifdef EIDRM
+  ERRNO_CASE(EIDRM);
+#endif
+
+#ifdef EILSEQ
+  ERRNO_CASE(EILSEQ);
+#endif
+
+#ifdef EINPROGRESS
+  ERRNO_CASE(EINPROGRESS);
+#endif
+
+#ifdef EINTR
+  ERRNO_CASE(EINTR);
+#endif
+
+#ifdef EINVAL
+  ERRNO_CASE(EINVAL);
+#endif
+
+#ifdef EIO
+  ERRNO_CASE(EIO);
+#endif
+
+#ifdef EISCONN
+  ERRNO_CASE(EISCONN);
+#endif
+
+#ifdef EISDIR
+  ERRNO_CASE(EISDIR);
+#endif
+
+#ifdef ELOOP
+  ERRNO_CASE(ELOOP);
+#endif
+
+#ifdef EMFILE
+  ERRNO_CASE(EMFILE);
+#endif
+
+#ifdef EMLINK
+  ERRNO_CASE(EMLINK);
+#endif
+
+#ifdef EMSGSIZE
+  ERRNO_CASE(EMSGSIZE);
+#endif
+
+#ifdef EMULTIHOP
+  ERRNO_CASE(EMULTIHOP);
+#endif
+
+#ifdef ENAMETOOLONG
+  ERRNO_CASE(ENAMETOOLONG);
+#endif
+
+#ifdef ENETDOWN
+  ERRNO_CASE(ENETDOWN);
+#endif
+
+#ifdef ENETRESET
+  ERRNO_CASE(ENETRESET);
+#endif
+
+#ifdef ENETUNREACH
+  ERRNO_CASE(ENETUNREACH);
+#endif
+
+#ifdef ENFILE
+  ERRNO_CASE(ENFILE);
+#endif
+
+#ifdef ENOBUFS
+  ERRNO_CASE(ENOBUFS);
+#endif
+
+#ifdef ENODATA
+  ERRNO_CASE(ENODATA);
+#endif
+
+#ifdef ENODEV
+  ERRNO_CASE(ENODEV);
+#endif
+
+#ifdef ENOENT
+  ERRNO_CASE(ENOENT);
+#endif
+
+#ifdef ENOEXEC
+  ERRNO_CASE(ENOEXEC);
+#endif
+
+#ifdef ENOLINK
+  ERRNO_CASE(ENOLINK);
+#endif
+
+#ifdef ENOLCK
+# if ENOLINK != ENOLCK
+  ERRNO_CASE(ENOLCK);
+# endif
+#endif
+
+#ifdef ENOMEM
+  ERRNO_CASE(ENOMEM);
+#endif
+
+#ifdef ENOMSG
+  ERRNO_CASE(ENOMSG);
+#endif
+
+#ifdef ENOPROTOOPT
+  ERRNO_CASE(ENOPROTOOPT);
+#endif
+
+#ifdef ENOSPC
+  ERRNO_CASE(ENOSPC);
+#endif
+
+#ifdef ENOSR
+  ERRNO_CASE(ENOSR);
+#endif
+
+#ifdef ENOSTR
+  ERRNO_CASE(ENOSTR);
+#endif
+
+#ifdef ENOSYS
+  ERRNO_CASE(ENOSYS);
+#endif
+
+#ifdef ENOTCONN
+  ERRNO_CASE(ENOTCONN);
+#endif
+
+#ifdef ENOTDIR
+  ERRNO_CASE(ENOTDIR);
+#endif
+
+#ifdef ENOTEMPTY
+  ERRNO_CASE(ENOTEMPTY);
+#endif
+
+#ifdef ENOTSOCK
+  ERRNO_CASE(ENOTSOCK);
+#endif
+
+#ifdef ENOTSUP
+  ERRNO_CASE(ENOTSUP);
+#else
+# ifdef EOPNOTSUPP
+  ERRNO_CASE(EOPNOTSUPP);
+# endif
+#endif
+
+#ifdef ENOTTY
+  ERRNO_CASE(ENOTTY);
+#endif
+
+#ifdef ENXIO
+  ERRNO_CASE(ENXIO);
+#endif
+
+
+#ifdef EOVERFLOW
+  ERRNO_CASE(EOVERFLOW);
+#endif
+
+#ifdef EPERM
+  ERRNO_CASE(EPERM);
+#endif
+
+#ifdef EPIPE
+  ERRNO_CASE(EPIPE);
+#endif
+
+#ifdef EPROTO
+  ERRNO_CASE(EPROTO);
+#endif
+
+#ifdef EPROTONOSUPPORT
+  ERRNO_CASE(EPROTONOSUPPORT);
+#endif
+
+#ifdef EPROTOTYPE
+  ERRNO_CASE(EPROTOTYPE);
+#endif
+
+#ifdef ERANGE
+  ERRNO_CASE(ERANGE);
+#endif
+
+#ifdef EROFS
+  ERRNO_CASE(EROFS);
+#endif
+
+#ifdef ESPIPE
+  ERRNO_CASE(ESPIPE);
+#endif
+
+#ifdef ESRCH
+  ERRNO_CASE(ESRCH);
+#endif
+
+#ifdef ESTALE
+  ERRNO_CASE(ESTALE);
+#endif
+
+#ifdef ETIME
+  ERRNO_CASE(ETIME);
+#endif
+
+#ifdef ETIMEDOUT
+  ERRNO_CASE(ETIMEDOUT);
+#endif
+
+#ifdef ETXTBSY
+  ERRNO_CASE(ETXTBSY);
+#endif
+
+#ifdef EXDEV
+  ERRNO_CASE(EXDEV);
+#endif
+
+  default: return "";
+  }
+}
+
+const char *signo_string(int signo) {
+#define SIGNO_CASE(e)  case e: return #e;
+  switch (signo) {
+
+#ifdef SIGHUP
+  SIGNO_CASE(SIGHUP);
+#endif
+
+#ifdef SIGINT
+  SIGNO_CASE(SIGINT);
+#endif
+
+#ifdef SIGQUIT
+  SIGNO_CASE(SIGQUIT);
+#endif
+
+#ifdef SIGILL
+  SIGNO_CASE(SIGILL);
+#endif
+
+#ifdef SIGTRAP
+  SIGNO_CASE(SIGTRAP);
+#endif
+
+#ifdef SIGABRT
+  SIGNO_CASE(SIGABRT);
+#endif
+
+#ifdef SIGIOT
+# if SIGABRT != SIGIOT
+  SIGNO_CASE(SIGIOT);
+# endif
+#endif
+
+#ifdef SIGBUS
+  SIGNO_CASE(SIGBUS);
+#endif
+
+#ifdef SIGFPE
+  SIGNO_CASE(SIGFPE);
+#endif
+
+#ifdef SIGKILL
+  SIGNO_CASE(SIGKILL);
+#endif
+
+#ifdef SIGUSR1
+  SIGNO_CASE(SIGUSR1);
+#endif
+
+#ifdef SIGSEGV
+  SIGNO_CASE(SIGSEGV);
+#endif
+
+#ifdef SIGUSR2
+  SIGNO_CASE(SIGUSR2);
+#endif
+
+#ifdef SIGPIPE
+  SIGNO_CASE(SIGPIPE);
+#endif
+
+#ifdef SIGALRM
+  SIGNO_CASE(SIGALRM);
+#endif
+
+  SIGNO_CASE(SIGTERM);
+  SIGNO_CASE(SIGCHLD);
+
+#ifdef SIGSTKFLT
+  SIGNO_CASE(SIGSTKFLT);
+#endif
+
+
+#ifdef SIGCONT
+  SIGNO_CASE(SIGCONT);
+#endif
+
+#ifdef SIGSTOP
+  SIGNO_CASE(SIGSTOP);
+#endif
+
+#ifdef SIGTSTP
+  SIGNO_CASE(SIGTSTP);
+#endif
+
+#ifdef SIGTTIN
+  SIGNO_CASE(SIGTTIN);
+#endif
+
+#ifdef SIGTTOU
+  SIGNO_CASE(SIGTTOU);
+#endif
+
+#ifdef SIGURG
+  SIGNO_CASE(SIGURG);
+#endif
+
+#ifdef SIGXCPU
+  SIGNO_CASE(SIGXCPU);
+#endif
+
+#ifdef SIGXFSZ
+  SIGNO_CASE(SIGXFSZ);
+#endif
+
+#ifdef SIGVTALRM
+  SIGNO_CASE(SIGVTALRM);
+#endif
+
+#ifdef SIGPROF
+  SIGNO_CASE(SIGPROF);
+#endif
+
+#ifdef SIGWINCH
+  SIGNO_CASE(SIGWINCH);
+#endif
+
+#ifdef SIGIO
+  SIGNO_CASE(SIGIO);
+#endif
+
+#ifdef SIGPOLL
+# if SIGPOLL != SIGIO
+  SIGNO_CASE(SIGPOLL);
+# endif
+#endif
+
+#ifdef SIGLOST
+  SIGNO_CASE(SIGLOST);
+#endif
+
+#ifdef SIGPWR
+  SIGNO_CASE(SIGPWR);
+#endif
+
+#ifdef SIGSYS
+  SIGNO_CASE(SIGSYS);
+#endif
+
+  default: return "";
+  }
+}
+
+
+Local<Value> ErrnoException(int errorno,
+                            const char *syscall,
+                            const char *msg) {
+  Local<String> estring = String::NewSymbol(errno_string(errorno));
+  if (!msg[0]) msg = strerror(errorno);
+  Local<String> message = String::NewSymbol(msg);
+
+  Local<String> cons1 = String::Concat(estring, String::NewSymbol(", "));
+  Local<String> cons2 = String::Concat(cons1, message);
+
+  Local<Value> e = Exception::Error(cons2);
+
+  Local<Object> obj = e->ToObject();
+
+  if (errno_symbol.IsEmpty()) {
+    syscall_symbol = NODE_PSYMBOL("syscall");
+    errno_symbol = NODE_PSYMBOL("errno");
+  }
+
+  obj->Set(errno_symbol, Integer::New(errorno));
+  if (syscall) obj->Set(syscall_symbol, String::NewSymbol(syscall));
+  return e;
 }
 
 
@@ -1168,29 +1664,6 @@ static Handle<Value> Binding(const Arguments& args) {
       binding_cache->Set(module, exports);
     }
 
-  } else if (!strcmp(*module_v, "http")) {
-    if (binding_cache->Has(module)) {
-      exports = binding_cache->Get(module)->ToObject();
-    } else {
-      // Warning: When calling requireBinding('http') from javascript then
-      // be sure that you call requireBinding('tcp') before it.
-      assert(binding_cache->Has(String::New("tcp")));
-      exports = Object::New();
-      HTTPServer::Initialize(exports);
-      HTTPConnection::Initialize(exports);
-      binding_cache->Set(module, exports);
-    }
-
-  } else if (!strcmp(*module_v, "tcp")) {
-    if (binding_cache->Has(module)) {
-      exports = binding_cache->Get(module)->ToObject();
-    } else {
-      exports = Object::New();
-      Server::Initialize(exports);
-      Connection::Initialize(exports);
-      binding_cache->Set(module, exports);
-    }
-
   } else if (!strcmp(*module_v, "cares")) {
     if (binding_cache->Has(module)) {
       exports = binding_cache->Get(module)->ToObject();
@@ -1295,7 +1768,6 @@ static Handle<Value> Binding(const Arguments& args) {
       exports->Set(String::New("freelist"),     String::New(native_freelist));
       exports->Set(String::New("fs"),           String::New(native_fs));
       exports->Set(String::New("http"),         String::New(native_http));
-      exports->Set(String::New("http_old"),     String::New(native_http_old));
       exports->Set(String::New("crypto"),       String::New(native_crypto));
       exports->Set(String::New("ini"),          String::New(native_ini));
       exports->Set(String::New("mjsunit"),      String::New(native_mjsunit));
@@ -1305,7 +1777,6 @@ static Handle<Value> Binding(const Arguments& args) {
       exports->Set(String::New("repl"),         String::New(native_repl));
       exports->Set(String::New("sys"),          String::New(native_sys));
       exports->Set(String::New("tcp"),          String::New(native_tcp));
-      exports->Set(String::New("tcp_old"),      String::New(native_tcp_old));
       exports->Set(String::New("uri"),          String::New(native_uri));
       exports->Set(String::New("url"),          String::New(native_url));
       exports->Set(String::New("utils"),        String::New(native_utils));
@@ -1315,7 +1786,6 @@ static Handle<Value> Binding(const Arguments& args) {
     }
 
   } else {
-    assert(0);
     return ThrowException(Exception::Error(String::New("No such module")));
   }
 
@@ -1548,9 +2018,6 @@ int main(int argc, char *argv[]) {
     node::PrintHelp();
     return 1;
   }
-
-  // Ignore the SIGPIPE
-  evcom_ignore_sigpipe();
 
   // Initialize the default ev loop.
 #ifdef __sun

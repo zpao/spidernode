@@ -950,6 +950,26 @@ void StubCompiler::GenerateStoreField(MacroAssembler* masm,
 }
 
 
+// Generate code to check that a global property cell is empty. Create
+// the property cell at compilation time if no cell exists for the
+// property.
+static Object* GenerateCheckPropertyCell(MacroAssembler* masm,
+                                         GlobalObject* global,
+                                         String* name,
+                                         Register scratch,
+                                         Label* miss) {
+  Object* probe = global->EnsurePropertyCell(name);
+  if (probe->IsFailure()) return probe;
+  JSGlobalPropertyCell* cell = JSGlobalPropertyCell::cast(probe);
+  ASSERT(cell->value()->IsTheHole());
+  __ mov(scratch, Immediate(Handle<Object>(cell)));
+  __ cmp(FieldOperand(scratch, JSGlobalPropertyCell::kValueOffset),
+         Immediate(Factory::the_hole_value()));
+  __ j(not_equal, miss, not_taken);
+  return cell;
+}
+
+
 #undef __
 #define __ ACCESS_MASM(masm())
 
@@ -968,21 +988,19 @@ Register StubCompiler::CheckPrototypes(JSObject* object,
                         push_at_depth, miss);
 
   // If we've skipped any global objects, it's not enough to verify
-  // that their maps haven't changed.
+  // that their maps haven't changed.  We also need to check that the
+  // property cell for the property is still empty.
   while (object != holder) {
     if (object->IsGlobalObject()) {
-      GlobalObject* global = GlobalObject::cast(object);
-      Object* probe = global->EnsurePropertyCell(name);
-      if (probe->IsFailure()) {
-        set_failure(Failure::cast(probe));
+      Object* cell = GenerateCheckPropertyCell(masm(),
+                                               GlobalObject::cast(object),
+                                               name,
+                                               scratch,
+                                               miss);
+      if (cell->IsFailure()) {
+        set_failure(Failure::cast(cell));
         return result;
       }
-      JSGlobalPropertyCell* cell = JSGlobalPropertyCell::cast(probe);
-      ASSERT(cell->value()->IsTheHole());
-      __ mov(scratch, Immediate(Handle<Object>(cell)));
-      __ cmp(FieldOperand(scratch, JSGlobalPropertyCell::kValueOffset),
-             Immediate(Factory::the_hole_value()));
-      __ j(not_equal, miss, not_taken);
     }
     object = JSObject::cast(object->GetPrototype());
   }
@@ -1223,6 +1241,11 @@ Object* CallStubCompiler::CompileArrayPushCall(Object* object,
   // -----------------------------------
   ASSERT(check == RECEIVER_MAP_CHECK);
 
+  // If object is not an array, bail out to regular call.
+  if (!object->IsJSArray()) {
+    return Heap::undefined_value();
+  }
+
   Label miss;
 
   // Get the receiver from the stack.
@@ -1371,6 +1394,11 @@ Object* CallStubCompiler::CompileArrayPopCall(Object* object,
   // -----------------------------------
   ASSERT(check == RECEIVER_MAP_CHECK);
 
+  // If object is not an array, bail out to regular call.
+  if (!object->IsJSArray()) {
+    return Heap::undefined_value();
+  }
+
   Label miss, empty_array, call_builtin;
 
   // Get the receiver from the stack.
@@ -1458,7 +1486,11 @@ Object* CallStubCompiler::CompileCallConstant(Object* object,
   if (function_info->HasCustomCallGenerator()) {
     CustomCallGenerator generator =
         ToCData<CustomCallGenerator>(function_info->function_data());
-    return generator(this, object, holder, function, name, check);
+    Object* result = generator(this, object, holder, function, name, check);
+    // undefined means bail out to regular compiler.
+    if (!result->IsUndefined()) {
+      return result;
+    }
   }
 
   Label miss_in_smi_check;
@@ -1947,6 +1979,48 @@ Object* KeyedStoreStubCompiler::CompileStoreField(JSObject* object,
   return GetCode(transition == NULL ? FIELD : MAP_TRANSITION, name);
 }
 
+
+Object* LoadStubCompiler::CompileLoadNonexistent(String* name,
+                                                 JSObject* object,
+                                                 JSObject* last) {
+  // ----------- S t a t e -------------
+  //  -- eax    : receiver
+  //  -- ecx    : name
+  //  -- esp[0] : return address
+  // -----------------------------------
+  Label miss;
+
+  // Check that the receiver isn't a smi.
+  __ test(eax, Immediate(kSmiTagMask));
+  __ j(zero, &miss, not_taken);
+
+  // Check the maps of the full prototype chain. Also check that
+  // global property cells up to (but not including) the last object
+  // in the prototype chain are empty.
+  CheckPrototypes(object, eax, last, ebx, edx, name, &miss);
+
+  // If the last object in the prototype chain is a global object,
+  // check that the global property cell is empty.
+  if (last->IsGlobalObject()) {
+    Object* cell = GenerateCheckPropertyCell(masm(),
+                                             GlobalObject::cast(last),
+                                             name,
+                                             edx,
+                                             &miss);
+    if (cell->IsFailure()) return cell;
+  }
+
+  // Return undefined if maps of the full prototype chain are still the
+  // same and no global property with this name contains a value.
+  __ mov(eax, Factory::undefined_value());
+  __ ret(0);
+
+  __ bind(&miss);
+  GenerateLoadMiss(masm(), Code::LOAD_IC);
+
+  // Return the generated code.
+  return GetCode(NONEXISTENT, Heap::empty_string());
+}
 
 
 Object* LoadStubCompiler::CompileLoadField(JSObject* object,

@@ -125,7 +125,7 @@ void FullCodeGenerator::Generate(CompilationInfo* info, Mode mode) {
       __ add(r2, fp,
              Operand(StandardFrameConstants::kCallerSPOffset + offset));
       __ mov(r1, Operand(Smi::FromInt(scope()->num_parameters())));
-      __ stm(db_w, sp, r3.bit() | r2.bit() | r1.bit());
+      __ Push(r3, r2, r1);
 
       // Arguments to ArgumentsAccessStub:
       //   function, receiver address, parameter count.
@@ -194,36 +194,34 @@ void FullCodeGenerator::EmitReturnSequence(int position) {
       __ CallRuntime(Runtime::kTraceExit, 1);
     }
 
+#ifdef DEBUG
     // Add a label for checking the size of the code used for returning.
     Label check_exit_codesize;
     masm_->bind(&check_exit_codesize);
-
-    // Calculate the exact length of the return sequence and make sure that
-    // the constant pool is not emitted inside of the return sequence.
-    int num_parameters = scope()->num_parameters();
-    int32_t sp_delta = (num_parameters + 1) * kPointerSize;
-    int return_sequence_length = Assembler::kJSReturnSequenceLength;
-    if (!masm_->ImmediateFitsAddrMode1Instruction(sp_delta)) {
-      // Additional mov instruction generated.
-      return_sequence_length++;
+#endif
+    // Make sure that the constant pool is not emitted inside of the return
+    // sequence.
+    { Assembler::BlockConstPoolScope block_const_pool(masm_);
+      // Here we use masm_-> instead of the __ macro to avoid the code coverage
+      // tool from instrumenting as we rely on the code size here.
+      int32_t sp_delta = (scope()->num_parameters() + 1) * kPointerSize;
+      CodeGenerator::RecordPositions(masm_, position);
+      __ RecordJSReturn();
+      masm_->mov(sp, fp);
+      masm_->ldm(ia_w, sp, fp.bit() | lr.bit());
+      masm_->add(sp, sp, Operand(sp_delta));
+      masm_->Jump(lr);
     }
-    masm_->BlockConstPoolFor(return_sequence_length);
 
-    CodeGenerator::RecordPositions(masm_, position);
-    __ RecordJSReturn();
-    __ mov(sp, fp);
-    __ ldm(ia_w, sp, fp.bit() | lr.bit());
-    __ add(sp, sp, Operand(sp_delta));
-    __ Jump(lr);
-
+#ifdef DEBUG
     // Check that the size of the code used for returning matches what is
-    // expected by the debugger. The add instruction above is an addressing
-    // mode 1 instruction where there are restrictions on which immediate values
-    // can be encoded in the instruction and which immediate values requires
-    // use of an additional instruction for moving the immediate to a temporary
-    // register.
-    ASSERT_EQ(return_sequence_length,
-              masm_->InstructionsGeneratedSince(&check_exit_codesize));
+    // expected by the debugger. If the sp_delts above cannot be encoded in the
+    // add instruction the add will generate two instructions.
+    int return_sequence_length =
+        masm_->InstructionsGeneratedSince(&check_exit_codesize);
+    CHECK(return_sequence_length == Assembler::kJSReturnSequenceLength ||
+          return_sequence_length == Assembler::kJSReturnSequenceLength + 1);
+#endif
   }
 }
 
@@ -666,7 +664,8 @@ void FullCodeGenerator::DeclareGlobals(Handle<FixedArray> pairs) {
 void FullCodeGenerator::VisitFunctionLiteral(FunctionLiteral* expr) {
   Comment cmnt(masm_, "[ FunctionLiteral");
 
-  // Build the function boilerplate and instantiate it.
+  // Build the shared function info and instantiate the function based
+  // on it.
   Handle<SharedFunctionInfo> function_info =
       Compiler::BuildFunctionInfo(expr, script(), this);
   if (HasStackOverflow()) return;
@@ -697,8 +696,8 @@ void FullCodeGenerator::EmitVariableLoad(Variable* var,
     Comment cmnt(masm_, "Global variable");
     // Use inline caching. Variable name is passed in r2 and the global
     // object on the stack.
-    __ ldr(ip, CodeGenerator::GlobalObject());
-    __ push(ip);
+    __ ldr(r0, CodeGenerator::GlobalObject());
+    __ push(r0);
     __ mov(r2, Operand(var->name()));
     Handle<Code> ic(Builtins::builtin(Builtins::LoadIC_Initialize));
     __ Call(ic, RelocInfo::CODE_TARGET_CONTEXT);
@@ -740,7 +739,7 @@ void FullCodeGenerator::EmitVariableLoad(Variable* var,
     __ mov(r1, Operand(key_literal->handle()));
 
     // Push both as arguments to ic.
-    __ stm(db_w, sp, r2.bit() | r1.bit());
+    __ Push(r2, r1);
 
     // Do a keyed property load.
     Handle<Code> ic(Builtins::builtin(Builtins::KeyedLoadIC_Initialize));
@@ -772,7 +771,7 @@ void FullCodeGenerator::VisitRegExpLiteral(RegExpLiteral* expr) {
   __ mov(r3, Operand(Smi::FromInt(expr->literal_index())));
   __ mov(r2, Operand(expr->pattern()));
   __ mov(r1, Operand(expr->flags()));
-  __ stm(db_w, sp, r4.bit() | r3.bit() | r2.bit() | r1.bit());
+  __ Push(r4, r3, r2, r1);
   __ CallRuntime(Runtime::kMaterializeRegExpLiteral, 4);
   __ bind(&done);
   Apply(context_, r0);
@@ -786,7 +785,7 @@ void FullCodeGenerator::VisitObjectLiteral(ObjectLiteral* expr) {
   __ mov(r2, Operand(Smi::FromInt(expr->literal_index())));
   __ mov(r1, Operand(expr->constant_properties()));
   __ mov(r0, Operand(Smi::FromInt(expr->fast_elements() ? 1 : 0)));
-  __ stm(db_w, sp, r3.bit() | r2.bit() | r1.bit() | r0.bit());
+  __ Push(r3, r2, r1, r0);
   if (expr->depth() > 1) {
     __ CallRuntime(Runtime::kCreateObjectLiteral, 4);
   } else {
@@ -861,7 +860,7 @@ void FullCodeGenerator::VisitArrayLiteral(ArrayLiteral* expr) {
   __ ldr(r3, FieldMemOperand(r3, JSFunction::kLiteralsOffset));
   __ mov(r2, Operand(Smi::FromInt(expr->literal_index())));
   __ mov(r1, Operand(expr->constant_elements()));
-  __ stm(db_w, sp, r3.bit() | r2.bit() | r1.bit());
+  __ Push(r3, r2, r1);
   if (expr->depth() > 1) {
     __ CallRuntime(Runtime::kCreateArrayLiteral, 3);
   } else {
@@ -998,6 +997,7 @@ void FullCodeGenerator::EmitNamedPropertyLoad(Property* prop) {
   SetSourcePosition(prop->position());
   Literal* key = prop->key()->AsLiteral();
   __ mov(r2, Operand(key->handle()));
+  __ ldr(r0, MemOperand(sp, 0));
   Handle<Code> ic(Builtins::builtin(Builtins::LoadIC_Initialize));
   __ Call(ic, RelocInfo::CODE_TARGET);
 }
@@ -1593,10 +1593,9 @@ void FullCodeGenerator::VisitCountOperation(CountOperation* expr) {
 
   // Inline smi case if we are in a loop.
   Label stub_call, done;
+  int count_value = expr->op() == Token::INC ? 1 : -1;
   if (loop_depth() > 0) {
-    __ add(r0, r0, Operand(expr->op() == Token::INC
-                           ? Smi::FromInt(1)
-                           : Smi::FromInt(-1)));
+    __ add(r0, r0, Operand(Smi::FromInt(count_value)), SetCC);
     __ b(vs, &stub_call);
     // We could eliminate this smi check if we split the code at
     // the first smi check before calling ToNumber.
@@ -1604,11 +1603,9 @@ void FullCodeGenerator::VisitCountOperation(CountOperation* expr) {
     __ b(eq, &done);
     __ bind(&stub_call);
     // Call stub. Undo operation first.
-    __ sub(r0, r0, Operand(r1));
+    __ sub(r0, r0, Operand(Smi::FromInt(count_value)));
   }
-  __ mov(r1, Operand(expr->op() == Token::INC
-                     ? Smi::FromInt(1)
-                     : Smi::FromInt(-1)));
+  __ mov(r1, Operand(Smi::FromInt(count_value)));
   GenericBinaryOpStub stub(Token::ADD, NO_OVERWRITE, r1, r0);
   __ CallStub(&stub);
   __ bind(&done);

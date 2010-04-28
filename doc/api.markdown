@@ -25,123 +25,185 @@ it with the node program
 All of the examples in the documentation can be run similarly.
 
 
-## Modules
 
-Node uses the CommonJS module system.
+## Standard Modules
 
-Node has a simple module loading system.  In Node, files and modules are in
-one-to-one correspondence.  As an example, `foo.js` loads the module
-`circle.js` in the same directory.
+Node comes with a number of modules that are compiled in to the process,
+most of which are documented below.  The most common way to use these modules
+is with `require('name')` and then assigning the return value to a local
+variable with the same name as the module.
 
-The contents of `foo.js`:
+Example:
 
-    var circle = require('./circle'),
     var sys = require('sys');
-    sys.puts( 'The area of a circle of radius 4 is ' 
-            + circle.area(4));
-
-The contents of `circle.js`:
-
-    var PI = 3.14;
-
-    exports.area = function (r) {
-      return PI * r * r;
-    };
-
-    exports.circumference = function (r) {
-      return 2 * PI * r;
-    };
-
-The module `circle.js` has exported the functions `area()` and
-`circumference()`.  To export an object, add to the special `exports`
-object.  (Alternatively, one can use `this` instead of `exports`.) Variables
-local to the module will be private. In this example the variable `PI` is
-private to `circle.js`. The function `puts()` comes from the module `'sys'`,
-which is a built-in module. Modules which are not prefixed by `'./'` are
-built-in module--more about this later.
-
-A module prefixed with `'./'` is relative to the file calling `require()`.
-That is, `circle.js` must be in the same directory as `foo.js` for
-`require('./circle')` to find it.
-
-Without the leading `'./'`, like `require('assert')` the module is searched
-for in the `require.paths` array. `require.paths` on my system looks like
-this: 
-
-`[ '/home/ryan/.node_libraries' ]`
-
-That is, when `require('assert')` is called Node looks for: 
-
-  * 1: `/home/ryan/.node_libraries/assert.js`
-  * 2: `/home/ryan/.node_libraries/assert.node`
-  * 3: `/home/ryan/.node_libraries/assert/index.js`
-  * 4: `/home/ryan/.node_libraries/assert/index.node`
-
-interrupting once a file is found. Files ending in `'.node'` are binary Addon
-Modules; see the section below about addons. `'index.js'` allows one to
-package a module as a directory.
-
-`require.paths` can be modified at runtime by simply unshifting new
-paths onto it, or at startup with the `NODE_PATH` environmental
-variable (which should be a list of paths, colon separated).
+    
+It is possible to extend node with other modules.  See `'Modules'`
 
 
 ## Buffers
 
-Pure Javascript is Unicode friendly but not nice to pure binary data.  When
+Pure Javascript is Unicode friendly but not nice to binary data.  When
 dealing with TCP streams or the file system, it's necessary to handle octet
 streams. Node has several strategies for manipulating, creating, and
 consuming octet streams.
 
 Raw data is stored in instances of the `Buffer` class. A `Buffer` is similar
-to an array of integers but correspond to a raw memory allocation outside
+to an array of integers but corresponds to a raw memory allocation outside
 the V8 heap. A `Buffer` cannot be resized.
-Access the class at `require('buffer').Buffer`.
+Access the class with `require('buffer').Buffer`.
 
-Node supports 3 string encodings. UTF-8 (`'utf8'`), ASCII (`'ascii'`), and
-Binary (`'binary'`). `'ascii'` and `'binary'` only look at the first 8 bits
-of the 16bit JavaScript string characters.
+Converting between Buffers and JavaScript string objects requires an explicit encoding
+method.  Node supports 3 string encodings: UTF-8 (`'utf8'`), ASCII (`'ascii'`), and
+Binary (`'binary'`).
 
-### Buffer.byteLength(string, encoding)
-Gives the actual byte length of a string.  This is not the same as
-`String.prototype.length` since that returns the number of *characters* in a
-string.
+* `'ascii'` - for 7 bit ASCII data only.  This encoding method is very fast, and will
+strip the high bit if set.
+    
+* `'binary'` - for 8 bit binary data such as images.
 
-    // Takes in a UTF8 string, gives back a buffer
-    function stringToBuffer(string) {
-      var buffer = new Buffer(Buffer.byteLength(string));
-      buffer.utf8Write(string);
-      return buffer;
-    };
+* `'utf8'` - Unicode characters.  Many web pages and other document formats use UTF-8.
+
 
 ### new Buffer(size)
+
 Allocates a new buffer of `size` octets.
 
-### buffer[index]
-Get and set the octet at `index`. The value can be between `0x00` and `0xFF`.
-
-### buffer.length
-length in octets.
-
-### buffer.copy(targetBuffer, targetStart, start, end)
-Does a memcpy() between buffers.
-
-### buffer.slice(start, end)
-Returns a new buffer which references the
-same memory as the old, but offset and cropped by the `start` and `end`
-indexes. **Modifying the new buffer slice will modify memory in the original
-buffer!**
-
 ### buffer.write(string, encoding, offset)
+
 Writes `string` to the buffer at `offset` using the given encoding. Returns
 number of octets written.  If `buffer` did not contain enough space to fit
 the entire string it will write a partial amount of the string. In the case
-of `encoding=='utf8'`, the method will not write partial characters.
+of `'utf8'` encoding, the method will not write partial characters.
+
+Example: write a utf8 string into a buffer, then print it
+
+    var sys = require('sys'),
+      Buffer = require('buffer').Buffer,
+      buf = new Buffer(256),
+      len;
+
+    len = buf.write('\u00bd + \u00bc = \u00be', 'utf8', 0);
+    sys.puts(len + " bytes: " + buf.toString('utf8', 0, len));
+
+    // 12 bytes: ½ + ¼ = ¾
+    
 
 ### buffer.toString(encoding, start, end)
-Decodes and returns a string assuming in the given encoding beginning at
-`start` and ending at `end`.
 
+Decodes and returns a string from buffer data encoded with `encoding`
+beginning at `start` and ending at `end`.
+
+See `buffer.write()` example, above.
+
+
+### buffer[index]
+
+Get and set the octet at `index`. The values refer to individual bytes,
+so the legal range is between `0x00` and `0xFF` hex or `0` and `255`.
+
+Example: copy an ASCII string into a buffer, one byte at a time:
+
+    var sys = require('sys'),
+      Buffer = require('buffer').Buffer,
+      str = "node.js",
+      buf = new Buffer(str.length),
+      i;
+
+    for (i = 0; i < str.length ; i += 1) {
+      buf[i] = str.charCodeAt(i);
+    }
+
+    sys.puts(buf);
+
+    // node.js
+
+
+### Buffer.byteLength(string, encoding)
+
+Gives the actual byte length of a string.  This is not the same as 
+`String.prototype.length` since that returns the number of *characters* in a
+string.
+
+Example:
+
+    var sys = require('sys'),
+      Buffer = require('buffer').Buffer,
+      str = '\u00bd + \u00bc = \u00be';
+
+    sys.puts(str + ": " + str.length + " characters, " + 
+      Buffer.byteLength(str, 'utf8') + " bytes");
+
+    // ½ + ¼ = ¾: 9 characters, 12 bytes
+
+
+### buffer.length
+
+The size of the buffer in bytes.  Note that this is not necessarily the size
+of the contents. `length` refers to the amount of memory allocated for the 
+buffer object.  It does not change when the contents of the buffer are changed.
+
+    var sys = require('sys'),
+      Buffer = require('buffer').Buffer,
+      buf = new Buffer(1234);
+
+    sys.puts(buf.length);
+    buf.write("some string", "ascii", 0);
+    sys.puts(buf.length);
+
+    // 1234
+    // 1234
+
+### buffer.copy(targetBuffer, targetStart, sourceStart, sourceEnd)
+
+Does a memcpy() between buffers.
+
+Example: build two Buffers, then copy `buf1` from byte 16 through byte 20
+into `buf2`, starting at the 8th byte in `buf2`.
+
+    var sys = require('sys'),
+      Buffer = require('buffer').Buffer,
+      buf1 = new Buffer(26),
+      buf2 = new Buffer(26),
+      i;
+  
+    for (i = 0 ; i < 26 ; i += 1) {
+      buf1[i] = i + 97; // 97 is ASCII a
+      buf2[i] = 33; // ASCII !
+    }
+
+    buf1.copy(buf2, 8, 16, 20);
+    sys.puts(buf2.toString('ascii', 0, 25));
+
+    // !!!!!!!!qrst!!!!!!!!!!!!!
+    
+
+### buffer.slice(start, end)
+
+Returns a new buffer which references the
+same memory as the old, but offset and cropped by the `start` and `end`
+indexes.
+
+**Modifying the new buffer slice will modify memory in the original buffer!**
+
+Example: build a Buffer with the ASCII alphabet, take a slice, then modify one byte
+from the original Buffer.
+
+    var sys = require('sys'),
+      Buffer = require('buffer').Buffer,
+      buf1 = new Buffer(26), buf2,
+      i;
+  
+    for (i = 0 ; i < 26 ; i += 1) {
+      buf1[i] = i + 97; // 97 is ASCII a
+    }
+
+    buf2 = buf1.slice(0, 3);
+    sys.puts(buf2.toString('ascii', 0, buf2.length));
+    buf1[0] = 33;
+    sys.puts(buf2.toString('ascii', 0, buf2.length));
+
+    // abc
+    // !bc
 
 
 ## EventEmitter
@@ -244,12 +306,15 @@ Makes the data event emit a string instead of a `Buffer`. `encoding` can be
 `'utf8'`, `'ascii'`, or `'binary'`.
 
 ### stream.pause()
+
 Pauses the incoming `'data'` events.
 
 ### stream.resume()
+
 Resumes the incoming `'data'` events after a `pause()`.
 
 ### stream.destroy()
+
 Closes the underlying file descriptor. Stream will not emit any more events.
 
 
@@ -278,6 +343,7 @@ Emitted on error with the exception `e`.
 Emitted when the underlying file descriptor has been closed.
 
 ### stream.write(string, encoding)
+
 Writes `string` with the given `encoding` to the stream.  Returns `true` if
 the string has been flushed to the kernel buffer.  Returns `false` to
 indicate that the kernel buffer is full, and the data will be sent out in
@@ -286,19 +352,24 @@ empty again. The `encoding` defaults to `'utf8'`.
 
 
 ### stream.write(buffer)
+
 Same as the above except with a raw buffer.
 
 ### stream.end()
+
 Terminates the stream with EOF or FIN.
 
 ### stream.end(string, encoding)
+
 Sends `string` with the given `encoding` and terminates the stream with EOF
 or FIN. This is useful to reduce the number of packets sent.
 
 ### stream.end(buffer)
+
 Same as above but with a `buffer`.
 
 ### stream.destroy()
+
 Closes the underlying file descriptor. Stream will not emit any more events.
 
 
@@ -307,25 +378,51 @@ Closes the underlying file descriptor. Stream will not emit any more events.
 These object are available in the global scope and can be accessed from anywhere.
 
 ### global
+
 The global namespace object.
 
 ### process
-The process object. Most stuff lives in here. See the 'process object'
+
+The process object. Most stuff lives in here. See the `'process object'`
 section.
 
 ### require()
-To require modules. See the modules section.
+
+To require modules. See the `'Modules'` section.
 
 ### require.paths
-The search path for absolute path arguments to `require()`.
+
+An array of search paths for `require()`.  This array can be modified to add custom paths.
+
+Example: add a new path to the beginning of the search list
+
+    var sys = require('sys');
+
+    require.paths.unshift('/usr/local/node');
+    sys.puts(require.paths);
+    // /usr/local/node,/Users/mjr/.node_libraries
+
 
 ### __filename
-The filename of the script being executed.
+
+The filename of the script being executed.  This is the absolute path, and not necessarily
+the same filename passed in as a command line argument.
 
 ### __dirname
+
 The dirname of the script being executed.
 
+Example: running `node example.js` from `/Users/mjr`
+
+    var sys = require('sys');
+    sys.puts(__filename);
+    sys.puts(__dirname);
+    // /Users/mjr/example.js
+    // /Users/mjr
+
+
 ### module
+
 A reference to the current module (of type `process.Module`). In particular
 `module.exports` is the same as the `exports` object. See `src/process.js`
 for more information.
@@ -360,7 +457,6 @@ Example of listening for `exit`:
 ### Event: 'uncaughtException'
 
 `function (err) { } `
-
 
 Emitted when an exception bubbles all the way back to the event loop. If a
 listener is added for this exception, the default action (which is to print
@@ -419,7 +515,6 @@ Example: the definition of `sys.puts`
     };
 
 
-
 ### process.openStdin()
 
 Opens the standard input stream, returns a readable stream.
@@ -460,7 +555,6 @@ This will generate:
     2: one
     3: two=three
     4: four
-
 
 
 ### process.chdir(directory)
@@ -519,7 +613,6 @@ Returns the current working directory of the process.
 An object containing the user environment. See environ(7).
 
 
-
 ### process.exit(code)
 
 Ends the process with the specified `code`.  If omitted, exit uses the 
@@ -568,7 +661,7 @@ Gets/sets the user identity of the process. (See setuid(2).)  This is the numeri
 
 A compiled-in property that exposes `NODE_PREFIX`.
 
-    require('sys').puts('Install prefix: ' + process.installPrefix);
+    require('sys').puts('Prefix: ' + process.installPrefix);
 
 
 ### process.kill(pid, signal)
@@ -756,12 +849,17 @@ Child processes always have three streams associated with them. `child.stdin`,
 
 ### Event:  'exit'
 
-`function (code) {} `
+`function (code, signal) {} `
 
-This event is emitted after the child process ends. `code` is the final exit
-code of the process.  After this event is emitted, the `'output'` and
-`'error'` callbacks will no longer be made.
+This event is emitted after the child process ends. If the process terminated
+normally, `code` is the final exit code of the process, otherwise `null`. If
+the process terminated due to receipt of a signal, `signal` is the string name
+of the signal, otherwise `null`.
 
+After this event is emitted, the `'output'` and `'error'` callbacks will no
+longer be made.
+
+See `waitpid(2)`
 
 ### child_process.spawn(command, args, env)
 
@@ -813,8 +911,8 @@ be sent `'SIGTERM'`. See `signal(7)` for a list of available signals.
         spawn = require('child_process').spawn,
         grep  = spawn('grep', ['ssh']);
 
-    grep.addListener('exit', function (code) {
-      sys.puts('child process exited with code ' + code);
+    grep.addListener('exit', function (code, signal) {
+      sys.puts('child process terminated due to receipt of signal '+signal);
     });
 
     // send SIGHUP to process
@@ -909,17 +1007,19 @@ output, and return it all in a callback.
         exec  = require('child_process').exec,
         child;
 
-    child = exec('cat *.js bad_file | wc -l', function (error, stdout, stderr) {
-      sys.print('stdout: ' + stdout);
-      sys.print('stderr: ' + stderr);
-      if (error !== null) {
-        sys.puts('exec error: ' + error);
-      }
-    });
+    child = exec('cat *.js bad_file | wc -l', 
+      function (error, stdout, stderr) {
+        sys.print('stdout: ' + stdout);
+        sys.print('stderr: ' + stderr);
+        if (error !== null) {
+          sys.puts('exec error: ' + error);
+        }
+      });
 
 The callback gets the arguments `(error, stdout, stderr)`. On success, `error`
 will be `null`.  On error, `error` will be an instance of `Error` and `err.code`
-will be the exit code of the child process.
+will be the exit code of the child process, and `err.signal` will be set to the
+signal that terminated the process.
 
 There is a second optional argument to specify several options. The default options are
 
@@ -939,13 +1039,14 @@ the child process is killed.
 
 ## Script
 
-`Script` class provides with compiling, remembering and running pieces of Javascript code. You can get `Script` class by issuing
+`Script` class compiles and runs JavaScript code. You can access this class with:
 
     var Script = process.binding('evals').Script;
 
+New JavaScript code can be compiled and run immediately or compiled, saved, and run later.
 
 
-### Script.runInThisContext(code, filename='evalmachine.< anonymous >')
+### Script.runInThisContext(code, filename)
 
 Similar to `process.compile`.  `Script.runInThisContext` compiles `code` as if it were loaded from `filename`,
 runs it and returns the result. Running code does not have access to local scope. `filename` is optional.
@@ -954,12 +1055,16 @@ Example of using `Script.runInThisContext` and `eval` to run the same code:
 
     var sys = require('sys'),
         localVar = 123,
-        usingscript, evaled;
+        usingscript, evaled,
+        Script = process.binding('evals').Script;
 
-    usingscript = Script.runInThisContext('localVar = 1;', 'myfile.js');
-    sys.puts('localVar: ' + localVar + ', usingscript: ' + usingscript);
+    usingscript = Script.runInThisContext('localVar = 1;',
+      'myfile.js');
+    sys.puts('localVar: ' + localVar + ', usingscript: ' +
+      usingscript);
     evaled = eval('localVar = 1;');
-    sys.puts('localVar: ' + localVar + ', evaled: ' + evaled);
+    sys.puts('localVar: ' + localVar + ', evaled: ' +
+      evaled);
 
     // localVar: 123, usingscript: 1
     // localVar: 1, evaled: 1
@@ -971,92 +1076,106 @@ In case of syntax error in `code`, `Script.runInThisContext` emits the syntax er
 and throws.an exception.
 
 
-
-### Script.runInNewContext(code, sandbox={}, filename='evalmachine.< anonymous >')
+### Script.runInNewContext(code, sandbox, filename)
 
 `Script.runInNewContext` compiles `code` to run in `sandbox` as if it were loaded from `filename`,
 then runs it and returns the result. Running code does not have access to local scope and
 the object `sandbox` will be used as the global object for `code`.
 `sandbox` and `filename` are optional.
 
+Example: compile and execute code that increments a global variable and sets a new one.
+These globals are contained in the sandbox.
+
     var sys = require('sys'),
+        Script = process.binding('evals').Script,
         sandbox = {
           animal: 'cat',
           count: 2
         };
 
-    Script.runInNewContext('count += 1; name = 'kitty'', sandbox, 'myfile.js');
+    Script.runInNewContext(
+      'count += 1; name = "kitty"', sandbox, 'myfile.js');
     sys.puts(sys.inspect(sandbox));
 
+    // { animal: 'cat', count: 3, name: 'kitty' }
+
 Note that running untrusted code is a tricky business requiring great care.  To prevent accidental
-global variable leakage, `Script.runInNewContext` is quite useful, but to safely run untrusted code, many more steps
-must be taken.
+global variable leakage, `Script.runInNewContext` is quite useful, but safely running untrusted code
+requires a separate process.
 
 In case of syntax error in `code`, `Script.runInThisContext` emits the syntax error to stderr
-and throws.an exception.
+and throws an exception.
 
 
-
-### new Script(code, filename='evalmachine.< anonymous >')
+### new Script(code, filename)
 
 `new Script` compiles `code` as if it were loaded from `filename`,
-but does not run it. Instead, it returns Script object representing this compiled code.
+but does not run it. Instead, it returns a `Script` object representing this compiled code.
 This script can be run later many times using methods below.
-The returned script is not bound to any global object,
-it is bound before each run, just for that run. `filename` is optional.
+The returned script is not bound to any global object.
+It is bound before each run, just for that run. `filename` is optional.
 
 In case of syntax error in `code`, `new Script` emits the syntax error to stderr
-and throws.an exception.
-
+and throws an exception.
 
 
 ### script.runInThisContext()
 
-Similar to "static" version in `Script.runInThisContext`, but now being a method of precompiled Script object.
-`script.runInThisContext` runs the code of `script` and returns the result. Running code does not have access to local scope
-and is run for actual `global` object (v8: in actual context).
+Similar to `Script.runInThisContext` (note capital 'S'), but now being a method of a precompiled Script object.
+`script.runInThisContext` runs the code of `script` and returns the result.
+Running code does not have access to local scope, but does have access to the `global` object
+(v8: in actual context).
 
-Example of using `script.runInThisContext` and `eval` to run the same code:
-
-    var sys = require('sys'),
-        localVar = 123,
-        script, usingscript, evaled;
-
-    script = new Script('localVar = 1', 'myfile.js');
-    usingscript = script.runInThisContext();
-    sys.puts('localVar: ' + localVar + ', usingscript: ' + usingscript);
-    evaled = eval('localVar = 1;');
-    sys.puts('localVar: ' + localVar + ', evaled: ' + evaled);
-
-    // localVar: 123, usingscript: 1
-    // localVar: 1, evaled: 1
-
-`script.runInThisContext` does not have access to the local scope, so `localVar` is unchanged.
-`eval` does have access to the local scope, so `localVar` is changed.
-
-
-
-### script.runInNewContext(sandbox={})
-
-Similar to "static" version in `Script.runInNewContext`, but now being a method of precompiled Script object.
-`script.runInNewContext` runs the code of `script` in a `sandbox` and returns the result.
-Running code does not have access to local scope and the object `sandbox` will be used as the global object for the code.
-`sandbox`is optional.
+Example of using `script.runInThisContext` to compile code once and run it multiple times:
 
     var sys = require('sys'),
-        script = new Script('count += 1; name = 'kitty'', 'myfile.js'),
+        Script = process.binding('evals').Script,
+        scriptObj, i;
+    
+    globalVar = 0;
+
+    scriptObj = new Script('globalVar += 1', 'myfile.js');
+
+    for (i = 0; i < 1000 ; i += 1) {
+      scriptObj.runInThisContext();
+    }
+
+    sys.puts(globalVar);
+
+    // 1000
+
+
+### script.runInNewContext(sandbox)
+
+Similar to `Script.runInNewContext` (note capital 'S'), but now being a method of a precompiled Script object.
+`script.runInNewContext` runs the code of `script` with `sandbox` as the global object and returns the result.
+Running code does not have access to local scope. `sandbox` is optional.
+
+Example: compile code that increments a global variable and sets one, then execute this code multiple times.
+These globals are contained in the sandbox.
+
+    var sys = require('sys'),
+        Script = process.binding('evals').Script,
+        scriptObj, i,
         sandbox = {
           animal: 'cat',
           count: 2
         };
 
-    script.runInNewContext(sandbox);
+    scriptObj = new Script(
+        'count += 1; name = "kitty"', 'myfile.js');
+
+    for (i = 0; i < 10 ; i += 1) {
+      scriptObj.runInNewContext(sandbox);
+    }
+
     sys.puts(sys.inspect(sandbox));
 
-Note that running untrusted code is a tricky business requiring great care.  To prevent accidental
-global variable leakage, `Script.runInNewContext` is quite useful, but to safely run untrusted code, many more steps
-must be taken.
+    // { animal: 'cat', count: 12, name: 'kitty' }
 
+Note that running untrusted code is a tricky business requiring great care.  To prevent accidental
+global variable leakage, `script.runInNewContext` is quite useful, but safely running untrusted code
+requires a separate process.
 
 
 ## File System
@@ -1342,13 +1461,13 @@ Objects returned from `fs.stat()` and `fs.lstat()` are of this type.
  - `stats.isSocket()`
 
 
-## fs.FileReadStream
+## fs.ReadStream
 
-`FileReadStream` is a readable stream.
+`ReadStream` is a readable stream.
 
 ### fs.createReadStream(path, [options])
 
-Returns a new FileReadStream object.
+Returns a new ReadStream object.
 
 `options` is an object with the following defaults:
 
@@ -1377,13 +1496,13 @@ Resumes the stream. Together with `pause()` this useful to throttle reading.
 Allows to close the stream before the `'end'` is reached. No more events other
 than `'close'` will be fired after this method has been called.
 
-## fs.FileWriteStream
+## fs.WriteStream
 
-`FileWriteStream` is a writable stream.
+`WriteStream` is a writable stream.
 
 ### fs.createWriteStream(path, [options])
 
-Returns a new FileWriteStream object.
+Returns a new WriteStream object.
 `options` is an object with the following defaults:
 
     { 'flags': 'w'
@@ -1396,14 +1515,13 @@ Returns a new FileWriteStream object.
 A boolean that is `true` by default, but turns `false` after an `'error'`
 occurred or `end()` / `destroy()` was called.
 
-### writeStream.write(data)
+### writeStream.write(data, encoding='utf8')
 
 Returns `true` if the data was flushed to the kernel, and `false` if it was
 queued up for being written later. A `'drain'` will fire after all queued data
 has been written.
 
-You can also specify `callback` to be notified when the data from this write
-has been flushed. The first param is `err`, the second is `bytesWritten`.
+The second optional parameter specifies the encoding of for the string.
 
 ### writeStream.end()
 
@@ -1660,7 +1778,8 @@ Example of connecting to `google.com`:
     var sys = require('sys'),
        http = require('http');
     var google = http.createClient(80, 'www.google.com');
-    var request = google.request('GET', '/', {'host': 'www.google.com'});
+    var request = google.request('GET', '/',
+      {'host': 'www.google.com'});
     request.addListener('response', function (response) {
       sys.puts('STATUS: ' + response.statusCode);
       sys.puts('HEADERS: ' + JSON.stringify(response.headers));
@@ -2071,9 +2190,11 @@ resolves the IP addresses which are returned.
         var a = addresses[i];
         dns.reverse(a, function (err, domains) {
           if (err) {
-            sys.puts('reverse for ' + a + ' failed: ' + err.message);
+            sys.puts('reverse for ' + a + ' failed: ' + 
+              err.message);
           } else {
-            sys.puts('reverse for ' + a + ': ' + JSON.stringify(domains));
+            sys.puts('reverse for ' + a + ': ' + 
+              JSON.stringify(domains));
           }
         });
       }
@@ -2098,7 +2219,8 @@ the error in English.
 ### dns.resolve4(domain, callback)
 
 The same as `dns.resolve()`, but only for IPv4 queries (`A` records). 
-`addresses` is an array of IPv4 addresses (e.g.  `['74.125.79.104', '74.125.79.105', '74.125.79.106']`).
+`addresses` is an array of IPv4 addresses (e.g.  
+`['74.125.79.104', '74.125.79.105', '74.125.79.106']`).
 
 ### dns.resolve6(domain, callback)
 
@@ -2122,7 +2244,8 @@ The same as `dns.resolve()`, but only for text queries (`TXT` records).
 
 The same as `dns.resolve()`, but only for service records (`SRV` records).
 `addresses` is an array of the SRV records available for `domain`. Properties
-of SRV records are priority, weight, port, and name (e.g., `[{'priority': 10, {'weight': 5, 'port': 21223, 'name': 'service.example.com'}, ...]`).
+of SRV records are priority, weight, port, and name (e.g., 
+`[{'priority': 10, {'weight': 5, 'port': 21223, 'name': 'service.example.com'}, ...]`).
 
 ### dns.reverse(ip, callback)
 
@@ -2198,7 +2321,8 @@ This module contains utilities for dealing with file paths.  Use
 
 Join all arguments together and resolve the resulting path.  Example:
 
-    node> require('path').join('/foo', 'bar', 'baz/asdf', 'quux', '..')
+    node> require('path').join(
+    ...   '/foo', 'bar', 'baz/asdf', 'quux', '..')
     '/foo/bar/baz/asdf'
 
 ### path.normalizeArray(arr)
@@ -2467,9 +2591,9 @@ to the REPL explicitly by assigning it to the `scope` object associated with eac
 
     // repl_test.js
     var repl = require("repl"),
-        message = "message";
+        msg = "message";
 
-    repl.start().scope.m = message;
+    repl.start().scope.m = msg;
 
 Things in the `scope` object appear as local within the REPL:
 
@@ -2488,6 +2612,66 @@ There are a few special REPL commands:
 
   - `.help` - Show this list of special commands.
   
+
+## Modules
+
+Node uses the CommonJS module system.
+
+Node has a simple module loading system.  In Node, files and modules are in
+one-to-one correspondence.  As an example, `foo.js` loads the module
+`circle.js` in the same directory.
+
+The contents of `foo.js`:
+
+    var circle = require('./circle'),
+        sys = require('sys');
+    sys.puts( 'The area of a circle of radius 4 is '
+      + circle.area(4));
+
+The contents of `circle.js`:
+
+    var PI = 3.14;
+
+    exports.area = function (r) {
+      return PI * r * r;
+    };
+
+    exports.circumference = function (r) {
+      return 2 * PI * r;
+    };
+
+The module `circle.js` has exported the functions `area()` and
+`circumference()`.  To export an object, add to the special `exports`
+object.  (Alternatively, one can use `this` instead of `exports`.) Variables
+local to the module will be private. In this example the variable `PI` is
+private to `circle.js`. The function `puts()` comes from the module `'sys'`,
+which is a built-in module. Modules which are not prefixed by `'./'` are
+built-in module--more about this later.
+
+A module prefixed with `'./'` is relative to the file calling `require()`.
+That is, `circle.js` must be in the same directory as `foo.js` for
+`require('./circle')` to find it.
+
+Without the leading `'./'`, like `require('assert')` the module is searched
+for in the `require.paths` array. `require.paths` on my system looks like
+this: 
+
+`[ '/home/ryan/.node_libraries' ]`
+
+That is, when `require('assert')` is called Node looks for: 
+
+* 1: `/home/ryan/.node_libraries/assert.js`
+* 2: `/home/ryan/.node_libraries/assert.node`
+* 3: `/home/ryan/.node_libraries/assert/index.js`
+* 4: `/home/ryan/.node_libraries/assert/index.node`
+
+interrupting once a file is found. Files ending in `'.node'` are binary Addon
+Modules; see 'Addons' below. `'index.js'` allows one to package a module as
+a directory.
+
+`require.paths` can be modified at runtime by simply unshifting new
+paths onto it, or at startup with the `NODE_PATH` environmental
+variable (which should be a list of paths, colon separated).
 
 
 ## Addons
@@ -2569,4 +2753,4 @@ All Node addons must export a function called `init` with this signature:
     extern 'C' void init (Handle<Object> target) 
 
 For the moment, that is all the documentation on addons. Please see
-<http://github.com/ry/node_postgres[node_postgres]> for a real example.
+<http://github.com/ry/node_postgres> for a real example.

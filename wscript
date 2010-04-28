@@ -7,7 +7,7 @@ from os.path import join, dirname, abspath
 from logging import fatal
 
 cwd = os.getcwd()
-VERSION="0.1.91"
+VERSION="0.1.92"
 APPNAME="node.js"
 
 import js2c
@@ -152,17 +152,6 @@ def configure(conf):
       conf.env["USE_OPENSSL"] = True
       conf.env.append_value("CXXFLAGS", "-DHAVE_OPENSSL=1")
 
-  if conf.check_cfg(package='gnutls',
-                    args='--cflags --libs',
-                    atleast_version='2.5.0',
-                    #libpath=['/usr/lib', '/usr/local/lib'],
-                    uselib_store='GNUTLS'):
-    if conf.check(lib='gpg-error',
-                  libpath=['/usr/lib', '/usr/local/lib', '/opt/local/lib'],
-                  uselib_store='GPGERROR'):
-      conf.env.append_value("CCFLAGS", "-DEVCOM_HAVE_GNUTLS=1")
-      conf.env.append_value("CXXFLAGS", "-DEVCOM_HAVE_GNUTLS=1")
-
   conf.check(lib='rt', uselib_store='RT')
 
   if sys.platform.startswith("sunos"):
@@ -295,22 +284,6 @@ def build(bld):
     bld.add_subdirs('deps/libeio')
 
 
-
-  ### evcom
-  evcom = bld.new_task_gen("cc")
-  evcom.source = "deps/evcom/evcom.c"
-  if not bld.env["USE_SYSTEM"]:
-    evcom.includes = "deps/evcom/ deps/libev/"
-  else:
-    evcom.includes = "deps/evcom/"
-  evcom.name = "evcom"
-  evcom.target = "evcom"
-  evcom.uselib = "GPGERROR GNUTLS"
-  evcom.install_path = None
-  if bld.env["USE_DEBUG"]:
-    evcom.clone("debug")
-  bld.install_files('${PREFIX}/include/node/', 'deps/evcom/evcom.h')
-
   ### http_parser
   http_parser = bld.new_task_gen("cc")
   http_parser.source = "deps/http_parser/http_parser.c"
@@ -320,16 +293,6 @@ def build(bld):
   http_parser.install_path = None
   if bld.env["USE_DEBUG"]:
     http_parser.clone("debug")
-
-  ### coupling
-  coupling = bld.new_task_gen("cc")
-  coupling.source = "deps/coupling/coupling.c"
-  coupling.includes = "deps/coupling/"
-  coupling.name = "coupling"
-  coupling.target = "coupling"
-  coupling.install_path = None
-  if bld.env["USE_DEBUG"]:
-    coupling.clone("debug")
 
   ### src/native.cc
   def make_macros(loc, content):
@@ -397,8 +360,6 @@ def build(bld):
     src/node_cares.cc
     src/node_events.cc
     src/node_file.cc
-    src/node_http.cc
-    src/node_net.cc
     src/node_signal_watcher.cc
     src/node_stat_watcher.cc
     src/node_stdio.cc
@@ -415,28 +376,24 @@ def build(bld):
       deps/libev
       deps/c-ares
       deps/libeio
-      deps/evcom 
       deps/http_parser
-      deps/coupling
     """
 
     node.includes += ' deps/c-ares/' + bld.env['DEST_OS'] + '-' + bld.env['DEST_CPU']
 
 
-    node.add_objects = 'cares ev eio evcom http_parser coupling'
+    node.add_objects = 'cares ev eio http_parser'
     node.uselib_local = ''
-    node.uselib = 'RT OPENSSL GNUTLS GPGERROR UDNS V8 EXECINFO DL KVM SOCKET NSL'
+    node.uselib = 'RT OPENSSL V8 EXECINFO DL KVM SOCKET NSL'
   else:
     node.includes = """
       src/
       deps/libeio
-      deps/evcom 
       deps/http_parser
-      deps/coupling
     """
-    node.add_objects = 'eio evcom http_parser coupling'
+    node.add_objects = 'eio http_parser'
     node.uselib_local = 'eio'
-    node.uselib = 'RT EV OPENSSL GNUTLS GPGERROR UDNS V8 EXECINFO DL KVM SOCKET NSL'
+    node.uselib = 'RT EV OPENSSL CARES V8 EXECINFO DL KVM SOCKET NSL'
 
   node.install_path = '${PREFIX}/lib'
   node.install_path = '${PREFIX}/bin'
@@ -478,7 +435,6 @@ def build(bld):
     src/node.h
     src/node_object_wrap.h
     src/node_events.h
-    src/node_net.h
   """)
 
   # Only install the man page if it exists. 

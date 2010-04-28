@@ -9,6 +9,12 @@
 
 #include <errno.h>
 
+#if OPENSSL_VERSION_NUMBER >= 0x10000000L
+# define OPENSSL_CONST const
+#else
+# define OPENSSL_CONST
+#endif
+
 namespace node {
 
 using namespace v8;
@@ -352,23 +358,6 @@ static int verify_callback(int ok, X509_STORE_CTX *ctx) {
   return(ok);
 }
 
-static inline Local<Value> ErrnoException(int errorno,
-                                          const char *syscall,
-                                          const char *msg = "") {
-  Local<String> estring = String::NewSymbol(errno_string(errorno));
-  if (!msg[0]) msg = strerror(errorno);
-  Local<String> message = String::NewSymbol(msg);
-
-  Local<String> cons1 = String::Concat(estring, String::NewSymbol(", "));
-  Local<String> cons2 = String::Concat(cons1, message);
-
-  Local<Value> e = Exception::Error(cons2);
-
-  Local<Object> obj = e->ToObject();
-  obj->Set(errno_symbol, Integer::New(errorno));
-  obj->Set(syscall_symbol, String::NewSymbol(syscall));
-  return e;
-}
 
 void SecureContext::Initialize(Handle<Object> target) {
   HandleScope scope;
@@ -400,7 +389,7 @@ Handle<Value> SecureContext::Init(const Arguments& args) {
 
   SecureContext *sc = ObjectWrap::Unwrap<SecureContext>(args.Holder());
 
-  SSL_METHOD *method = SSLv23_method();
+  OPENSSL_CONST SSL_METHOD *method = SSLv23_method();
 
   if (args.Length() == 1) {
     if (!args[0]->IsString())
@@ -918,7 +907,7 @@ Handle<Value> SecureStream::GetCurrentCipher(const Arguments& args) {
   HandleScope scope;
 
   SecureStream *ss = ObjectWrap::Unwrap<SecureStream>(args.Holder());
-  SSL_CIPHER *c;
+  OPENSSL_CONST SSL_CIPHER *c;
 
   if ( ss->pSSL == NULL ) return Undefined();
   c = SSL_get_current_cipher(ss->pSSL);

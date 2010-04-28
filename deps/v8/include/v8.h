@@ -767,7 +767,7 @@ class V8EXPORT Value : public Data {
   bool IsInt32() const;
 
   /**
-   * Returns true if this value is a 32-bit signed integer.
+   * Returns true if this value is a 32-bit unsigned integer.
    */
   bool IsUint32() const;
 
@@ -856,6 +856,8 @@ class V8EXPORT String : public Primitive {
    * copying begins.
    * \param length The number of bytes to copy from the string.
    * \param nchars_ref The number of characters written, can be NULL.
+   * \param hints Various hints that might affect performance of this or
+   *    subsequent operations.
    * \return The number of bytes copied to the buffer
    * excluding the NULL terminator.
    */

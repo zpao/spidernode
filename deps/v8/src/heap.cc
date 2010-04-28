@@ -41,7 +41,7 @@
 #include "scopeinfo.h"
 #include "snapshot.h"
 #include "v8threads.h"
-#if V8_TARGET_ARCH_ARM && V8_NATIVE_REGEXP
+#if V8_TARGET_ARCH_ARM && !V8_INTERPRETED_REGEXP
 #include "regexp-macro-assembler.h"
 #include "arm/regexp-macro-assembler-arm.h"
 #endif
@@ -1444,10 +1444,6 @@ bool Heap::CreateInitialMaps() {
   if (obj->IsFailure()) return false;
   set_global_context_map(Map::cast(obj));
 
-  obj = AllocateMap(JS_FUNCTION_TYPE, JSFunction::kSize);
-  if (obj->IsFailure()) return false;
-  set_boilerplate_function_map(Map::cast(obj));
-
   obj = AllocateMap(SHARED_FUNCTION_INFO_TYPE,
                     SharedFunctionInfo::kAlignedSize);
   if (obj->IsFailure()) return false;
@@ -1531,7 +1527,7 @@ void Heap::CreateCEntryStub() {
 }
 
 
-#if V8_TARGET_ARCH_ARM && V8_NATIVE_REGEXP
+#if V8_TARGET_ARCH_ARM && !V8_INTERPRETED_REGEXP
 void Heap::CreateRegExpCEntryStub() {
   RegExpCEntryStub stub;
   set_re_c_entry_code(*stub.GetCode());
@@ -1568,7 +1564,7 @@ void Heap::CreateFixedStubs() {
   Heap::CreateCEntryStub();
   Heap::CreateJSEntryStub();
   Heap::CreateJSConstructEntryStub();
-#if V8_TARGET_ARCH_ARM && V8_NATIVE_REGEXP
+#if V8_TARGET_ARCH_ARM && !V8_INTERPRETED_REGEXP
   Heap::CreateRegExpCEntryStub();
 #endif
 }
@@ -1670,8 +1666,8 @@ bool Heap::CreateInitialObjects() {
 
   if (InitializeNumberStringCache()->IsFailure()) return false;
 
-  // Allocate cache for single character strings.
-  obj = AllocateFixedArray(String::kMaxAsciiCharCode+1, TENURED);
+  // Allocate cache for single character ASCII strings.
+  obj = AllocateFixedArray(String::kMaxAsciiCharCode + 1, TENURED);
   if (obj->IsFailure()) return false;
   set_single_character_string_cache(FixedArray::cast(obj));
 
@@ -2192,9 +2188,11 @@ void Heap::CreateFillerObjectAt(Address addr, int size) {
   if (size == 0) return;
   HeapObject* filler = HeapObject::FromAddress(addr);
   if (size == kPointerSize) {
-    filler->set_map(Heap::one_pointer_filler_map());
+    filler->set_map(one_pointer_filler_map());
+  } else if (size == 2 * kPointerSize) {
+    filler->set_map(two_pointer_filler_map());
   } else {
-    filler->set_map(Heap::byte_array_map());
+    filler->set_map(byte_array_map());
     ByteArray::cast(filler)->set_length(ByteArray::LengthFor(size));
   }
 }
@@ -3013,13 +3011,10 @@ Object* Heap::AllocateFixedArray(int length) {
 }
 
 
-Object* Heap::AllocateFixedArray(int length, PretenureFlag pretenure) {
-  ASSERT(length >= 0);
-  ASSERT(empty_fixed_array()->IsFixedArray());
+Object* Heap::AllocateRawFixedArray(int length, PretenureFlag pretenure) {
   if (length < 0 || length > FixedArray::kMaxLength) {
     return Failure::OutOfMemoryException();
   }
-  if (length == 0) return empty_fixed_array();
 
   AllocationSpace space =
       (pretenure == TENURED) ? OLD_POINTER_SPACE : NEW_SPACE;
@@ -3053,15 +3048,36 @@ Object* Heap::AllocateFixedArray(int length, PretenureFlag pretenure) {
     ASSERT(space == LO_SPACE);
     result = lo_space_->AllocateRawFixedArray(size);
   }
+  return result;
+}
+
+
+static Object* AllocateFixedArrayWithFiller(int length,
+                                            PretenureFlag pretenure,
+                                            Object* filler) {
+  ASSERT(length >= 0);
+  ASSERT(Heap::empty_fixed_array()->IsFixedArray());
+  if (length == 0) return Heap::empty_fixed_array();
+
+  ASSERT(!Heap::InNewSpace(filler));
+  Object* result = Heap::AllocateRawFixedArray(length, pretenure);
   if (result->IsFailure()) return result;
 
-  // Initialize the object.
-  reinterpret_cast<Array*>(result)->set_map(fixed_array_map());
+  HeapObject::cast(result)->set_map(Heap::fixed_array_map());
   FixedArray* array = FixedArray::cast(result);
   array->set_length(length);
-  ASSERT(!Heap::InNewSpace(undefined_value()));
-  MemsetPointer(array->data_start(), undefined_value(), length);
+  MemsetPointer(array->data_start(), filler, length);
   return array;
+}
+
+
+Object* Heap::AllocateFixedArray(int length, PretenureFlag pretenure) {
+  return AllocateFixedArrayWithFiller(length, pretenure, undefined_value());
+}
+
+
+Object* Heap::AllocateFixedArrayWithHoles(int length, PretenureFlag pretenure) {
+  return AllocateFixedArrayWithFiller(length, pretenure, the_hole_value());
 }
 
 
@@ -3074,22 +3090,6 @@ Object* Heap::AllocateUninitializedFixedArray(int length) {
   reinterpret_cast<FixedArray*>(obj)->set_map(fixed_array_map());
   FixedArray::cast(obj)->set_length(length);
   return obj;
-}
-
-
-Object* Heap::AllocateFixedArrayWithHoles(int length) {
-  if (length == 0) return empty_fixed_array();
-  Object* result = AllocateRawFixedArray(length);
-  if (!result->IsFailure()) {
-    // Initialize header.
-    reinterpret_cast<Array*>(result)->set_map(fixed_array_map());
-    FixedArray* array = FixedArray::cast(result);
-    array->set_length(length);
-    // Initialize body.
-    ASSERT(!Heap::InNewSpace(the_hole_value()));
-    MemsetPointer(array->data_start(), the_hole_value(), length);
-  }
-  return result;
 }
 
 

@@ -53,7 +53,7 @@ static void ProbeTable(MacroAssembler* masm,
   // Check that the key in the entry matches the name.
   __ mov(ip, Operand(key_offset));
   __ ldr(ip, MemOperand(ip, offset, LSL, 1));
-  __ cmp(name, Operand(ip));
+  __ cmp(name, ip);
   __ b(ne, &miss);
 
   // Get the code entry from the cache.
@@ -296,7 +296,7 @@ void StubCompiler::GenerateStoreField(MacroAssembler* masm,
     // We jump to a runtime call that extends the properties array.
     __ push(receiver_reg);
     __ mov(r2, Operand(Handle<Map>(transition)));
-    __ stm(db_w, sp, r2.bit() | r0.bit());
+    __ Push(r2, r0);
     __ TailCallExternalReference(
            ExternalReference(IC_Utility(IC::kSharedStoreIC_ExtendStorage)),
            3, 1);
@@ -464,8 +464,7 @@ class LoadInterceptorCompiler BASE_EMBEDDED {
     __ EnterInternalFrame();
 
     __ push(receiver);
-    __ push(holder);
-    __ push(name_);
+    __ Push(holder, name_);
 
     CompileCallLoadPropertyWithInterceptor(masm,
                                            receiver,
@@ -510,8 +509,7 @@ class LoadInterceptorCompiler BASE_EMBEDDED {
 
       Label cleanup;
       __ pop(scratch2);
-      __ push(receiver);
-      __ push(scratch2);
+      __ Push(receiver, scratch2);
 
       holder = stub_compiler->CheckPrototypes(holder_obj, holder,
                                               lookup->holder(), scratch1,
@@ -523,8 +521,7 @@ class LoadInterceptorCompiler BASE_EMBEDDED {
       __ Move(holder, Handle<AccessorInfo>(callback));
       __ push(holder);
       __ ldr(scratch1, FieldMemOperand(holder, AccessorInfo::kDataOffset));
-      __ push(scratch1);
-      __ push(name_);
+      __ Push(scratch1, name_);
 
       ExternalReference ref =
           ExternalReference(IC_Utility(IC::kLoadCallbackProperty));
@@ -600,6 +597,28 @@ static void CompileLoadInterceptor(LoadInterceptorCompiler* compiler,
 }
 
 
+// Generate code to check that a global property cell is empty. Create
+// the property cell at compilation time if no cell exists for the
+// property.
+static Object* GenerateCheckPropertyCell(MacroAssembler* masm,
+                                         GlobalObject* global,
+                                         String* name,
+                                         Register scratch,
+                                         Label* miss) {
+  Object* probe = global->EnsurePropertyCell(name);
+  if (probe->IsFailure()) return probe;
+  JSGlobalPropertyCell* cell = JSGlobalPropertyCell::cast(probe);
+  ASSERT(cell->value()->IsTheHole());
+  __ mov(scratch, Operand(Handle<Object>(cell)));
+  __ ldr(scratch,
+         FieldMemOperand(scratch, JSGlobalPropertyCell::kValueOffset));
+  __ LoadRoot(ip, Heap::kTheHoleValueRootIndex);
+  __ cmp(scratch, ip);
+  __ b(ne, miss);
+  return cell;
+}
+
+
 #undef __
 #define __ ACCESS_MASM(masm())
 
@@ -620,23 +639,19 @@ Register StubCompiler::CheckPrototypes(JSObject* object,
       masm()->CheckMaps(object, object_reg, holder, holder_reg, scratch, miss);
 
   // If we've skipped any global objects, it's not enough to verify
-  // that their maps haven't changed.
+  // that their maps haven't changed.  We also need to check that the
+  // property cell for the property is still empty.
   while (object != holder) {
     if (object->IsGlobalObject()) {
-      GlobalObject* global = GlobalObject::cast(object);
-      Object* probe = global->EnsurePropertyCell(name);
-      if (probe->IsFailure()) {
-        set_failure(Failure::cast(probe));
+      Object* cell = GenerateCheckPropertyCell(masm(),
+                                               GlobalObject::cast(object),
+                                               name,
+                                               scratch,
+                                               miss);
+      if (cell->IsFailure()) {
+        set_failure(Failure::cast(cell));
         return result;
       }
-      JSGlobalPropertyCell* cell = JSGlobalPropertyCell::cast(probe);
-      ASSERT(cell->value()->IsTheHole());
-      __ mov(scratch, Operand(Handle<Object>(cell)));
-      __ ldr(scratch,
-             FieldMemOperand(scratch, JSGlobalPropertyCell::kValueOffset));
-      __ LoadRoot(ip, Heap::kTheHoleValueRootIndex);
-      __ cmp(scratch, ip);
-      __ b(ne, miss);
     }
     object = JSObject::cast(object->GetPrototype());
   }
@@ -707,13 +722,11 @@ bool StubCompiler::GenerateLoadCallback(JSObject* object,
       CheckPrototypes(object, receiver, holder, scratch1, scratch2, name, miss);
 
   // Push the arguments on the JS stack of the caller.
-  __ push(receiver);  // receiver
-  __ push(reg);  // holder
+  __ push(receiver);  // Receiver.
+  __ push(reg);  // Holder.
   __ mov(ip, Operand(Handle<AccessorInfo>(callback)));  // callback data
-  __ push(ip);
   __ ldr(reg, FieldMemOperand(ip, AccessorInfo::kDataOffset));
-  __ push(reg);
-  __ push(name_reg);  // name
+  __ Push(ip, reg, name_reg);
 
   // Do tail-call to the runtime system.
   ExternalReference load_callback_property =
@@ -1087,8 +1100,7 @@ Object* CallStubCompiler::CompileCallInterceptor(JSObject* object,
 
     // Call the interceptor.
     __ EnterInternalFrame();
-    __ push(holder_reg);
-    __ push(name_reg);
+    __ Push(holder_reg, name_reg);
     CompileCallLoadPropertyWithInterceptor(masm(),
                                            receiver,
                                            holder_reg,
@@ -1215,7 +1227,7 @@ Object* CallStubCompiler::CompileCallGlobal(JSObject* object,
   __ ldr(cp, FieldMemOperand(r1, JSFunction::kContextOffset));
 
   // Jump to the cached code (tail call).
-  __ IncrementCounter(&Counters::call_global_inline, 1, r1, r3);
+  __ IncrementCounter(&Counters::call_global_inline, 1, r3, r4);
   ASSERT(function->is_compiled());
   Handle<Code> code(function->code());
   ParameterCount expected(function->shared()->formal_parameter_count());
@@ -1291,7 +1303,7 @@ Object* StoreStubCompiler::CompileStoreCallback(JSObject* object,
 
   __ push(r1);  // receiver
   __ mov(ip, Operand(Handle<AccessorInfo>(callback)));  // callback info
-  __ stm(db_w, sp, ip.bit() | r2.bit() | r0.bit());
+  __ Push(ip, r2, r0);
 
   // Do tail-call to the runtime system.
   ExternalReference store_callback_property =
@@ -1336,9 +1348,7 @@ Object* StoreStubCompiler::CompileStoreInterceptor(JSObject* receiver,
   // checks.
   ASSERT(receiver->IsJSGlobalProxy() || !receiver->IsAccessCheckNeeded());
 
-  __ push(r1);  // receiver.
-  __ push(r2);  // name.
-  __ push(r0);  // value.
+  __ Push(r1, r2, r0);  // Receiver, name, value.
 
   // Do tail-call to the runtime system.
   ExternalReference store_ic_property =
@@ -1386,6 +1396,50 @@ Object* StoreStubCompiler::CompileStoreGlobal(GlobalObject* object,
 
   // Return the generated code.
   return GetCode(NORMAL, name);
+}
+
+
+Object* LoadStubCompiler::CompileLoadNonexistent(String* name,
+                                                 JSObject* object,
+                                                 JSObject* last) {
+  // ----------- S t a t e -------------
+  //  -- r2    : name
+  //  -- lr    : return address
+  //  -- [sp]  : receiver
+  // -----------------------------------
+  Label miss;
+
+  // Load receiver.
+  __ ldr(r0, MemOperand(sp, 0));
+
+  // Check that receiver is not a smi.
+  __ tst(r0, Operand(kSmiTagMask));
+  __ b(eq, &miss);
+
+  // Check the maps of the full prototype chain.
+  CheckPrototypes(object, r0, last, r3, r1, name, &miss);
+
+  // If the last object in the prototype chain is a global object,
+  // check that the global property cell is empty.
+  if (last->IsGlobalObject()) {
+    Object* cell = GenerateCheckPropertyCell(masm(),
+                                             GlobalObject::cast(last),
+                                             name,
+                                             r1,
+                                             &miss);
+    if (cell->IsFailure()) return cell;
+  }
+
+  // Return undefined if maps of the full prototype chain are still the
+  // same and no global property with this name contains a value.
+  __ LoadRoot(r0, Heap::kUndefinedValueRootIndex);
+  __ Ret();
+
+  __ bind(&miss);
+  GenerateLoadMiss(masm(), Code::LOAD_IC);
+
+  // Return the generated code.
+  return GetCode(NONEXISTENT, Heap::empty_string());
 }
 
 
@@ -1497,35 +1551,34 @@ Object* LoadStubCompiler::CompileLoadGlobal(JSObject* object,
   // ----------- S t a t e -------------
   //  -- r2    : name
   //  -- lr    : return address
-  //  -- [sp]  : receiver
+  //  -- r0    : receiver
+  //  -- sp[0] : receiver
   // -----------------------------------
   Label miss;
-
-  // Get the receiver from the stack.
-  __ ldr(r1, MemOperand(sp, 0 * kPointerSize));
 
   // If the object is the holder then we know that it's a global
   // object which can only happen for contextual calls. In this case,
   // the receiver cannot be a smi.
   if (object != holder) {
-    __ tst(r1, Operand(kSmiTagMask));
+    __ tst(r0, Operand(kSmiTagMask));
     __ b(eq, &miss);
   }
 
   // Check that the map of the global has not changed.
-  CheckPrototypes(object, r1, holder, r3, r0, name, &miss);
+  CheckPrototypes(object, r0, holder, r3, r4, name, &miss);
 
   // Get the value from the cell.
   __ mov(r3, Operand(Handle<JSGlobalPropertyCell>(cell)));
-  __ ldr(r0, FieldMemOperand(r3, JSGlobalPropertyCell::kValueOffset));
+  __ ldr(r4, FieldMemOperand(r3, JSGlobalPropertyCell::kValueOffset));
 
   // Check for deleted property if property can actually be deleted.
   if (!is_dont_delete) {
     __ LoadRoot(ip, Heap::kTheHoleValueRootIndex);
-    __ cmp(r0, ip);
+    __ cmp(r4, ip);
     __ b(eq, &miss);
   }
 
+  __ mov(r0, r4);
   __ IncrementCounter(&Counters::named_load_global_inline, 1, r1, r3);
   __ Ret();
 
