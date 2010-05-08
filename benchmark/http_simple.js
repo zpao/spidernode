@@ -1,4 +1,7 @@
 path = require("path");
+Buffer = require("buffer").Buffer;
+
+port = parseInt(process.env.PORT || 8000);
 
 var puts = require("sys").puts;
 
@@ -15,6 +18,7 @@ for (var i = 0; i < 20*1024; i++) {
 }
 
 stored = {};
+storedBuffer = {};
 
 http.createServer(function (req, res) {
   var commands = req.url.split("/");
@@ -35,6 +39,18 @@ http.createServer(function (req, res) {
       }
     }
     body = stored[n];
+
+  } else if (command == "buffer") {
+    var n = parseInt(arg, 10)
+    if (n <= 0) throw new Error("bytes called with n <= 0");
+    if (storedBuffer[n] === undefined) {
+      puts("create storedBuffer[n]");
+      storedBuffer[n] = new Buffer(n);
+      for (var i = 0; i < n; i++) {
+        storedBuffer[n][i] = "C".charCodeAt(0);
+      }
+    }
+    body = storedBuffer[n];
 
   } else if (command == "quit") {
     res.connection.server.close();
@@ -61,4 +77,6 @@ http.createServer(function (req, res) {
   } else {
     res.end(body, 'ascii');
   }
-}).listen(8000);
+}).listen(port);
+
+puts('Listening at http://127.0.0.1:'+port+'/');

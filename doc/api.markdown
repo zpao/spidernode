@@ -334,7 +334,7 @@ indicate that it is safe to write again.
 
 `function (exception) { }`
 
-Emitted on error with the exception `e`.
+Emitted on error with the exception `exception`.
 
 ### Event: 'close'
 
@@ -436,7 +436,7 @@ It is an instance of `EventEmitter`.
 
 ### Event: 'exit'
 
-`function () {} `
+`function () {}`
 
 Emitted when the process is about to exit.  This is a good hook to perform
 constant time checks of the module's state (like for unit tests).  The main
@@ -456,7 +456,7 @@ Example of listening for `exit`:
 
 ### Event: 'uncaughtException'
 
-`function (err) { } `
+`function (err) { }`
 
 Emitted when an exception bubbles all the way back to the event loop. If a
 listener is added for this exception, the default action (which is to print
@@ -475,7 +475,7 @@ Example of listening for `uncaughtException`:
     }, 500);
 
     // Intentionally cause an exception, but don't catch it.
-    nonexistantFunc();
+    nonexistentFunc();
     sys.puts('This will not run.');
 
 Note that `uncaughtException` is a very crude mechanism for exception
@@ -747,8 +747,8 @@ given, otherwise returns the current mask.
         oldmask, newmask = 0644;
 
     oldmask = process.umask(newmask);
-    // these octal numbers don't display right in JavaScript
-    sys.puts('Changed umask from: ' + oldmask + ' to ' + newmask);
+    sys.puts('Changed umask from: ' + oldmask.toString(8) +
+             ' to ' + newmask.toString(8));
 
 
 
@@ -760,14 +760,14 @@ them.
 
 ### sys.puts(string)
 
-Outputs `string` and a trailing new-line to `stdout`.
+Outputs `string` and a trailing newline to `stdout`.
 
     require('sys').puts('String with a newline');
 
 
 ### sys.print(string)
 
-Like `puts()` but without the trailing new-line.
+Like `puts()` but without the trailing newline.
 
     require('sys').print('String with no newline');
 
@@ -849,7 +849,7 @@ Child processes always have three streams associated with them. `child.stdin`,
 
 ### Event:  'exit'
 
-`function (code, signal) {} `
+`function (code, signal) {}`
 
 This event is emitted after the child process ends. If the process terminated
 normally, `code` is the final exit code of the process, otherwise `null`. If
@@ -859,7 +859,7 @@ of the signal, otherwise `null`.
 After this event is emitted, the `'output'` and `'error'` callbacks will no
 longer be made.
 
-See `waitpid(2)`
+See `waitpid(2)`.
 
 ### child_process.spawn(command, args, env)
 
@@ -1418,7 +1418,7 @@ Asynchronously writes data to a file. Example:
 
     fs.writeFile('message.txt', 'Hello Node', function (err) {
       if (err) throw err;
-      sys.puts('It's saved!');
+      sys.puts('It\'s saved!');
     });
 
 ### fs.writeFileSync(filename, data, encoding='utf8')
@@ -1480,7 +1480,7 @@ Returns a new ReadStream object.
 ### readStream.readable
 
 A boolean that is `true` by default, but turns `false` after an `'error'`
-occured, the stream came to an 'end', or `destroy()` was called.
+occured, the stream came to an `'end'`, or `destroy()` was called.
 
 ### readStream.pause()
 
@@ -1556,6 +1556,7 @@ HTTP API is very low-level. It deals with stream handling and message
 parsing only. It parses a message into headers and body but it does not
 parse the actual headers or the body.
 
+HTTPS is supported if OpenSSL is available on the underlying platform.
 
 ## http.Server
 
@@ -1584,7 +1585,7 @@ This is an EventEmitter with the following events:
  Emitted when the server closes. 
 
 
-### http.createServer(request_listener, [options])
+### http.createServer(requestListener, [options])
 
 Returns a new web server object.
 
@@ -1592,8 +1593,38 @@ The `options` argument is optional. The
 `options` argument accepts the same values as the
 options argument for `net.Server`.
 
-The `request_listener` is a function which is automatically
+The `requestListener` is a function which is automatically
 added to the `'request'` event.
+
+### Event: 'request'
+
+`function (request, response) {}`
+
+Emitted each time there is request. Note that there may be multiple requests
+per connection (in the case of keep-alive connections).
+
+### Event: 'upgrade'
+
+`function (request, socket, head)`
+
+Emitted each time a client requests a http upgrade. If this event isn't
+listened for, then clients requesting an upgrade will have their connections
+closed.
+
+* `request` is the arguments for the http request, as it is in the request event.
+* `socket` is the network socket between the server and client.
+* `head` is an instance of Buffer, the first packet of the upgraded stream, this may be empty.
+
+After this event is emitted, the request's socket will not have a `data`
+event listener, meaning you will need to bind to it in order to handle data
+sent to the server on that socket.
+
+### Event: 'clientError'
+
+`function (exception) {}`
+
+If a client connection emits an 'error' event - it will forwarded here.
+
 
 ### server.listen(port, hostname)
 
@@ -1616,6 +1647,12 @@ This function is asynchronous. `listening` will be emitted when the server
 is ready to accept connections.
 
 
+### server.setSecure(credentials)
+
+Enables HTTPS support for the server, with the crypto module credentials specifying the private key and certificate of the server, and optionally the CA certificates for use in client authentication.
+
+If the credentials hold one or more CA certificates, then the server will request for the client to submit a client certificate as part of the HTTPS connection handshake. The validity and content of this can be accessed via verifyPeer() and getPeerCertificate() from the server's request.connection.
+
 ### server.close()
 
 Stops the server from accepting new connections.
@@ -1628,7 +1665,10 @@ the user--and passed as the first argument to a `'request'` listener.
 
 This is an EventEmitter with the following events:
 
-- **`'data'`** - `callback(chunk)`:
+### Event: 'data'
+
+`function (chunk) { }`
+
 Emitted when a piece of the message body is received.
 
 Example: A chunk of the body is given as the single
@@ -1636,7 +1676,10 @@ argument. The transfer-encoding has been decoded.  The
 body chunk is a string.  The body encoding is set with
 `request.setBodyEncoding()`.
 
-- **`'end'`** - `callback()`:
+### Event: 'end'
+
+`function () { }`
+
 Emitted exactly once for each message. No arguments.  After
 emitted no other events will be emitted on the request.
 
@@ -1713,6 +1756,8 @@ Resumes a paused request.
 ### request.connection
 
 The `net.Stream` object assocated with the connection.
+
+With HTTPS support, use request.connection.verifyPeer() and request.connection.getPeerCertificate() to obtain the client's authentication details.
 
 
 ## http.ServerResponse
@@ -1791,11 +1836,15 @@ Example of connecting to `google.com`:
     request.end();
 
 
-### http.createClient(port, host)
+### http.createClient(port, host, secure, credentials)
 
 Constructs a new HTTP client. `port` and
 `host` refer to the server to be connected to. A
 stream is not established until a request is issued.
+
+`secure` is an optional boolean flag to enable https support and `credentials` is an optional credentials object from the crypto module, which may hold the client's private key, certificate, and a list of trusted CA certificates.
+
+If the connection is secure, but no explicit CA certificates are passed in the credentials, then node.js will default to the publicly trusted list of CA certificates, as given in http://mxr.mozilla.org/mozilla/source/security/nss/lib/ckfw/builtins/certdata.txt
 
 ### client.request([method], path, [request_headers])
 
@@ -1816,6 +1865,13 @@ the request. One needs to call `request.end()` to finalize the request and
 retrieve the response.  (This sounds convoluted but it provides a chance for
 the user to stream a body to the server with `request.write()`.)
 
+### client.verifyPeer()
+
+Returns true or false depending on the validity of the server's certificate in the context of the defined or default list of trusted CA certificates.
+
+### client.getPeerCertificate()
+
+Returns a JSON structure detailing the server's certificate, containing a dictionary with keys for the certificate 'subject', 'issuer', 'valid_from' and 'valid_to'
 
 
 ## http.ClientRequest
@@ -1856,7 +1912,10 @@ event, the entire body will be caught.
 This is a writable stream.
 This is an `EventEmitter` with the following events:
 
-- **`'response'`** - `callback(response)`:
+### Event 'response'
+
+`function (response) { }`
+
 Emitted when a response is received to this request. This event is emitted only once. The
 `response` argument will be an instance of `http.ClientResponse`.
 
@@ -2036,6 +2095,13 @@ Emitted when a stream connection successfully is established.
 See `connect()`.
 
 
+### Event: 'secure'
+
+`function () { }`
+
+Emitted when a stream connection successfully establishes a HTTPS handshake with its peer.
+
+
 ### Event: 'data'
 
 `function (data) { }`
@@ -2117,6 +2183,21 @@ Either `'closed'`, `'open'`, `'opening'`, `'readOnly'`, or `'writeOnly'`.
 Sets the encoding (either `'ascii'`, `'utf8'`, or `'binary'`) for data that is
 received.
 
+### stream.setSecure(credentials)
+
+Enables HTTPS support for the stream, with the crypto module credentials specifying the private key and certificate of the stream, and optionally the CA certificates for use in peer authentication.
+
+If the credentials hold one ore more CA certificates, then the stream will request for the peer to submit a client certificate as part of the HTTPS connection handshake. The validity and content of this can be accessed via verifyPeer() and getPeerCertificate().
+
+### stream.verifyPeer()
+
+Returns true or false depending on the validity of the peers's certificate in the context of the defined or default list of trusted CA certificates.
+
+### stream.getPeerCertificate()
+
+Returns a JSON structure detailing the peer's certificate, containing a dictionary with keys for the certificate 'subject', 'issuer', 'valid_from' and 'valid_to'
+
+
 ### stream.write(data, encoding='ascii')
 
 Sends data on the stream. The second parameter specifies the encoding in
@@ -2169,6 +2250,118 @@ Set `initialDelay` (in milliseconds) to set the delay between the last
 data packet received and the first keepalive probe. Setting 0 for
 initialDelay will leave the value unchanged from the default
 (or previous) setting.
+
+
+## Crypto
+
+Use `require('crypto')` to access this module.
+
+The crypto module requires OpenSSL to be available on the underlying platform. It offers a way of encapsulating secure credentials to be used as part of a secure HTTPS net or http connection.
+
+It also offers a set of wrappers for OpenSSL's hash, hmac, cipher, decipher, sign and verify methods.
+
+### crypto.createCredentials(details)
+
+Creates a credentials object, with the optional details being a dictionary with keys:
+
+`key` : a string holding the PEM encoded private key
+
+`cert` : a string holding the PEM encoded certificate
+
+`ca` : either a string or list of strings of PEM encoded CA certificates to trust.
+
+If no 'ca' details are given, then node.js will use the default publicly trusted list of CAs as given in 
+http://mxr.mozilla.org/mozilla/source/security/nss/lib/ckfw/builtins/certdata.txt
+
+
+### crypto.createHash(algorithm)
+
+Creates and returns a hash object, a cryptographic hash with the given algorithm which can be used to generate hash digests.
+
+`algorithm` is dependent on the available algorithms supported by the version of OpenSSL on the platform. Examples are sha1, md5, sha256, sha512, etc. On recent releases, `openssl list-message-digest-algorithms` will display the available digest algorithms.
+
+### hash.update(data)
+
+Updates the hash content with the given `data`. This can be called many times with new data as it is streamed.
+
+### hash.digest(encoding)
+
+Calculates the digest of all of the passed data to be hashed. The `encoding` can be 'hex', 'binary' or 'base64'.
+
+
+### crypto.createHmac(algorithm, key)
+
+Creates and returns a hmac object, a cryptographic hmac with the given algorithm and key.
+
+`algorithm` is dependent on the available algorithms supported by OpenSSL - see createHash above.
+`key` is the hmac key to be used.
+
+### hmac.update(data)
+
+Update the hmac content with the given `data`. This can be called many times with new data as it is streamed.
+
+### hmac.digest(encoding)
+
+Calculates the digest of all of the passed data to the hmac. The `encoding` can be 'hex', 'binary' or 'base64'.
+
+
+### crypto.createCipher(algorithm, key)
+
+Creates and returns a cipher object, with the given algorithm and key.
+
+`algorithm` is dependent on OpenSSL, examples are aes192, etc. On recent releases, `openssl list-cipher-algorithms` will display the available cipher algorithms.
+
+### cipher.update(data, input_encoding, output_encoding)
+
+Updates the cipher with `data`, the encoding of which is given in `input_encoding` and can be 'utf8', 'ascii' or 'binary'. The `output_encoding` specifies the output format of the enciphered data, and can be 'binary', 'base64'  or 'hex'.
+
+Returns the enciphered contents, and can be called many times with new data as it is streamed.
+
+### cipher.final(output_encoding)
+
+Returns any remaining enciphered contents, with `output_encoding` as update above.
+
+### crypto.createDecipher(algorithm, key)
+
+Creates and returns a decipher object, with the given algorithm and key. This is the mirror of the cipher object above.
+
+### decipher.update(data, input_encoding, output_encoding)
+
+Updates the decipher with `data`, which is encoded in 'binary', 'base64' or 'hex'. The `output_decoding` specifies in what format to return the deciphered plaintext - either 'binary', 'ascii' or 'utf8'.
+
+### decipher.final(output_encoding)
+
+Returns any remaining plaintext which is deciphered, with `output_encoding' as update above.
+
+
+### crypto.createSign(algorithm)
+
+Creates and returns a signing object, with the given algorithm. On recent OpenSSL releases, `openssl list-public-key-algorithms` will display the available signing algorithms. Examples are 'RSA-SHA256'.
+
+### signer.update(data)
+
+Updates the signer object with data. This can be called many times with new data as it is streamed.
+
+### signer.sign(private_key, output_format)
+
+Calculates the signature on all the updated data passed through the signer. `private_key` is a string containing the PEM encoded private key for signing.
+
+Returns the signature in `output_format` which can be 'binary', 'hex' or 'base64'
+
+### crypto.createVerify(algorithm)
+
+Creates and returns a verification object, with the given algorithm. This is the mirror of the signing object above.
+
+### verifier.update(data)
+
+Updates the verifyer object with data. This can be called many times with new data as it is streamed.
+
+### verifier.verify(public_key, signature, signature_format)
+
+Verifies the signed data by using the `public_key` which is a string containing the PEM encoded public key, and `signature`, which is the previously calculates signature for the data, in the `signature_format` which can be 'binary', 'hex' or 'base64'.
+
+Returns true or false depending on the validity of the signature for the data and public key.
+
 
 
 ## DNS
@@ -2542,7 +2735,7 @@ The standalone REPL is called `node-repl` and is installed at
 
 ### repl.start(prompt, stream)
 
-Starts a REPL with `prompt` as the prompt and `stream` for all I/O.  `pomrpt`
+Starts a REPL with `prompt` as the prompt and `stream` for all I/O.  `prompt`
 is optional and defaults to `node> `.  `stream` is optional and defaults to 
 `process.openStdin()`.
 
@@ -2585,7 +2778,7 @@ or `socat`.  These programs are available from many Unix package managers.
 
 To start the standalone REPL with `rlwrap`:
 
-    rlwarp node-repl
+    rlwrap node-repl
     
 It might be convenient to use this alias in your shell configuration:
 
