@@ -34,54 +34,6 @@ namespace v8 {
 namespace internal {
 
 
-template<typename Record>
-CircularQueue<Record>::CircularQueue(int desired_buffer_size_in_bytes)
-    : buffer_(NewArray<Record>(desired_buffer_size_in_bytes / sizeof(Record))),
-      buffer_end_(buffer_ + desired_buffer_size_in_bytes / sizeof(Record)),
-      enqueue_semaphore_(
-          OS::CreateSemaphore(static_cast<int>(buffer_end_ - buffer_) - 1)),
-      enqueue_pos_(buffer_),
-      dequeue_pos_(buffer_) {
-  // To be able to distinguish between a full and an empty queue
-  // state, the queue must be capable of containing at least 2
-  // records.
-  ASSERT((buffer_end_ - buffer_) >= 2);
-}
-
-
-template<typename Record>
-CircularQueue<Record>::~CircularQueue() {
-  DeleteArray(buffer_);
-  delete enqueue_semaphore_;
-}
-
-
-template<typename Record>
-void CircularQueue<Record>::Dequeue(Record* rec) {
-  ASSERT(!IsEmpty());
-  *rec = *dequeue_pos_;
-  dequeue_pos_ = Next(dequeue_pos_);
-  // Tell we have a spare record.
-  enqueue_semaphore_->Signal();
-}
-
-
-template<typename Record>
-void CircularQueue<Record>::Enqueue(const Record& rec) {
-  // Wait until we have at least one spare record.
-  enqueue_semaphore_->Wait();
-  ASSERT(Next(enqueue_pos_) != dequeue_pos_);
-  *enqueue_pos_ = rec;
-  enqueue_pos_ = Next(enqueue_pos_);
-}
-
-
-template<typename Record>
-Record* CircularQueue<Record>::Next(Record* curr) {
-  return ++curr != buffer_end_ ? curr : buffer_;
-}
-
-
 void* SamplingCircularQueue::Enqueue() {
   WrapPositionIfNeeded(&producer_pos_->enqueue_pos);
   void* result = producer_pos_->enqueue_pos;

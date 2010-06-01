@@ -7,13 +7,18 @@ from os.path import join, dirname, abspath
 from logging import fatal
 
 cwd = os.getcwd()
-VERSION="0.1.94"
+VERSION="0.1.97"
 APPNAME="node.js"
 
 import js2c
 
 srcdir = '.'
 blddir = 'build'
+
+
+jobs=1
+if os.environ.has_key('JOBS'):
+  jobs = int(os.environ['JOBS'])
 
 def set_options(opt):
   # the gcc module provides a --debug-level option
@@ -38,72 +43,12 @@ def set_options(opt):
                 , help='Build using system libraries and headers (like a debian build) [Default: False]'
                 , dest='system'
                 )
-
-def mkdir_p(dir):
-  if not os.path.exists (dir):
-    os.makedirs (dir)
-
-# Copied from Python 2.6 because 2.4.4 at least is broken by not using
-# mkdirs
-# http://mail.python.org/pipermail/python-bugs-list/2005-January/027118.html
-def copytree(src, dst, symlinks=False, ignore=None):
-    names = os.listdir(src)
-    if ignore is not None:
-        ignored_names = ignore(src, names)
-    else:
-        ignored_names = set()
-
-    os.makedirs(dst)
-    errors = []
-    for name in names:
-        if name in ignored_names:
-            continue
-        srcname = join(src, name)
-        dstname = join(dst, name)
-        try:
-            if symlinks and os.path.islink(srcname):
-                linkto = os.readlink(srcname)
-                os.symlink(linkto, dstname)
-            elif os.path.isdir(srcname):
-                copytree(srcname, dstname, symlinks, ignore)
-            else:
-                shutil.copy2(srcname, dstname)
-            # XXX What about devices, sockets etc.?
-        except (IOError, os.error), why:
-            errors.append((srcname, dstname, str(why)))
-        # catch the Error from the recursive copytree so that we can
-        # continue with other files
-        except Error, err:
-            errors.extend(err.args[0])
-    try:
-        shutil.copystat(src, dst)
-    except OSError, why:
-        if WindowsError is not None and isinstance(why, WindowsError):
-            # Copying file access times may fail on Windows
-            pass
-        else:
-            errors.extend((src, dst, str(why)))
-    if errors:
-        raise Error, errors
-
-def conf_subproject (conf, subdir, command=None):
-  print("---- %s ----" % subdir)
-  src = join(conf.srcdir, subdir)
-  if not os.path.exists (src): conf.fatal("no such subproject " + subdir)
-
-  default_tgt = join(conf.blddir, "default", subdir)
-
-  if not os.path.exists(default_tgt):
-    copytree(src, default_tgt, True)
-
-  if command:
-    if os.system("cd \"%s\" && %s" % (default_tgt, command)) != 0:
-      conf.fatal("Configuring %s failed." % (subdir))
-
-  debug_tgt = join(conf.blddir, "debug", subdir)
-
-  if not os.path.exists(debug_tgt):
-    copytree(default_tgt, debug_tgt, True)
+  opt.add_option( '--without-ssl'
+                , action='store_true'
+                , default=False
+                , help='Build without SSL'
+                , dest='without_ssl'
+                )
 
 def configure(conf):
   conf.check_tool('compiler_cxx')
@@ -134,23 +79,24 @@ def configure(conf):
     if sys.platform.startswith("freebsd"):
       conf.fatal("Install the libexecinfo port from /usr/ports/devel/libexecinfo.")
 
-  if conf.check_cfg(package='openssl',
-                    args='--cflags --libs',
-                    uselib_store='OPENSSL'):
-    conf.env["USE_OPENSSL"] = True
-    conf.env.append_value("CXXFLAGS", "-DHAVE_OPENSSL=1")
-  else:
-    libssl = conf.check_cc(lib='ssl',
-                           header_name='openssl/ssl.h',
-                           function_name='SSL_library_init',
-                           libpath=['/usr/lib', '/usr/local/lib', '/opt/local/lib', '/usr/sfw/lib'],
-                           uselib_store='OPENSSL')
-    libcrypto = conf.check_cc(lib='crypto',
-                              header_name='openssl/crypto.h',
-                              uselib_store='OPENSSL')
-    if libcrypto and libssl:
+  if not Options.options.without_ssl:
+    if conf.check_cfg(package='openssl',
+                      args='--cflags --libs',
+                      uselib_store='OPENSSL'):
       conf.env["USE_OPENSSL"] = True
       conf.env.append_value("CXXFLAGS", "-DHAVE_OPENSSL=1")
+    else:
+      libssl = conf.check_cc(lib='ssl',
+                             header_name='openssl/ssl.h',
+                             function_name='SSL_library_init',
+                             libpath=['/usr/lib', '/usr/local/lib', '/opt/local/lib', '/usr/sfw/lib'],
+                             uselib_store='OPENSSL')
+      libcrypto = conf.check_cc(lib='crypto',
+                                header_name='openssl/crypto.h',
+                                uselib_store='OPENSSL')
+      if libcrypto and libssl:
+        conf.env["USE_OPENSSL"] = True
+        conf.env.append_value("CXXFLAGS", "-DHAVE_OPENSSL=1")
 
   conf.check(lib='rt', uselib_store='RT')
 
@@ -191,6 +137,22 @@ def configure(conf):
   conf.env.append_value('CXXFLAGS', '-D_LARGEFILE_SOURCE')
   conf.env.append_value('CCFLAGS',  '-D_FILE_OFFSET_BITS=64')
   conf.env.append_value('CXXFLAGS', '-D_FILE_OFFSET_BITS=64')
+
+  ## needed for node_file.cc fdatasync
+  ## Strangely on OSX 10.6 the g++ doesn't see fdatasync but gcc does?
+  code =  """
+    #include <unistd.h>
+    int main(void)
+    {
+       int fd = 0;
+       fdatasync (fd);
+       return 0;
+    }
+  """
+  if conf.check_cxx(msg="Checking for fdatasync(2) with c++", fragment=code):
+    conf.env.append_value('CXXFLAGS', '-DHAVE_FDATASYNC=1')
+  else:
+    conf.env.append_value('CXXFLAGS', '-DHAVE_FDATASYNC=0')
 
   # platform
   platform_def = '-DPLATFORM=' + sys.platform
@@ -235,9 +197,10 @@ def v8_cmd(bld, variant):
   else:
     mode = "debug"
 
-  cmd_R = 'python "%s" -C "%s" -Y "%s" visibility=default mode=%s %s library=static snapshot=on'
+  cmd_R = 'python "%s" -j %d -C "%s" -Y "%s" visibility=default mode=%s %s library=static snapshot=on'
 
   cmd = cmd_R % ( scons
+                , Options.options.jobs
                 , bld.srcnode.abspath(bld.env_of_name(variant))
                 , v8dir_src
                 , mode
@@ -274,8 +237,10 @@ def build_v8(bld):
   bld.install_files('${PREFIX}/include/node/', 'deps/v8/include/*.h')
 
 def build(bld):
+  Options.options.jobs=jobs
   print "DEST_OS: " + bld.env['DEST_OS']
   print "DEST_CPU: " + bld.env['DEST_CPU']
+  print "Parallel Jobs: " + str(Options.options.jobs)
 
   if not bld.env["USE_SYSTEM"]:
     bld.add_subdirs('deps/libeio deps/libev deps/c-ares')
@@ -353,7 +318,7 @@ def build(bld):
     src/node.cc
     src/node_buffer.cc
     src/node_http_parser.cc
-    src/node_net2.cc
+    src/node_net.cc
     src/node_io_watcher.cc
     src/node_child_process.cc
     src/node_constants.cc
@@ -434,6 +399,7 @@ def build(bld):
     config.h
     src/node.h
     src/node_object_wrap.h
+    src/node_buffer.h
     src/node_events.h
   """)
 

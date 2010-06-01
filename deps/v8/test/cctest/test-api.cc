@@ -76,6 +76,11 @@ static void ExpectBoolean(const char* code, bool expected) {
 }
 
 
+static void ExpectTrue(const char* code) {
+  ExpectBoolean(code, true);
+}
+
+
 static void ExpectObject(const char* code, Local<Value> expected) {
   Local<Value> result = CompileRun(code);
   CHECK(result->Equals(expected));
@@ -2506,7 +2511,7 @@ THREADED_TEST(DefinePropertyOnAPIAccessor) {
 
   // Uses getOwnPropertyDescriptor to check the configurable status
   Local<Script> script_desc
-    = Script::Compile(v8_str("var prop =Object.getOwnPropertyDescriptor( "
+    = Script::Compile(v8_str("var prop = Object.getOwnPropertyDescriptor( "
                              "obj, 'x');"
                              "prop.configurable;"));
   Local<Value> result = script_desc->Run();
@@ -2592,7 +2597,166 @@ THREADED_TEST(DefinePropertyOnDefineGetterSetter) {
 }
 
 
+static v8::Handle<v8::Object> GetGlobalProperty(LocalContext* context,
+                                                char const* name) {
+  return v8::Handle<v8::Object>::Cast((*context)->Global()->Get(v8_str(name)));
+}
 
+
+THREADED_TEST(DefineAPIAccessorOnObject) {
+  v8::HandleScope scope;
+  Local<ObjectTemplate> templ = ObjectTemplate::New();
+  LocalContext context;
+
+  context->Global()->Set(v8_str("obj1"), templ->NewInstance());
+  CompileRun("var obj2 = {};");
+
+  CHECK(CompileRun("obj1.x")->IsUndefined());
+  CHECK(CompileRun("obj2.x")->IsUndefined());
+
+  CHECK(GetGlobalProperty(&context, "obj1")->
+      SetAccessor(v8_str("x"), GetXValue, NULL, v8_str("donut")));
+
+  ExpectString("obj1.x", "x");
+  CHECK(CompileRun("obj2.x")->IsUndefined());
+
+  CHECK(GetGlobalProperty(&context, "obj2")->
+      SetAccessor(v8_str("x"), GetXValue, NULL, v8_str("donut")));
+
+  ExpectString("obj1.x", "x");
+  ExpectString("obj2.x", "x");
+
+  ExpectTrue("Object.getOwnPropertyDescriptor(obj1, 'x').configurable");
+  ExpectTrue("Object.getOwnPropertyDescriptor(obj2, 'x').configurable");
+
+  CompileRun("Object.defineProperty(obj1, 'x',"
+             "{ get: function() { return 'y'; }, configurable: true })");
+
+  ExpectString("obj1.x", "y");
+  ExpectString("obj2.x", "x");
+
+  CompileRun("Object.defineProperty(obj2, 'x',"
+             "{ get: function() { return 'y'; }, configurable: true })");
+
+  ExpectString("obj1.x", "y");
+  ExpectString("obj2.x", "y");
+
+  ExpectTrue("Object.getOwnPropertyDescriptor(obj1, 'x').configurable");
+  ExpectTrue("Object.getOwnPropertyDescriptor(obj2, 'x').configurable");
+
+  CHECK(GetGlobalProperty(&context, "obj1")->
+      SetAccessor(v8_str("x"), GetXValue, NULL, v8_str("donut")));
+  CHECK(GetGlobalProperty(&context, "obj2")->
+      SetAccessor(v8_str("x"), GetXValue, NULL, v8_str("donut")));
+
+  ExpectString("obj1.x", "x");
+  ExpectString("obj2.x", "x");
+
+  ExpectTrue("Object.getOwnPropertyDescriptor(obj1, 'x').configurable");
+  ExpectTrue("Object.getOwnPropertyDescriptor(obj2, 'x').configurable");
+
+  // Define getters/setters, but now make them not configurable.
+  CompileRun("Object.defineProperty(obj1, 'x',"
+             "{ get: function() { return 'z'; }, configurable: false })");
+  CompileRun("Object.defineProperty(obj2, 'x',"
+             "{ get: function() { return 'z'; }, configurable: false })");
+
+  ExpectTrue("!Object.getOwnPropertyDescriptor(obj1, 'x').configurable");
+  ExpectTrue("!Object.getOwnPropertyDescriptor(obj2, 'x').configurable");
+
+  ExpectString("obj1.x", "z");
+  ExpectString("obj2.x", "z");
+
+  CHECK(!GetGlobalProperty(&context, "obj1")->
+      SetAccessor(v8_str("x"), GetXValue, NULL, v8_str("donut")));
+  CHECK(!GetGlobalProperty(&context, "obj2")->
+      SetAccessor(v8_str("x"), GetXValue, NULL, v8_str("donut")));
+
+  ExpectString("obj1.x", "z");
+  ExpectString("obj2.x", "z");
+}
+
+
+THREADED_TEST(DontDeleteAPIAccessorsCannotBeOverriden) {
+  v8::HandleScope scope;
+  Local<ObjectTemplate> templ = ObjectTemplate::New();
+  LocalContext context;
+
+  context->Global()->Set(v8_str("obj1"), templ->NewInstance());
+  CompileRun("var obj2 = {};");
+
+  CHECK(GetGlobalProperty(&context, "obj1")->SetAccessor(
+        v8_str("x"),
+        GetXValue, NULL,
+        v8_str("donut"), v8::DEFAULT, v8::DontDelete));
+  CHECK(GetGlobalProperty(&context, "obj2")->SetAccessor(
+        v8_str("x"),
+        GetXValue, NULL,
+        v8_str("donut"), v8::DEFAULT, v8::DontDelete));
+
+  ExpectString("obj1.x", "x");
+  ExpectString("obj2.x", "x");
+
+  ExpectTrue("!Object.getOwnPropertyDescriptor(obj1, 'x').configurable");
+  ExpectTrue("!Object.getOwnPropertyDescriptor(obj2, 'x').configurable");
+
+  CHECK(!GetGlobalProperty(&context, "obj1")->
+      SetAccessor(v8_str("x"), GetXValue, NULL, v8_str("donut")));
+  CHECK(!GetGlobalProperty(&context, "obj2")->
+      SetAccessor(v8_str("x"), GetXValue, NULL, v8_str("donut")));
+
+  {
+    v8::TryCatch try_catch;
+    CompileRun("Object.defineProperty(obj1, 'x',"
+        "{get: function() { return 'func'; }})");
+    CHECK(try_catch.HasCaught());
+    String::AsciiValue exception_value(try_catch.Exception());
+    CHECK_EQ(*exception_value,
+            "TypeError: Cannot redefine property: defineProperty");
+  }
+  {
+    v8::TryCatch try_catch;
+    CompileRun("Object.defineProperty(obj2, 'x',"
+        "{get: function() { return 'func'; }})");
+    CHECK(try_catch.HasCaught());
+    String::AsciiValue exception_value(try_catch.Exception());
+    CHECK_EQ(*exception_value,
+            "TypeError: Cannot redefine property: defineProperty");
+  }
+}
+
+
+static v8::Handle<Value> Get239Value(Local<String> name,
+                                     const AccessorInfo& info) {
+  ApiTestFuzzer::Fuzz();
+  CHECK_EQ(info.Data(), v8_str("donut"));
+  CHECK_EQ(name, v8_str("239"));
+  return name;
+}
+
+
+THREADED_TEST(ElementAPIAccessor) {
+  v8::HandleScope scope;
+  Local<ObjectTemplate> templ = ObjectTemplate::New();
+  LocalContext context;
+
+  context->Global()->Set(v8_str("obj1"), templ->NewInstance());
+  CompileRun("var obj2 = {};");
+
+  CHECK(GetGlobalProperty(&context, "obj1")->SetAccessor(
+        v8_str("239"),
+        Get239Value, NULL,
+        v8_str("donut")));
+  CHECK(GetGlobalProperty(&context, "obj2")->SetAccessor(
+        v8_str("239"),
+        Get239Value, NULL,
+        v8_str("donut")));
+
+  ExpectString("obj1[239]", "239");
+  ExpectString("obj2[239]", "239");
+  ExpectString("obj1['239']", "239");
+  ExpectString("obj2['239']", "239");
+}
 
 
 v8::Persistent<Value> xValue;
@@ -6081,10 +6245,23 @@ THREADED_TEST(InterceptorLoadICWithCallbackOnHolder) {
   templ->SetAccessor(v8_str("y"), Return239);
   LocalContext context;
   context->Global()->Set(v8_str("o"), templ->NewInstance());
+
+  // Check the case when receiver and interceptor's holder
+  // are the same objects.
   v8::Handle<Value> value = CompileRun(
       "var result = 0;"
       "for (var i = 0; i < 7; i++) {"
       "  result = o.y;"
+      "}");
+  CHECK_EQ(239, value->Int32Value());
+
+  // Check the case when interceptor's holder is in proto chain
+  // of receiver.
+  value = CompileRun(
+      "r = { __proto__: o };"
+      "var result = 0;"
+      "for (var i = 0; i < 7; i++) {"
+      "  result = r.y;"
       "}");
   CHECK_EQ(239, value->Int32Value());
 }
@@ -6101,11 +6278,23 @@ THREADED_TEST(InterceptorLoadICWithCallbackOnProto) {
   context->Global()->Set(v8_str("o"), templ_o->NewInstance());
   context->Global()->Set(v8_str("p"), templ_p->NewInstance());
 
+  // Check the case when receiver and interceptor's holder
+  // are the same objects.
   v8::Handle<Value> value = CompileRun(
       "o.__proto__ = p;"
       "var result = 0;"
       "for (var i = 0; i < 7; i++) {"
       "  result = o.x + o.y;"
+      "}");
+  CHECK_EQ(239 + 42, value->Int32Value());
+
+  // Check the case when interceptor's holder is in proto chain
+  // of receiver.
+  value = CompileRun(
+      "r = { __proto__: o };"
+      "var result = 0;"
+      "for (var i = 0; i < 7; i++) {"
+      "  result = r.x + r.y;"
       "}");
   CHECK_EQ(239 + 42, value->Int32Value());
 }
@@ -7036,6 +7225,18 @@ THREADED_TEST(NullIndexedInterceptor) {
   v8::Handle<Value> value = CompileRun("obj[42]");
   CHECK(value->IsInt32());
   CHECK_EQ(42, value->Int32Value());
+}
+
+
+THREADED_TEST(NamedPropertyHandlerGetterAttributes) {
+  v8::HandleScope scope;
+  v8::Handle<v8::FunctionTemplate> templ = v8::FunctionTemplate::New();
+  templ->InstanceTemplate()->SetNamedPropertyHandler(InterceptorLoadXICGetter);
+  LocalContext env;
+  env->Global()->Set(v8_str("obj"),
+                     templ->GetFunction()->NewInstance());
+  ExpectTrue("obj.x === 42");
+  ExpectTrue("!obj.propertyIsEnumerable('x')");
 }
 
 
@@ -8003,8 +8204,8 @@ TEST(PreCompile) {
   // TODO(155): This test would break without the initialization of V8. This is
   // a workaround for now to make this test not fail.
   v8::V8::Initialize();
-  const char *script = "function foo(a) { return a+1; }";
-  v8::ScriptData *sd =
+  const char* script = "function foo(a) { return a+1; }";
+  v8::ScriptData* sd =
       v8::ScriptData::PreCompile(script, i::StrLength(script));
   CHECK_NE(sd->Length(), 0);
   CHECK_NE(sd->Data(), NULL);
@@ -8015,8 +8216,8 @@ TEST(PreCompile) {
 
 TEST(PreCompileWithError) {
   v8::V8::Initialize();
-  const char *script = "function foo(a) { return 1 * * 2; }";
-  v8::ScriptData *sd =
+  const char* script = "function foo(a) { return 1 * * 2; }";
+  v8::ScriptData* sd =
       v8::ScriptData::PreCompile(script, i::StrLength(script));
   CHECK(sd->HasError());
   delete sd;
@@ -8025,10 +8226,49 @@ TEST(PreCompileWithError) {
 
 TEST(Regress31661) {
   v8::V8::Initialize();
-  const char *script = " The Definintive Guide";
-  v8::ScriptData *sd =
+  const char* script = " The Definintive Guide";
+  v8::ScriptData* sd =
       v8::ScriptData::PreCompile(script, i::StrLength(script));
   CHECK(sd->HasError());
+  delete sd;
+}
+
+
+// Tests that ScriptData can be serialized and deserialized.
+TEST(PreCompileSerialization) {
+  v8::V8::Initialize();
+  const char* script = "function foo(a) { return a+1; }";
+  v8::ScriptData* sd =
+      v8::ScriptData::PreCompile(script, i::StrLength(script));
+
+  // Serialize.
+  int serialized_data_length = sd->Length();
+  char* serialized_data = i::NewArray<char>(serialized_data_length);
+  memcpy(serialized_data, sd->Data(), serialized_data_length);
+
+  // Deserialize.
+  v8::ScriptData* deserialized_sd =
+      v8::ScriptData::New(serialized_data, serialized_data_length);
+
+  // Verify that the original is the same as the deserialized.
+  CHECK_EQ(sd->Length(), deserialized_sd->Length());
+  CHECK_EQ(0, memcmp(sd->Data(), deserialized_sd->Data(), sd->Length()));
+  CHECK_EQ(sd->HasError(), deserialized_sd->HasError());
+
+  delete sd;
+  delete deserialized_sd;
+}
+
+
+// Attempts to deserialize bad data.
+TEST(PreCompileDeserializationError) {
+  v8::V8::Initialize();
+  const char* data = "DONT CARE";
+  int invalid_size = 3;
+  v8::ScriptData* sd = v8::ScriptData::New(data, invalid_size);
+
+  CHECK_EQ(0, sd->Length());
+
   delete sd;
 }
 
@@ -9584,6 +9824,120 @@ THREADED_TEST(StackTrace) {
 }
 
 
+// Checks that a StackFrame has certain expected values.
+void checkStackFrame(const char* expected_script_name,
+    const char* expected_func_name, int expected_line_number,
+    int expected_column, bool is_eval, bool is_constructor,
+    v8::Handle<v8::StackFrame> frame) {
+  v8::HandleScope scope;
+  v8::String::Utf8Value func_name(frame->GetFunctionName());
+  v8::String::Utf8Value script_name(frame->GetScriptName());
+  if (*script_name == NULL) {
+    // The situation where there is no associated script, like for evals.
+    CHECK(expected_script_name == NULL);
+  } else {
+    CHECK(strstr(*script_name, expected_script_name) != NULL);
+  }
+  CHECK(strstr(*func_name, expected_func_name) != NULL);
+  CHECK_EQ(expected_line_number, frame->GetLineNumber());
+  CHECK_EQ(expected_column, frame->GetColumn());
+  CHECK_EQ(is_eval, frame->IsEval());
+  CHECK_EQ(is_constructor, frame->IsConstructor());
+}
+
+
+v8::Handle<Value> AnalyzeStackInNativeCode(const v8::Arguments& args) {
+  v8::HandleScope scope;
+  const char* origin = "capture-stack-trace-test";
+  const int kOverviewTest = 1;
+  const int kDetailedTest = 2;
+
+  ASSERT(args.Length() == 1);
+
+  int testGroup = args[0]->Int32Value();
+  if (testGroup == kOverviewTest) {
+    v8::Handle<v8::StackTrace> stackTrace =
+        v8::StackTrace::CurrentStackTrace(10, v8::StackTrace::kOverview);
+    CHECK_EQ(4, stackTrace->GetFrameCount());
+    checkStackFrame(origin, "bar", 2, 10, false, false,
+                    stackTrace->GetFrame(0));
+    checkStackFrame(origin, "foo", 6, 3, false, false,
+                    stackTrace->GetFrame(1));
+    checkStackFrame(NULL, "", 1, 1, false, false,
+                    stackTrace->GetFrame(2));
+    // The last frame is an anonymous function that has the initial call.
+    checkStackFrame(origin, "", 8, 7, false, false,
+                    stackTrace->GetFrame(3));
+
+    CHECK(stackTrace->AsArray()->IsArray());
+  } else if (testGroup == kDetailedTest) {
+    v8::Handle<v8::StackTrace> stackTrace =
+        v8::StackTrace::CurrentStackTrace(10, v8::StackTrace::kDetailed);
+    CHECK_EQ(4, stackTrace->GetFrameCount());
+    checkStackFrame(origin, "bat", 4, 22, false, false,
+                    stackTrace->GetFrame(0));
+    checkStackFrame(origin, "baz", 8, 3, false, true,
+                    stackTrace->GetFrame(1));
+    checkStackFrame(NULL, "", 1, 1, true, false,
+                    stackTrace->GetFrame(2));
+    // The last frame is an anonymous function that has the initial call to foo.
+    checkStackFrame(origin, "", 10, 1, false, false,
+                    stackTrace->GetFrame(3));
+
+    CHECK(stackTrace->AsArray()->IsArray());
+  }
+  return v8::Undefined();
+}
+
+
+// Tests the C++ StackTrace API.
+THREADED_TEST(CaptureStackTrace) {
+  v8::HandleScope scope;
+  v8::Handle<v8::String> origin = v8::String::New("capture-stack-trace-test");
+  Local<ObjectTemplate> templ = ObjectTemplate::New();
+  templ->Set(v8_str("AnalyzeStackInNativeCode"),
+             v8::FunctionTemplate::New(AnalyzeStackInNativeCode));
+  LocalContext context(0, templ);
+
+  // Test getting OVERVIEW information. Should ignore information that is not
+  // script name, function name, line number, and column offset.
+  const char *overview_source =
+    "function bar() {\n"
+    "  var y; AnalyzeStackInNativeCode(1);\n"
+    "}\n"
+    "function foo() {\n"
+    "\n"
+    "  bar();\n"
+    "}\n"
+    "var x;eval('new foo();');";
+  v8::Handle<v8::String> overview_src = v8::String::New(overview_source);
+  v8::Handle<Value> overview_result =
+      v8::Script::New(overview_src, origin)->Run();
+  ASSERT(!overview_result.IsEmpty());
+  ASSERT(overview_result->IsObject());
+
+  // Test getting DETAILED information.
+  const char *detailed_source =
+    "function bat() {AnalyzeStackInNativeCode(2);\n"
+    "}\n"
+    "\n"
+    "function baz() {\n"
+    "  bat();\n"
+    "}\n"
+    "eval('new baz();');";
+  v8::Handle<v8::String> detailed_src = v8::String::New(detailed_source);
+  // Make the script using a non-zero line and column offset.
+  v8::Handle<v8::Integer> line_offset = v8::Integer::New(3);
+  v8::Handle<v8::Integer> column_offset = v8::Integer::New(5);
+  v8::ScriptOrigin detailed_origin(origin, line_offset, column_offset);
+  v8::Handle<v8::Script> detailed_script(
+      v8::Script::New(detailed_src, &detailed_origin));
+  v8::Handle<Value> detailed_result = detailed_script->Run();
+  ASSERT(!detailed_result.IsEmpty());
+  ASSERT(detailed_result->IsObject());
+}
+
+
 // Test that idle notification can be handled and eventually returns true.
 THREADED_TEST(IdleNotification) {
   bool rv = false;
@@ -10154,4 +10508,121 @@ TEST(GCCallbacks) {
   CHECK_EQ(2, epilogue_call_count);
   CHECK_EQ(2, prologue_call_count_second);
   CHECK_EQ(2, epilogue_call_count_second);
+}
+
+
+THREADED_TEST(AddToJSFunctionResultCache) {
+  i::FLAG_allow_natives_syntax = true;
+  v8::HandleScope scope;
+
+  LocalContext context;
+
+  const char* code =
+      "(function() {"
+      "  var key0 = 'a';"
+      "  var key1 = 'b';"
+      "  var r0 = %_GetFromCache(0, key0);"
+      "  var r1 = %_GetFromCache(0, key1);"
+      "  var r0_ = %_GetFromCache(0, key0);"
+      "  if (r0 !== r0_)"
+      "    return 'Different results for ' + key0 + ': ' + r0 + ' vs. ' + r0_;"
+      "  var r1_ = %_GetFromCache(0, key1);"
+      "  if (r1 !== r1_)"
+      "    return 'Different results for ' + key1 + ': ' + r1 + ' vs. ' + r1_;"
+      "  return 'PASSED';"
+      "})()";
+  v8::internal::Heap::ClearJSFunctionResultCaches();
+  ExpectString(code, "PASSED");
+}
+
+
+static const int k0CacheSize = 16;
+
+THREADED_TEST(FillJSFunctionResultCache) {
+  i::FLAG_allow_natives_syntax = true;
+  v8::HandleScope scope;
+
+  LocalContext context;
+
+  const char* code =
+      "(function() {"
+      "  var k = 'a';"
+      "  var r = %_GetFromCache(0, k);"
+      "  for (var i = 0; i < 16; i++) {"
+      "    %_GetFromCache(0, 'a' + i);"
+      "  };"
+      "  if (r === %_GetFromCache(0, k))"
+      "    return 'FAILED: k0CacheSize is too small';"
+      "  return 'PASSED';"
+      "})()";
+  v8::internal::Heap::ClearJSFunctionResultCaches();
+  ExpectString(code, "PASSED");
+}
+
+
+THREADED_TEST(RoundRobinGetFromCache) {
+  i::FLAG_allow_natives_syntax = true;
+  v8::HandleScope scope;
+
+  LocalContext context;
+
+  const char* code =
+      "(function() {"
+      "  var keys = [];"
+      "  for (var i = 0; i < 16; i++) keys.push(i);"
+      "  var values = [];"
+      "  for (var i = 0; i < 16; i++) values[i] = %_GetFromCache(0, keys[i]);"
+      "  for (var i = 0; i < 16; i++) {"
+      "    var v = %_GetFromCache(0, keys[i]);"
+      "    if (v !== values[i])"
+      "      return 'Wrong value for ' + "
+      "          keys[i] + ': ' + v + ' vs. ' + values[i];"
+      "  };"
+      "  return 'PASSED';"
+      "})()";
+  v8::internal::Heap::ClearJSFunctionResultCaches();
+  ExpectString(code, "PASSED");
+}
+
+
+THREADED_TEST(ReverseGetFromCache) {
+  i::FLAG_allow_natives_syntax = true;
+  v8::HandleScope scope;
+
+  LocalContext context;
+
+  const char* code =
+      "(function() {"
+      "  var keys = [];"
+      "  for (var i = 0; i < 16; i++) keys.push(i);"
+      "  var values = [];"
+      "  for (var i = 0; i < 16; i++) values[i] = %_GetFromCache(0, keys[i]);"
+      "  for (var i = 15; i >= 16; i--) {"
+      "    var v = %_GetFromCache(0, keys[i]);"
+      "    if (v !== values[i])"
+      "      return 'Wrong value for ' + "
+      "          keys[i] + ': ' + v + ' vs. ' + values[i];"
+      "  };"
+      "  return 'PASSED';"
+      "})()";
+  v8::internal::Heap::ClearJSFunctionResultCaches();
+  ExpectString(code, "PASSED");
+}
+
+
+THREADED_TEST(TestEviction) {
+  i::FLAG_allow_natives_syntax = true;
+  v8::HandleScope scope;
+
+  LocalContext context;
+
+  const char* code =
+      "(function() {"
+      "  for (var i = 0; i < 2*16; i++) {"
+      "    %_GetFromCache(0, 'a' + i);"
+      "  };"
+      "  return 'PASSED';"
+      "})()";
+  v8::internal::Heap::ClearJSFunctionResultCaches();
+  ExpectString(code, "PASSED");
 }

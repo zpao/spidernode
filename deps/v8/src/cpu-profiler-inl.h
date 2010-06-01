@@ -34,6 +34,7 @@
 
 #include "circular-queue-inl.h"
 #include "profile-generator-inl.h"
+#include "unbound-queue-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -54,7 +55,7 @@ void CodeDeleteEventRecord::UpdateCodeMap(CodeMap* code_map) {
 
 
 void CodeAliasEventRecord::UpdateCodeMap(CodeMap* code_map) {
-  code_map->AddAlias(alias, start);
+  code_map->AddAlias(start, entry, code_start);
 }
 
 

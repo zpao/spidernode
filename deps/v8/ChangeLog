@@ -1,3 +1,62 @@
+2010-05-31: Version 2.2.13
+
+        Implement Object.getOwnPropertyDescriptor for element indices and
+        strings (issue 599).
+
+        Fix bug for windows 64 bit C calls from generated code.
+
+        Add new scons flag unalignedaccesses for arm builds.
+
+        Performance improvements on all platforms.
+
+
+2010-05-26: Version 2.2.12
+
+        Allowed accessors to be defined on objects rather than just object
+        templates.
+
+        Changed the ScriptData API.
+
+
+2010-05-21: Version 2.2.11
+
+        Fix crash bug in liveedit on 64 bit.
+
+        Use 'full compiler' when debugging is active.  This should increase
+        the density of possible break points, making single step more fine
+        grained.  This will only take effect for functions compiled after
+        debugging has been started, so recompilation of all functions is
+        required to get the full effect.  IA32 and x64 only for now.
+
+        Misc. fixes to the Solaris build.
+
+        Add new flags --print-cumulative-gc-stat and --trace-gc-nvp.
+
+        Add filtering of CPU profiles by security context.
+
+        Fix crash bug on ARM when running without VFP2 or VFP3.
+
+        Incremental performance improvements in all backends.
+
+
+2010-05-17: Version 2.2.10
+
+        Performance improvements in the x64 and ARM backends.
+
+
+2010-05-10: Version 2.2.9
+
+        Allow Object.create to be called with a function (issue 697).
+
+        Fixed bug with Date.parse returning a non-NaN value when called on a
+        non date string (issue 696).
+
+        Allow unaligned memory accesses on ARM targets that support it (by
+        Subrato K De of CodeAurora <subratokde@codeaurora.org>).
+
+        C++ API for retrieving JavaScript stack trace information.
+
+
 2010-05-05: Version 2.2.8
 
         Performance improvements in the x64 and ARM backends.

@@ -38,6 +38,7 @@
 #include "runtime.h"
 #include "top.h"
 #include "token.h"
+#include "objects.h"
 
 namespace v8 {
 namespace internal {
@@ -121,7 +122,6 @@ class RelocInfo BASE_EMBEDDED {
     DEBUG_BREAK,
     CODE_TARGET,         // code target which is not any of the above.
     EMBEDDED_OBJECT,
-    EMBEDDED_STRING,
 
     // Everything after runtime_entry (inclusive) is not GC'ed.
     RUNTIME_ENTRY,
@@ -137,7 +137,7 @@ class RelocInfo BASE_EMBEDDED {
     NUMBER_OF_MODES,  // must be no greater than 14 - see RelocInfoWriter
     NONE,  // never recorded
     LAST_CODE_ENUM = CODE_TARGET,
-    LAST_GCED_ENUM = EMBEDDED_STRING
+    LAST_GCED_ENUM = EMBEDDED_OBJECT
   };
 
 
@@ -185,6 +185,11 @@ class RelocInfo BASE_EMBEDDED {
   // Apply a relocation by delta bytes
   INLINE(void apply(intptr_t delta));
 
+  // Is the pointer this relocation info refers to coded like a plain pointer
+  // or is it strange in some way (eg relative or patched into a series of
+  // instructions).
+  bool IsCodedSpecially();
+
   // Read/modify the code target in the branch/call instruction
   // this relocation applies to;
   // can only be called if IsCodeTarget(rmode_) || rmode_ == RUNTIME_ENTRY
@@ -195,9 +200,23 @@ class RelocInfo BASE_EMBEDDED {
   INLINE(Object** target_object_address());
   INLINE(void set_target_object(Object* target));
 
-  // Read the address of the word containing the target_address. Can only
-  // be called if IsCodeTarget(rmode_) || rmode_ == RUNTIME_ENTRY.
+  // Read the address of the word containing the target_address in an
+  // instruction stream.  What this means exactly is architecture-independent.
+  // The only architecture-independent user of this function is the serializer.
+  // The serializer uses it to find out how many raw bytes of instruction to
+  // output before the next target.  Architecture-independent code shouldn't
+  // dereference the pointer it gets back from this.
   INLINE(Address target_address_address());
+  // This indicates how much space a target takes up when deserializing a code
+  // stream.  For most architectures this is just the size of a pointer.  For
+  // an instruction like movw/movt where the target bits are mixed into the
+  // instruction bits the size of the target will be zero, indicating that the
+  // serializer should not step forwards in memory after a target is resolved
+  // and written.  In this case the target_address_address function above
+  // should return the end of the instructions to be patched, allowing the
+  // deserializer to deserialize the instructions as raw bytes and put them in
+  // place, ready to be patched with the target.
+  INLINE(int target_address_size());
 
   // Read/modify the reference in the instruction this relocation
   // applies to; can only be called if rmode_ is external_reference
@@ -211,6 +230,8 @@ class RelocInfo BASE_EMBEDDED {
   INLINE(Object* call_object());
   INLINE(Object** call_object_address());
   INLINE(void set_call_object(Object* target));
+
+  inline void Visit(ObjectVisitor* v);
 
   // Patch the code with some other code.
   void PatchCode(byte* instructions, int instruction_count);
@@ -443,9 +464,6 @@ class ExternalReference BASE_EMBEDDED {
   static ExternalReference handle_scope_limit_address();
 
   static ExternalReference scheduled_exception_address();
-
-  static ExternalReference compile_array_pop_call();
-  static ExternalReference compile_array_push_call();
 
   Address address() const {return reinterpret_cast<Address>(address_);}
 

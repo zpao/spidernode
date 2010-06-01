@@ -68,6 +68,14 @@ strip the high bit if set.
 
 Allocates a new buffer of `size` octets.
 
+### new Buffer(array)
+
+Allocates a new buffer using an `array` of octets.
+
+### new Buffer(str, encoding = 'utf8')
+
+Allocates a new buffer containing the given `str`.
+
 ### buffer.write(string, encoding, offset)
 
 Writes `string` to the buffer at `offset` using the given encoding. Returns
@@ -223,12 +231,23 @@ is emitted. These functions are called _listeners_.
 All EventEmitters emit the event `'newListener'` when new listeners are
 added.
 
+When an EventEmitter experiences an error, the typical action is to emit an
+`'error'` event.  Error events are special--if there is no handler for them
+they will print a stack trace and exit the program.
+
 ### Event: 'newListener'
 
 `function (event, listener) { }`
 
 This event is made any time someone adds a new listener.
 
+### Event: 'error'
+
+`function (exception) { }`
+
+If an error was encountered, then this event is emitted. This event is
+special - when there are no listeners to receive the error Node will
+terminate execution and display the exception's stack trace.
 
 ### emitter.addListener(event, listener)
 
@@ -656,6 +675,12 @@ Gets/sets the user identity of the process. (See setuid(2).)  This is the numeri
       sys.puts('Failed to set uid: ' + err);
     }
 
+
+### process.version
+
+A compiled-in property that exposes `NODE_VERSION`.
+
+    require('sys').puts('Version: ' + process.version);
 
 ### process.installPrefix
 
@@ -1258,9 +1283,9 @@ Asynchronous chmod(2). No arguments other than a possible exception are given to
 
 Synchronous chmod(2).
   
-### fs.stat(path, callback), fs.lstat(path, callback)
+### fs.stat(path, callback), fs.lstat(path, callback), fs.fstat(fd, callback)
 
-Asynchronous stat(2) or lstat(2). The callback gets two arguments `(err, stats)` where `stats` is a `fs.Stats` object. It looks like this:
+Asynchronous stat(2), lstat(2) or fstat(2). The callback gets two arguments `(err, stats)` where `stats` is a `fs.Stats` object. It looks like this:
 
     { dev: 2049
     , ino: 305352
@@ -1279,9 +1304,9 @@ Asynchronous stat(2) or lstat(2). The callback gets two arguments `(err, stats)`
 
 See the `fs.Stats` section below for more information.
 
-### fs.statSync(path), fs.lstatSync(path)
+### fs.statSync(path), fs.lstatSync(path), fs.fstatSync(fd)
 
-Synchronous stat(2) or lstat(2). Returns an instance of `fs.Stats`.
+Synchronous stat(2), lstat(2) or fstat(2). Returns an instance of `fs.Stats`.
 
 ### fs.link(srcpath, dstpath, callback)
 
@@ -1367,11 +1392,15 @@ or 'a+'. The callback gets two arguments `(err, fd)`.
 
 Synchronous open(2). 
 
-### fs.write(fd, data, position, encoding, callback)
+### fs.write(fd, buffer, offset, length, position, callback)
 
-Write data to the file specified by `fd`.  `position` refers to the offset
-from the beginning of the file where this data should be written. If
-`position` is `null`, the data will be written at the current position.
+Write `buffer` to the file specified by `fd`.
+
+`offset` and `length` determine the part of the buffer to be written.
+
+`position` refers to the offset from the beginning of the file where this data
+should be written. If `position` is `null`, the data will be written at the
+current position.
 See pwrite(2).
 
 The callback will be given two arguments `(err, written)` where `written`
@@ -1381,22 +1410,26 @@ specifies how many _bytes_ were written.
 
 Synchronous version of `fs.write()`. Returns the number of bytes written.
 
-### fs.read(fd, length, position, encoding, callback)
+### fs.read(fd, buffer, offset, length, position, callback)
 
 Read data from the file specified by `fd`.
+
+`buffer` is the buffer that the data will be written to.
+
+`offset` is offset within the buffer where writing will start.
 
 `length` is an integer specifying the number of bytes to read.
 
 `position` is an integer specifying where to begin reading from in the file.
+If `position` is `null`, data will be read from the current file position.
 
-The callback is given three arguments, `(err, data, bytesRead)` where `data`
-is a string--what was read--and `bytesRead` is the number of bytes read.
+The callback is given the two arguments, `(err, bytesRead)`.
 
-### fs.readSync(fd, length, position, encoding)
+### fs.readSync(fd, buffer, offset, length, position)
 
-Synchronous version of `fs.read`. Returns an array `[data, bytesRead]`.
+Synchronous version of `fs.read`. Returns the number of `bytesRead`.
 
-### fs.readFile(filename, encoding='utf8', callback)
+### fs.readFile(filename, [encoding,] callback)
 
 Asynchronously reads the entire contents of a file. Example:
 
@@ -1408,9 +1441,16 @@ Asynchronously reads the entire contents of a file. Example:
 The callback is passed two arguments `(err, data)`, where `data` is the
 contents of the file.
 
-### fs.readFileSync(filename, encoding='utf8')
+If no encoding is specified, then the raw buffer is returned.
+
+
+### fs.readFileSync(filename [, encoding])
 
 Synchronous version of `fs.readFile`. Returns the contents of the `filename`.
+
+If `encoding` is specified then this function returns a string. Otherwise it
+returns a buffer.
+
 
 ### fs.writeFile(filename, data, encoding='utf8', callback)
 
@@ -1569,14 +1609,13 @@ This is an EventEmitter with the following events:
  `request` is an instance of `http.ServerRequest` and `response` is
  an instance of `http.ServerResponse`
 
-### Event: 'stream'
+### Event: 'connection'
 
 `function (stream) { }`
 
- When a new TCP stream is established.
- `stream` is an object of type `http.Connection`. Usually users
- will not want to access this event. The `stream` can also be
- accessed at `request.stream`.
+ When a new TCP stream is established. `stream` is an object of type
+ `net.Stream`. Usually users will not want to access this event. The
+ `stream` can also be accessed at `request.connection`.
 
 ### Event: 'close'
 
@@ -1757,13 +1796,16 @@ Resumes a paused request.
 
 The `net.Stream` object assocated with the connection.
 
-With HTTPS support, use request.connection.verifyPeer() and request.connection.getPeerCertificate() to obtain the client's authentication details.
+With HTTPS support, use request.connection.verifyPeer() and
+request.connection.getPeerCertificate() to obtain the client's
+authentication details.
 
 
 ## http.ServerResponse
 
 This object is created internally by a HTTP server--not by the user. It is
 passed as the second parameter to the `'request'` event. It is a writable stream.
+
 
 ### response.writeHead(statusCode[, reasonPhrase] , headers)
 
@@ -1910,6 +1952,7 @@ event, the entire body will be caught.
     });
 
 This is a writable stream.
+
 This is an `EventEmitter` with the following events:
 
 ### Event 'response'
@@ -2122,8 +2165,11 @@ call `stream.end()` when this event is emitted.
 
 `function () { }`
 
-Emitted if the stream times out from inactivity. The
-`'close'` event will be emitted immediately following this event.
+Emitted if the stream times out from inactivity. This is only to notify that
+the stream has been idle. The user must manually close the connection.
+
+See also: `stream.setTimeout()`
+
 
 ### Event: 'drain'
 
@@ -2231,10 +2277,13 @@ Resumes reading after a call to `pause()`.
 ### stream.setTimeout(timeout)
 
 Sets the stream to timeout after `timeout` milliseconds of inactivity on
-the stream. By default all `net.Stream` objects have a timeout of 60
-seconds (60000 ms).
+the stream. By default `net.Stream` do not have a timeout.
 
-If `timeout` is 0, then the idle timeout is disabled.
+When an idle timeout is triggered the stream will receive a `'timeout'`
+event but the connection will not be severed. The user must manually `end()`
+or `destroy()` the stream.
+
+If `timeout` is 0, then the existing idle timeout is disabled.
 
 ### stream.setNoDelay(noDelay=true)
 
@@ -2504,6 +2553,9 @@ Expects `block` to throw an error.
 
 Expects `block` not to throw an error.
 
+### assert.ifError(value)
+
+Tests if value is not a false value, throws if it is a true value. Useful when testing the first argument, `error` in callbacks.
 
 ## Path
 
@@ -2557,8 +2609,9 @@ Return the last portion of a path.  Similar to the Unix `basename` command.  Exa
 
 ### path.extname(p)
 
-Return the extension of the path.  Everything after the last '.', if there
-is no '.' then it returns an empty string.  Examples:
+Return the extension of the path.  Everything after the last '.' in the last portion
+of the path.  If there is no '.' in the last portion of the path or the only '.' is
+the first character, then it returns an empty string.  Examples:
 
     path.extname('index.html')
     // returns 
@@ -2916,14 +2969,14 @@ knowledge of several libraries:
    `src/file.cc` so you will probably not need to use it. If you do need it,
    look at the header file `deps/libeio/eio.h`.
 
- - Internal Node libraries. Most importantly is the `node::EventEmitter`
-   class which you will likely want to derive from. 
+ - Internal Node libraries. Most importantly is the `node::ObjectWrap`
+   class which you will likely want to derive from.
 
- - Others. Look in `deps/` for what else is available. 
+ - Others. Look in `deps/` for what else is available.
 
 Node statically compiles all its dependencies into the executable. When
 compiling your module, you don't need to worry about linking to any of these
-libraries. 
+libraries.
 
 To get started let's make a small Addon which does the following except in
 C++:
@@ -2971,7 +3024,7 @@ provided for the ease of users.
 
 All Node addons must export a function called `init` with this signature:
 
-    extern 'C' void init (Handle<Object> target) 
+    extern 'C' void init (Handle<Object> target)
 
 For the moment, that is all the documentation on addons. Please see
 <http://github.com/ry/node_postgres> for a real example.

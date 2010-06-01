@@ -100,10 +100,10 @@ private:
 DEFINE_bool(debug_code, false,
             "generate extra code (comments, assertions) for debugging")
 DEFINE_bool(emit_branch_hints, false, "emit branch hints")
-DEFINE_bool(push_pop_elimination, true,
-            "eliminate redundant push/pops in assembly code")
-DEFINE_bool(print_push_pop_elimination, false,
-            "print elimination of redundant push/pops in assembly code")
+DEFINE_bool(peephole_optimization, true,
+            "perform peephole optimizations in assembly code")
+DEFINE_bool(print_peephole_optimization, false,
+            "print peephole optimizations in assembly code")
 DEFINE_bool(enable_sse2, true,
             "enable use of SSE2 instructions if available")
 DEFINE_bool(enable_sse3, true,
@@ -182,6 +182,11 @@ DEFINE_bool(gc_global, false, "always perform global GCs")
 DEFINE_int(gc_interval, -1, "garbage collect after <n> allocations")
 DEFINE_bool(trace_gc, false,
             "print one trace line following each garbage collection")
+DEFINE_bool(trace_gc_nvp, false,
+            "print one detailed trace line in name=value format "
+            "after each garbage collection")
+DEFINE_bool(print_cumulative_gc_stat, false,
+            "print cumulative GC statistics in name=value format on exit")
 DEFINE_bool(trace_gc_verbose, false,
             "print more details following each garbage collection")
 DEFINE_bool(collect_maps, true,
@@ -328,7 +333,6 @@ DEFINE_bool(code_stats, false, "report code statistics after GC")
 DEFINE_bool(verify_heap, false, "verify heap pointers before and after GC")
 DEFINE_bool(print_handles, false, "report handles after GC")
 DEFINE_bool(print_global_handles, false, "report global handles after GC")
-DEFINE_bool(print_rset, false, "print remembered sets before GC")
 
 // ic.cc
 DEFINE_bool(trace_ic, false, "trace inline cache state transitions")

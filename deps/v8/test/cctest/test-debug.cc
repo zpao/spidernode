@@ -2511,6 +2511,50 @@ TEST(DebugStepKeyedStoreLoop) {
 }
 
 
+// Test of the stepping mechanism for named load in a loop.
+TEST(DebugStepNamedLoadLoop) {
+  v8::HandleScope scope;
+  DebugLocalContext env;
+
+  // Create a function for testing stepping of named load.
+  v8::Local<v8::Function> foo = CompileFunction(
+      &env,
+      "function foo() {\n"
+          "  var a = [];\n"
+          "  var s = \"\";\n"
+          "  for (var i = 0; i < 10; i++) {\n"
+          "    var v = new V(i, i + 1);\n"
+          "    v.y;\n"
+          "    a.length;\n"  // Special case: array length.
+          "    s.length;\n"  // Special case: string length.
+          "  }\n"
+          "}\n"
+          "function V(x, y) {\n"
+          "  this.x = x;\n"
+          "  this.y = y;\n"
+          "}\n",
+          "foo");
+
+  // Call function without any break points to ensure inlining is in place.
+  foo->Call(env->Global(), 0, NULL);
+
+  // Register a debug event listener which steps and counts.
+  v8::Debug::SetDebugEventListener(DebugEventStep);
+
+  // Setup break point and step through the function.
+  SetBreakPoint(foo, 4);
+  step_action = StepNext;
+  break_point_hit_count = 0;
+  foo->Call(env->Global(), 0, NULL);
+
+  // With stepping all break locations are hit.
+  CHECK_EQ(41, break_point_hit_count);
+
+  v8::Debug::SetDebugEventListener(NULL);
+  CheckDebuggerUnloaded();
+}
+
+
 // Test the stepping mechanism with different ICs.
 TEST(DebugStepLinearMixedICs) {
   v8::HandleScope scope;
@@ -6152,7 +6196,28 @@ TEST(DebugContextIsPreservedBetweenAccesses) {
   v8::Local<v8::Context> context1 = v8::Debug::GetDebugContext();
   v8::Local<v8::Context> context2 = v8::Debug::GetDebugContext();
   CHECK_EQ(*context1, *context2);
-  // Make sure debugger is unloaded before running other tests.
-  v8::internal::ForceUnloadDebugger();
+}
+
+
+static v8::Handle<v8::Value> expected_callback_data;
+static void DebugEventContextChecker(const v8::Debug::EventDetails& details) {
+  CHECK(details.GetEventContext() == expected_context);
+  CHECK_EQ(expected_callback_data, details.GetCallbackData());
+}
+
+// Check that event details contain context where debug event occured.
+TEST(DebugEventContext) {
+  v8::HandleScope scope;
+  expected_callback_data = v8::Int32::New(2010);
+  v8::Debug::SetDebugEventListener2(DebugEventContextChecker,
+                                    expected_callback_data);
+  expected_context = v8::Context::New();
+  v8::Context::Scope context_scope(expected_context);
+  v8::Script::Compile(v8::String::New("(function(){debugger;})();"))->Run();
+  expected_context.Dispose();
+  expected_context.Clear();
+  v8::Debug::SetDebugEventListener(NULL);
+  expected_context_data = v8::Handle<v8::Value>();
   CheckDebuggerUnloaded();
 }
+

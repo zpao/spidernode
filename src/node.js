@@ -65,20 +65,48 @@ process.compile("(function (exports) {"
 // module.require("events");
 
 // Signal Handlers
+(function() {
+  var signalWatchers = {};
+    addListener = process.addListener,
+    removeListener = process.removeListener;
 
-function isSignal (event) {
-  return event.slice(0, 3) === 'SIG' && process.hasOwnProperty(event);
-};
+  function isSignal (event) {
+    return event.slice(0, 3) === 'SIG' && process.hasOwnProperty(event);
+  };
 
-process.addListener("newListener", function (event) {
-  if (isSignal(event) && process.listeners(event).length === 0) {
-    var b = process.binding('signal_watcher');
-    var w = new b.SignalWatcher(process[event]);
-    w.addListener("signal", function () {
-      process.emit(event);
-    });
+  // Wrap addListener for the special signal types
+  process.addListener = function (type, listener) {
+    var ret = addListener.apply(this, arguments);
+    if (isSignal(type)) {
+      if (!signalWatchers.hasOwnProperty(type)) {
+        var b = process.binding('signal_watcher'),
+          w = new b.SignalWatcher(process[type]);
+          w.callback = function () {
+            process.emit(type);
+          }
+        signalWatchers[type] = w;
+        w.start();
+      } else if (this.listeners(type).length === 1) {
+        signalWatchers[event].start();
+      }
+    }
+
+    return ret;
   }
-});
+
+  process.removeListener = function (type, listener) {
+    var ret = removeListener.apply(this, arguments);
+    if (isSignal(type)) {
+      process.assert(signalWatchers.hasOwnProperty(type));
+
+      if (this.listeners(type).length === 0) {
+        signalWatchers[type].stop();
+      }
+    }
+
+    return ret;
+  }
+})();
 
 // Timers
 function addTimerListener (callback) {
@@ -143,16 +171,16 @@ var stdin;
 process.openStdin = function () {
   if (stdin) return stdin;
 
-var binding = process.binding('stdio'),
-    net = module.requireNative('net'),
-    fs = module.requireNative('fs'),
-    fd = binding.openStdin();
+  var binding = process.binding('stdio'),
+      net = module.requireNative('net'),
+      fs = module.requireNative('fs'),
+      fd = binding.openStdin();
 
   if (binding.isStdinBlocking()) {
+    stdin = new fs.ReadStream(null, {fd: fd});
+  } else {
     stdin = new net.Stream(fd);
     stdin.readable = true;
-  } else {
-    stdin = new fs.ReadStream(null, {fd: fd});
   }
 
   stdin.resume();

@@ -93,6 +93,9 @@ class ZoneScopeInfo;
   V(Map, proxy_map, ProxyMap)                                                  \
   V(Object, nan_value, NanValue)                                               \
   V(Object, minus_zero_value, MinusZeroValue)                                  \
+  V(Object, instanceof_cache_function, InstanceofCacheFunction)                \
+  V(Object, instanceof_cache_map, InstanceofCacheMap)                          \
+  V(Object, instanceof_cache_answer, InstanceofCacheAnswer)                    \
   V(String, empty_string, EmptyString)                                         \
   V(DescriptorArray, empty_descriptor_array, EmptyDescriptorArray)             \
   V(Map, neander_map, NeanderMap)                                              \
@@ -202,6 +205,10 @@ class HeapStats;
 
 
 typedef String* (*ExternalStringTableUpdaterCallback)(Object** pointer);
+
+typedef bool (*DirtyRegionCallback)(Address start,
+                                    Address end,
+                                    ObjectSlotCallback copy_object_func);
 
 
 // The all static Heap captures the interface to the global object heap.
@@ -360,6 +367,11 @@ class Heap : public AllStatic {
 
   // Allocates an empty code cache.
   static Object* AllocateCodeCache();
+
+  // Clear the Instanceof cache (used when a prototype changes).
+  static void ClearInstanceofCache() {
+    set_instanceof_cache_function(the_hole_value());
+  }
 
   // Allocates and fully initializes a String.  There are two String
   // encodings: ASCII and two byte. One should choose between the three string
@@ -732,17 +744,54 @@ class Heap : public AllStatic {
   // Iterates over all the other roots in the heap.
   static void IterateWeakRoots(ObjectVisitor* v, VisitMode mode);
 
-  // Iterates remembered set of an old space.
-  static void IterateRSet(PagedSpace* space, ObjectSlotCallback callback);
+  enum ExpectedPageWatermarkState {
+    WATERMARK_SHOULD_BE_VALID,
+    WATERMARK_CAN_BE_INVALID
+  };
 
-  // Iterates a range of remembered set addresses starting with rset_start
-  // corresponding to the range of allocated pointers
-  // [object_start, object_end).
-  // Returns the number of bits that were set.
-  static int IterateRSetRange(Address object_start,
-                              Address object_end,
-                              Address rset_start,
-                              ObjectSlotCallback copy_object_func);
+  // For each dirty region on a page in use from an old space call
+  // visit_dirty_region callback.
+  // If either visit_dirty_region or callback can cause an allocation
+  // in old space and changes in allocation watermark then
+  // can_preallocate_during_iteration should be set to true.
+  // All pages will be marked as having invalid watermark upon
+  // iteration completion.
+  static void IterateDirtyRegions(
+      PagedSpace* space,
+      DirtyRegionCallback visit_dirty_region,
+      ObjectSlotCallback callback,
+      ExpectedPageWatermarkState expected_page_watermark_state);
+
+  // Interpret marks as a bitvector of dirty marks for regions of size
+  // Page::kRegionSize aligned by Page::kRegionAlignmentMask and covering
+  // memory interval from start to top. For each dirty region call a
+  // visit_dirty_region callback. Return updated bitvector of dirty marks.
+  static uint32_t IterateDirtyRegions(uint32_t marks,
+                                      Address start,
+                                      Address end,
+                                      DirtyRegionCallback visit_dirty_region,
+                                      ObjectSlotCallback callback);
+
+  // Iterate pointers to new space found in memory interval from start to end.
+  // Update dirty marks for page containing start address.
+  static void IterateAndMarkPointersToNewSpace(Address start,
+                                               Address end,
+                                               ObjectSlotCallback callback);
+
+  // Iterate pointers to new space found in memory interval from start to end.
+  // Return true if pointers to new space was found.
+  static bool IteratePointersInDirtyRegion(Address start,
+                                           Address end,
+                                           ObjectSlotCallback callback);
+
+
+  // Iterate pointers to new space found in memory interval from start to end.
+  // This interval is considered to belong to the map space.
+  // Return true if pointers to new space was found.
+  static bool IteratePointersInDirtyMapsRegion(Address start,
+                                               Address end,
+                                               ObjectSlotCallback callback);
+
 
   // Returns whether the object resides in new space.
   static inline bool InNewSpace(Object* object);
@@ -844,17 +893,6 @@ class Heap : public AllStatic {
   static void ScavengePointer(HeapObject** p);
   static inline void ScavengeObject(HeapObject** p, HeapObject* object);
 
-  // Clear a range of remembered set addresses corresponding to the object
-  // area address 'start' with size 'size_in_bytes', eg, when adding blocks
-  // to the free list.
-  static void ClearRSetRange(Address start, int size_in_bytes);
-
-  // Rebuild remembered set in old and map spaces.
-  static void RebuildRSets();
-
-  // Update an old object's remembered set
-  static int UpdateRSet(HeapObject* obj);
-
   // Commits from space if it is uncommitted.
   static void EnsureFromSpaceIsCommitted();
 
@@ -947,11 +985,19 @@ class Heap : public AllStatic {
 
   // Copy block of memory from src to dst. Size of block should be aligned
   // by pointer size.
-  static inline void CopyBlock(Object** dst, Object** src, int byte_size);
+  static inline void CopyBlock(Address dst, Address src, int byte_size);
+
+  static inline void CopyBlockToOldSpaceAndUpdateRegionMarks(Address dst,
+                                                             Address src,
+                                                             int byte_size);
 
   // Optimized version of memmove for blocks with pointer size aligned sizes and
   // pointer size aligned addresses.
-  static inline void MoveBlock(Object** dst, Object** src, int byte_size);
+  static inline void MoveBlock(Address dst, Address src, int byte_size);
+
+  static inline void MoveBlockToOldSpaceAndUpdateRegionMarks(Address dst,
+                                                             Address src,
+                                                             int byte_size);
 
   // Check new space expansion criteria and expand semispaces if it was hit.
   static void CheckNewSpaceExpansionCriteria();
@@ -970,6 +1016,10 @@ class Heap : public AllStatic {
   static inline bool ShouldBePromoted(Address old_address, int object_size);
 
   static int MaxObjectSizeInNewSpace() { return kMaxObjectSizeInNewSpace; }
+
+  static void ClearJSFunctionResultCaches();
+
+  static GCTracer* tracer() { return tracer_; }
 
  private:
   static int reserved_semispace_size_;
@@ -1010,6 +1060,7 @@ class Heap : public AllStatic {
   static int PromotedExternalMemorySize();
 
   static int mc_count_;  // how many mark-compact collections happened
+  static int ms_count_;  // how many mark-sweep collections happened
   static int gc_count_;  // how many gc happened
 
   // Total length of the strings we failed to flatten since the last GC.
@@ -1171,14 +1222,19 @@ class Heap : public AllStatic {
   static void MarkCompactPrologue(bool is_compacting);
   static void MarkCompactEpilogue(bool is_compacting);
 
+  // Completely clear the Instanceof cache (to stop it keeping objects alive
+  // around a GC).
+  static void CompletelyClearInstanceofCache() {
+    set_instanceof_cache_map(the_hole_value());
+    set_instanceof_cache_function(the_hole_value());
+  }
+
   // Helper function used by CopyObject to copy a source object to an
   // allocated target object and update the forwarding pointer in the source
   // object.  Returns the target object.
   static inline HeapObject* MigrateObject(HeapObject* source,
                                           HeapObject* target,
                                           int size);
-
-  static void ClearJSFunctionResultCaches();
 
 #if defined(DEBUG) || defined(ENABLE_LOGGING_AND_PROFILING)
   // Record the copy of an object in the NewSpace's statistics.
@@ -1188,12 +1244,6 @@ class Heap : public AllStatic {
   static void ReportStatisticsBeforeGC();
   static void ReportStatisticsAfterGC();
 #endif
-
-  // Rebuild remembered set in an old space.
-  static void RebuildRSets(PagedSpace* space);
-
-  // Rebuild remembered set in the large object space.
-  static void RebuildRSets(LargeObjectSpace* space);
 
   // Slow part of scavenge object.
   static void ScavengeObjectSlow(HeapObject** p, HeapObject* object);
@@ -1207,6 +1257,8 @@ class Heap : public AllStatic {
   static inline Object* InitializeFunction(JSFunction* function,
                                            SharedFunctionInfo* shared,
                                            Object* prototype);
+
+  static GCTracer* tracer_;
 
 
   // Initializes the number to string cache based on the max semispace size.
@@ -1281,11 +1333,11 @@ class LinearAllocationScope {
 
 
 #ifdef DEBUG
-// Visitor class to verify interior pointers that do not have remembered set
-// bits.  All heap object pointers have to point into the heap to a location
-// that has a map pointer at its first word.  Caveat: Heap::Contains is an
-// approximation because it can return true for objects in a heap space but
-// above the allocation pointer.
+// Visitor class to verify interior pointers in spaces that do not contain
+// or care about intergenerational references. All heap object pointers have to
+// point into the heap to a location that has a map pointer at its first word.
+// Caveat: Heap::Contains is an approximation because it can return true for
+// objects in a heap space but above the allocation pointer.
 class VerifyPointersVisitor: public ObjectVisitor {
  public:
   void VisitPointers(Object** start, Object** end) {
@@ -1300,10 +1352,11 @@ class VerifyPointersVisitor: public ObjectVisitor {
 };
 
 
-// Visitor class to verify interior pointers that have remembered set bits.
-// As VerifyPointersVisitor but also checks that remembered set bits are
-// always set for pointers into new space.
-class VerifyPointersAndRSetVisitor: public ObjectVisitor {
+// Visitor class to verify interior pointers in spaces that use region marks
+// to keep track of intergenerational references.
+// As VerifyPointersVisitor but also checks that dirty marks are set
+// for regions covering intergenerational references.
+class VerifyPointersAndDirtyRegionsVisitor: public ObjectVisitor {
  public:
   void VisitPointers(Object** start, Object** end) {
     for (Object** current = start; current < end; current++) {
@@ -1312,7 +1365,9 @@ class VerifyPointersAndRSetVisitor: public ObjectVisitor {
         ASSERT(Heap::Contains(object));
         ASSERT(object->map()->IsMap());
         if (Heap::InNewSpace(object)) {
-          ASSERT(Page::IsRSetSet(reinterpret_cast<Address>(current), 0));
+          ASSERT(Heap::InToSpace(object));
+          Address addr = reinterpret_cast<Address>(current);
+          ASSERT(Page::FromAddress(addr)->IsRegionDirty(addr));
         }
       }
     }
@@ -1614,19 +1669,30 @@ class DisableAssertNoAllocation {
 
 class GCTracer BASE_EMBEDDED {
  public:
-  // Time spent while in the external scope counts towards the
-  // external time in the tracer and will be reported separately.
-  class ExternalScope BASE_EMBEDDED {
+  class Scope BASE_EMBEDDED {
    public:
-    explicit ExternalScope(GCTracer* tracer) : tracer_(tracer) {
+    enum ScopeId {
+      EXTERNAL,
+      MC_MARK,
+      MC_SWEEP,
+      MC_COMPACT,
+      kNumberOfScopes
+    };
+
+    Scope(GCTracer* tracer, ScopeId scope)
+        : tracer_(tracer),
+        scope_(scope) {
       start_time_ = OS::TimeCurrentMillis();
     }
-    ~ExternalScope() {
-      tracer_->external_time_ += OS::TimeCurrentMillis() - start_time_;
+
+    ~Scope() {
+      ASSERT((0 <= scope_) && (scope_ < kNumberOfScopes));
+      tracer_->scopes_[scope_] += OS::TimeCurrentMillis() - start_time_;
     }
 
    private:
     GCTracer* tracer_;
+    ScopeId scope_;
     double start_time_;
   };
 
@@ -1652,6 +1718,19 @@ class GCTracer BASE_EMBEDDED {
 
   int marked_count() { return marked_count_; }
 
+  void increment_promoted_objects_size(int object_size) {
+    promoted_objects_size_ += object_size;
+  }
+
+  // Returns maximum GC pause.
+  static int get_max_gc_pause() { return max_gc_pause_; }
+
+  // Returns maximum size of objects alive after GC.
+  static int get_max_alive_after_gc() { return max_alive_after_gc_; }
+
+  // Returns minimal interval between two subsequent collections.
+  static int get_min_in_mutator() { return min_in_mutator_; }
+
  private:
   // Returns a string matching the collector.
   const char* CollectorString();
@@ -1662,11 +1741,8 @@ class GCTracer BASE_EMBEDDED {
   }
 
   double start_time_;  // Timestamp set in the constructor.
-  double start_size_;  // Size of objects in heap set in constructor.
+  int start_size_;  // Size of objects in heap set in constructor.
   GarbageCollector collector_;  // Type of collector.
-
-  // Keep track of the amount of time spent in external callbacks.
-  double external_time_;
 
   // A count (including this one, eg, the first collection is 1) of the
   // number of garbage collections.
@@ -1691,6 +1767,38 @@ class GCTracer BASE_EMBEDDED {
   // The count from the end of the previous full GC.  Will be zero if there
   // was no previous full GC.
   int previous_marked_count_;
+
+  // Amounts of time spent in different scopes during GC.
+  double scopes_[Scope::kNumberOfScopes];
+
+  // Total amount of space either wasted or contained in one of free lists
+  // before the current GC.
+  int in_free_list_or_wasted_before_gc_;
+
+  // Difference between space used in the heap at the beginning of the current
+  // collection and the end of the previous collection.
+  int allocated_since_last_gc_;
+
+  // Amount of time spent in mutator that is time elapsed between end of the
+  // previous collection and the beginning of the current one.
+  double spent_in_mutator_;
+
+  // Size of objects promoted during the current collection.
+  int promoted_objects_size_;
+
+  // Maximum GC pause.
+  static int max_gc_pause_;
+
+  // Maximum size of objects alive after GC.
+  static int max_alive_after_gc_;
+
+  // Minimal interval between two subsequent collections.
+  static int min_in_mutator_;
+
+  // Size of objects alive after last GC.
+  static int alive_after_last_gc_;
+
+  static double last_gc_end_timestamp_;
 };
 
 

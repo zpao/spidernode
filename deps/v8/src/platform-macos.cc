@@ -39,6 +39,7 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <signal.h>
+#include <libkern/OSAtomic.h>
 #include <mach/mach.h>
 #include <mach/semaphore.h>
 #include <mach/task.h>
@@ -259,6 +260,12 @@ int OS::ActivationFrameAlignment() {
 }
 
 
+void OS::ReleaseStore(volatile AtomicWord* ptr, AtomicWord value) {
+  OSMemoryBarrier();
+  *ptr = value;
+}
+
+
 const char* OS::LocalTimezone(double time) {
   if (isnan(time)) return "";
   time_t tv = static_cast<time_t>(floor(time/msPerSecond));
@@ -283,13 +290,12 @@ int OS::StackWalk(Vector<StackFrame> frames) {
     return 0;
 
   int frames_size = frames.length();
-  void** addresses = NewArray<void*>(frames_size);
-  int frames_count = backtrace(addresses, frames_size);
+  ScopedVector<void*> addresses(frames_size);
 
-  char** symbols;
-  symbols = backtrace_symbols(addresses, frames_count);
+  int frames_count = backtrace(addresses.start(), frames_size);
+
+  char** symbols = backtrace_symbols(addresses.start(), frames_count);
   if (symbols == NULL) {
-    DeleteArray(addresses);
     return kStackWalkError;
   }
 
@@ -305,7 +311,6 @@ int OS::StackWalk(Vector<StackFrame> frames) {
     frames[i].text[kStackWalkMaxTextLen - 1] = '\0';
   }
 
-  DeleteArray(addresses);
   free(symbols);
 
   return frames_count;

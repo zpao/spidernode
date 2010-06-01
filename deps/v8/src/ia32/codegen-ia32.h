@@ -28,7 +28,9 @@
 #ifndef V8_IA32_CODEGEN_IA32_H_
 #define V8_IA32_CODEGEN_IA32_H_
 
+#include "ast.h"
 #include "ic-inl.h"
+#include "jump-target-heavy.h"
 
 namespace v8 {
 namespace internal {
@@ -36,8 +38,10 @@ namespace internal {
 // Forward declarations
 class CompilationInfo;
 class DeferredCode;
+class FrameRegisterState;
 class RegisterAllocator;
 class RegisterFile;
+class RuntimeCallHelper;
 
 enum InitState { CONST_INIT, NOT_CONST_INIT };
 enum TypeofState { INSIDE_TYPEOF, NOT_INSIDE_TYPEOF };
@@ -48,7 +52,7 @@ enum TypeofState { INSIDE_TYPEOF, NOT_INSIDE_TYPEOF };
 
 // A reference is a C++ stack-allocated object that puts a
 // reference on the virtual frame.  The reference may be consumed
-// by GetValue, TakeValue, SetValue, and Codegen::UnloadReference.
+// by GetValue, TakeValue and SetValue.
 // When the lifetime (scope) of a valid reference ends, it must have
 // been consumed, and be in state UNLOADED.
 class Reference BASE_EMBEDDED {
@@ -343,6 +347,15 @@ class CodeGenerator: public AstVisitor {
   // expected arguments. Otherwise return -1.
   static int InlineRuntimeCallArgumentsCount(Handle<String> name);
 
+  // Return a position of the element at |index_as_smi| + |additional_offset|
+  // in FixedArray pointer to which is held in |array|.  |index_as_smi| is Smi.
+  static Operand FixedArrayElementOperand(Register array,
+                                          Register index_as_smi,
+                                          int additional_offset = 0) {
+    int offset = FixedArray::kHeaderSize + additional_offset * kPointerSize;
+    return FieldOperand(array, index_as_smi, times_half_pointer_size, offset);
+  }
+
  private:
   // Construction/Destruction
   explicit CodeGenerator(MacroAssembler* masm);
@@ -414,7 +427,6 @@ class CodeGenerator: public AstVisitor {
 
   // The following are used by class Reference.
   void LoadReference(Reference* ref);
-  void UnloadReference(Reference* ref);
 
   static Operand ContextOperand(Register context, int index) {
     return Operand(context, Context::SlotOffset(index));
@@ -449,11 +461,21 @@ class CodeGenerator: public AstVisitor {
   void LoadWithSafeInt32ModeDisabled(Expression* expr);
 
   // Read a value from a slot and leave it on top of the expression stack.
-  Result LoadFromSlot(Slot* slot, TypeofState typeof_state);
-  Result LoadFromSlotCheckForArguments(Slot* slot, TypeofState typeof_state);
+  void LoadFromSlot(Slot* slot, TypeofState typeof_state);
+  void LoadFromSlotCheckForArguments(Slot* slot, TypeofState typeof_state);
   Result LoadFromGlobalSlotCheckExtensions(Slot* slot,
                                            TypeofState typeof_state,
                                            JumpTarget* slow);
+
+  // Support for loading from local/global variables and arguments
+  // whose location is known unless they are shadowed by
+  // eval-introduced bindings. Generates no code for unsupported slot
+  // types and therefore expects to fall through to the slow jump target.
+  void EmitDynamicLoadFromSlotFastCase(Slot* slot,
+                                       TypeofState typeof_state,
+                                       Result* result,
+                                       JumpTarget* slow,
+                                       JumpTarget* done);
 
   // Store the value on top of the expression stack into a slot, leaving the
   // value in place.
@@ -601,10 +623,13 @@ class CodeGenerator: public AstVisitor {
   void GenerateSetValueOf(ZoneList<Expression*>* args);
 
   // Fast support for charCodeAt(n).
-  void GenerateFastCharCodeAt(ZoneList<Expression*>* args);
+  void GenerateStringCharCodeAt(ZoneList<Expression*>* args);
 
   // Fast support for string.charAt(n) and string[n].
-  void GenerateCharFromCode(ZoneList<Expression*>* args);
+  void GenerateStringCharFromCode(ZoneList<Expression*>* args);
+
+  // Fast support for string.charAt(n) and string[n].
+  void GenerateStringCharAt(ZoneList<Expression*>* args);
 
   // Fast support for object equality testing.
   void GenerateObjectEquals(ZoneList<Expression*>* args);
@@ -890,37 +915,6 @@ class GenericBinaryOpStub: public CodeStub {
 
 class StringHelper : public AllStatic {
  public:
-  // Generates fast code for getting a char code out of a string
-  // object at the given index. May bail out for four reasons (in the
-  // listed order):
-  //   * Receiver is not a string (receiver_not_string label).
-  //   * Index is not a smi (index_not_smi label).
-  //   * Index is out of range (index_out_of_range).
-  //   * Some other reason (slow_case label). In this case it's
-  //     guaranteed that the above conditions are not violated,
-  //     e.g. it's safe to assume the receiver is a string and the
-  //     index is a non-negative smi < length.
-  // When successful, object, index, and scratch are clobbered.
-  // Otherwise, scratch and result are clobbered.
-  static void GenerateFastCharCodeAt(MacroAssembler* masm,
-                                     Register object,
-                                     Register index,
-                                     Register scratch,
-                                     Register result,
-                                     Label* receiver_not_string,
-                                     Label* index_not_smi,
-                                     Label* index_out_of_range,
-                                     Label* slow_case);
-
-  // Generates code for creating a one-char string from the given char
-  // code. May do a runtime call, so any register can be clobbered
-  // and, if the given invoke flag specifies a call, an internal frame
-  // is required. In tail call mode the result must be eax register.
-  static void GenerateCharFromCode(MacroAssembler* masm,
-                                   Register code,
-                                   Register result,
-                                   InvokeFlag flag);
-
   // Generate code for copying characters using a simple loop. This should only
   // be used in places where the number of characters is small and the
   // additional setup and checking in GenerateCopyCharactersREP adds too much
@@ -1060,42 +1054,6 @@ class NumberToStringStub: public CodeStub {
     PrintF("NumberToStringStub\n");
   }
 #endif
-};
-
-
-class RecordWriteStub : public CodeStub {
- public:
-  RecordWriteStub(Register object, Register addr, Register scratch)
-      : object_(object), addr_(addr), scratch_(scratch) { }
-
-  void Generate(MacroAssembler* masm);
-
- private:
-  Register object_;
-  Register addr_;
-  Register scratch_;
-
-#ifdef DEBUG
-  void Print() {
-    PrintF("RecordWriteStub (object reg %d), (addr reg %d), (scratch reg %d)\n",
-           object_.code(), addr_.code(), scratch_.code());
-  }
-#endif
-
-  // Minor key encoding in 12 bits. 4 bits for each of the three
-  // registers (object, address and scratch) OOOOAAAASSSS.
-  class ScratchBits: public BitField<uint32_t, 0, 4> {};
-  class AddressBits: public BitField<uint32_t, 4, 4> {};
-  class ObjectBits: public BitField<uint32_t, 8, 4> {};
-
-  Major MajorKey() { return RecordWrite; }
-
-  int MinorKey() {
-    // Encode the registers.
-    return ObjectBits::encode(object_.code()) |
-           AddressBits::encode(addr_.code()) |
-           ScratchBits::encode(scratch_.code());
-  }
 };
 
 

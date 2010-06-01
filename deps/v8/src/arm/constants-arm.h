@@ -66,10 +66,19 @@
 # define CAN_USE_THUMB_INSTRUCTIONS 1
 #endif
 
-// Simulator should support ARM5 instructions.
+// Simulator should support ARM5 instructions and unaligned access by default.
 #if !defined(__arm__)
 # define CAN_USE_ARMV5_INSTRUCTIONS 1
 # define CAN_USE_THUMB_INSTRUCTIONS 1
+
+# ifndef CAN_USE_UNALIGNED_ACCESSES
+#  define CAN_USE_UNALIGNED_ACCESSES 1
+# endif
+
+#endif
+
+#if CAN_USE_UNALIGNED_ACCESSES
+#define V8_TARGET_CAN_READ_UNALIGNED 1
 #endif
 
 // Using blx may yield better code, so use it when required or when available

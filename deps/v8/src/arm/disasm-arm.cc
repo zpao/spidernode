@@ -56,6 +56,8 @@
 
 #include "v8.h"
 
+#if defined(V8_TARGET_ARCH_ARM)
+
 #include "constants-arm.h"
 #include "disasm.h"
 #include "macro-assembler.h"
@@ -399,6 +401,20 @@ int Decoder::FormatOption(Instr* instr, const char* format) {
       PrintCondition(instr);
       return 4;
     }
+    case 'f': {  // 'f: bitfield instructions - v7 and above.
+      uint32_t lsbit = instr->Bits(11, 7);
+      uint32_t width = instr->Bits(20, 16) + 1;
+      if (instr->Bit(21) == 0) {
+        // BFC/BFI:
+        // Bits 20-16 represent most-significant bit. Covert to width.
+        width -= lsbit;
+        ASSERT(width > 0);
+      }
+      ASSERT((width + lsbit) <= 32);
+      out_buffer_pos_ += v8i::OS::SNPrintF(out_buffer_ + out_buffer_pos_,
+                                           "#%d, #%d", lsbit, width);
+      return 1;
+    }
     case 'h': {  // 'h: halfword operation for extra loads and stores
       if (instr->HasH()) {
         Print("h");
@@ -418,6 +434,12 @@ int Decoder::FormatOption(Instr* instr, const char* format) {
         ASSERT(STRING_STARTS_WITH(format, "memop"));
         if (instr->HasL()) {
           Print("ldr");
+        } else if ((instr->Bits(27, 25) == 0) && (instr->Bit(20) == 0)) {
+          if (instr->Bits(7, 4) == 0xf) {
+            Print("strd");
+          } else {
+            Print("ldrd");
+          }
         } else {
           Print("str");
         }
@@ -438,16 +460,6 @@ int Decoder::FormatOption(Instr* instr, const char* format) {
         out_buffer_pos_ += v8i::OS::SNPrintF(out_buffer_ + out_buffer_pos_,
                                              "%d", instr->Offset12Field());
         return 5;
-      } else if ((format[3] == '1') && (format[4] == '6')) {
-        ASSERT(STRING_STARTS_WITH(format, "off16to20"));
-        out_buffer_pos_ += v8i::OS::SNPrintF(out_buffer_ + out_buffer_pos_,
-                                           "%d", instr->Bits(20, 16) +1);
-        return 9;
-      } else if (format[3] == '7') {
-        ASSERT(STRING_STARTS_WITH(format, "off7to11"));
-        out_buffer_pos_ += v8i::OS::SNPrintF(out_buffer_ + out_buffer_pos_,
-                                            "%d", instr->ShiftAmountField());
-        return 8;
       } else if (format[3] == '0') {
         // 'off0to3and8to19 16-bit immediate encoded in bits 19-8 and 3-0.
         ASSERT(STRING_STARTS_WITH(format, "off0to3and8to19"));
@@ -613,6 +625,47 @@ void Decoder::DecodeType01(Instr* instr) {
         }
       } else {
         Unknown(instr);  // not used by V8
+      }
+    } else if ((instr->Bit(20) == 0) && ((instr->Bits(7, 4) & 0xd) == 0xd)) {
+      // ldrd, strd
+      switch (instr->PUField()) {
+        case 0: {
+          if (instr->Bit(22) == 0) {
+            Format(instr, "'memop'cond's 'rd, ['rn], -'rm");
+          } else {
+            Format(instr, "'memop'cond's 'rd, ['rn], #-'off8");
+          }
+          break;
+        }
+        case 1: {
+          if (instr->Bit(22) == 0) {
+            Format(instr, "'memop'cond's 'rd, ['rn], +'rm");
+          } else {
+            Format(instr, "'memop'cond's 'rd, ['rn], #+'off8");
+          }
+          break;
+        }
+        case 2: {
+          if (instr->Bit(22) == 0) {
+            Format(instr, "'memop'cond's 'rd, ['rn, -'rm]'w");
+          } else {
+            Format(instr, "'memop'cond's 'rd, ['rn, #-'off8]'w");
+          }
+          break;
+        }
+        case 3: {
+          if (instr->Bit(22) == 0) {
+            Format(instr, "'memop'cond's 'rd, ['rn, +'rm]'w");
+          } else {
+            Format(instr, "'memop'cond's 'rd, ['rn, #+'off8]'w");
+          }
+          break;
+        }
+        default: {
+          // The PU field is a 2-bit field.
+          UNREACHABLE();
+          break;
+        }
       }
     } else {
       // extra load/store instructions
@@ -833,10 +886,26 @@ void Decoder::DecodeType3(Instr* instr) {
     case 3: {
       if (instr->HasW() && (instr->Bits(6, 4) == 0x5)) {
         uint32_t widthminus1 = static_cast<uint32_t>(instr->Bits(20, 16));
-        uint32_t lsbit = static_cast<uint32_t>(instr->ShiftAmountField());
+        uint32_t lsbit = static_cast<uint32_t>(instr->Bits(11, 7));
         uint32_t msbit = widthminus1 + lsbit;
         if (msbit <= 31) {
-          Format(instr, "ubfx'cond 'rd, 'rm, #'off7to11, #'off16to20");
+          if (instr->Bit(22)) {
+            Format(instr, "ubfx'cond 'rd, 'rm, 'f");
+          } else {
+            Format(instr, "sbfx'cond 'rd, 'rm, 'f");
+          }
+        } else {
+          UNREACHABLE();
+        }
+      } else if (!instr->HasW() && (instr->Bits(6, 4) == 0x1)) {
+        uint32_t lsbit = static_cast<uint32_t>(instr->Bits(11, 7));
+        uint32_t msbit = static_cast<uint32_t>(instr->Bits(20, 16));
+        if (msbit >= lsbit) {
+          if (instr->RmField() == 15) {
+            Format(instr, "bfc'cond 'rd, 'f");
+          } else {
+            Format(instr, "bfi'cond 'rd, 'rm, 'f");
+          }
         } else {
           UNREACHABLE();
         }
@@ -1309,3 +1378,5 @@ void Disassembler::Disassemble(FILE* f, byte* begin, byte* end) {
 
 
 }  // namespace disasm
+
+#endif  // V8_TARGET_ARCH_ARM

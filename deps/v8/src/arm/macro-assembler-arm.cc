@@ -27,6 +27,8 @@
 
 #include "v8.h"
 
+#if defined(V8_TARGET_ARCH_ARM)
+
 #include "bootstrapper.h"
 #include "codegen-inl.h"
 #include "debug.h"
@@ -181,15 +183,18 @@ void MacroAssembler::Drop(int count, Condition cond) {
 }
 
 
-void MacroAssembler::Swap(Register reg1, Register reg2, Register scratch) {
+void MacroAssembler::Swap(Register reg1,
+                          Register reg2,
+                          Register scratch,
+                          Condition cond) {
   if (scratch.is(no_reg)) {
-    eor(reg1, reg1, Operand(reg2));
-    eor(reg2, reg2, Operand(reg1));
-    eor(reg1, reg1, Operand(reg2));
+    eor(reg1, reg1, Operand(reg2), LeaveCC, cond);
+    eor(reg2, reg2, Operand(reg1), LeaveCC, cond);
+    eor(reg1, reg1, Operand(reg2), LeaveCC, cond);
   } else {
-    mov(scratch, reg1);
-    mov(reg1, reg2);
-    mov(reg2, scratch);
+    mov(scratch, reg1, LeaveCC, cond);
+    mov(reg1, reg2, LeaveCC, cond);
+    mov(reg2, scratch, LeaveCC, cond);
   }
 }
 
@@ -232,6 +237,13 @@ void MacroAssembler::LoadRoot(Register destination,
 }
 
 
+void MacroAssembler::StoreRoot(Register source,
+                               Heap::RootListIndex index,
+                               Condition cond) {
+  str(source, MemOperand(roots, index << kPointerSizeLog2), cond);
+}
+
+
 void MacroAssembler::RecordWriteHelper(Register object,
                                        Register offset,
                                        Register scratch) {
@@ -243,63 +255,21 @@ void MacroAssembler::RecordWriteHelper(Register object,
     bind(&not_in_new_space);
   }
 
-  // This is how much we shift the remembered set bit offset to get the
-  // offset of the word in the remembered set.  We divide by kBitsPerInt (32,
-  // shift right 5) and then multiply by kIntSize (4, shift left 2).
-  const int kRSetWordShift = 3;
+  mov(ip, Operand(Page::kPageAlignmentMask));  // Load mask only once.
 
-  Label fast;
+  // Calculate region number.
+  add(offset, object, Operand(offset));  // Add offset into the object.
+  and_(offset, offset, Operand(ip));  // Offset into page of the object.
+  mov(offset, Operand(offset, LSR, Page::kRegionSizeLog2));
 
-  // Compute the bit offset in the remembered set.
-  // object: heap object pointer (with tag)
-  // offset: offset to store location from the object
-  mov(ip, Operand(Page::kPageAlignmentMask));  // load mask only once
-  and_(scratch, object, Operand(ip));  // offset into page of the object
-  add(offset, scratch, Operand(offset));  // add offset into the object
-  mov(offset, Operand(offset, LSR, kObjectAlignmentBits));
-
-  // Compute the page address from the heap object pointer.
-  // object: heap object pointer (with tag)
-  // offset: bit offset of store position in the remembered set
+  // Calculate page address.
   bic(object, object, Operand(ip));
 
-  // If the bit offset lies beyond the normal remembered set range, it is in
-  // the extra remembered set area of a large object.
-  // object: page start
-  // offset: bit offset of store position in the remembered set
-  cmp(offset, Operand(Page::kPageSize / kPointerSize));
-  b(lt, &fast);
-
-  // Adjust the bit offset to be relative to the start of the extra
-  // remembered set and the start address to be the address of the extra
-  // remembered set.
-  sub(offset, offset, Operand(Page::kPageSize / kPointerSize));
-  // Load the array length into 'scratch' and multiply by four to get the
-  // size in bytes of the elements.
-  ldr(scratch, MemOperand(object, Page::kObjectStartOffset
-                                  + FixedArray::kLengthOffset));
-  mov(scratch, Operand(scratch, LSL, kObjectAlignmentBits));
-  // Add the page header (including remembered set), array header, and array
-  // body size to the page address.
-  add(object, object, Operand(Page::kObjectStartOffset
-                              + FixedArray::kHeaderSize));
-  add(object, object, Operand(scratch));
-
-  bind(&fast);
-  // Get address of the rset word.
-  // object: start of the remembered set (page start for the fast case)
-  // offset: bit offset of store position in the remembered set
-  bic(scratch, offset, Operand(kBitsPerInt - 1));  // clear the bit offset
-  add(object, object, Operand(scratch, LSR, kRSetWordShift));
-  // Get bit offset in the rset word.
-  // object: address of remembered set word
-  // offset: bit offset of store position
-  and_(offset, offset, Operand(kBitsPerInt - 1));
-
-  ldr(scratch, MemOperand(object));
+  // Mark region dirty.
+  ldr(scratch, MemOperand(object, Page::kDirtyFlagOffset));
   mov(ip, Operand(1));
   orr(scratch, scratch, Operand(ip, LSL, offset));
-  str(scratch, MemOperand(object));
+  str(scratch, MemOperand(object, Page::kDirtyFlagOffset));
 }
 
 
@@ -327,7 +297,7 @@ void MacroAssembler::RecordWrite(Register object, Register offset,
   Label done;
 
   // First, test that the object is not in the new space.  We cannot set
-  // remembered set bits in the new space.
+  // region marks for new space pages.
   InNewSpace(object, scratch, eq, &done);
 
   // Record the actual write.
@@ -341,6 +311,51 @@ void MacroAssembler::RecordWrite(Register object, Register offset,
     mov(object, Operand(BitCast<int32_t>(kZapValue)));
     mov(offset, Operand(BitCast<int32_t>(kZapValue)));
     mov(scratch, Operand(BitCast<int32_t>(kZapValue)));
+  }
+}
+
+
+void MacroAssembler::Ldrd(Register dst1, Register dst2,
+                          const MemOperand& src, Condition cond) {
+  ASSERT(src.rm().is(no_reg));
+  ASSERT(!dst1.is(lr));  // r14.
+  ASSERT_EQ(0, dst1.code() % 2);
+  ASSERT_EQ(dst1.code() + 1, dst2.code());
+
+  // Generate two ldr instructions if ldrd is not available.
+  if (CpuFeatures::IsSupported(ARMv7)) {
+    CpuFeatures::Scope scope(ARMv7);
+    ldrd(dst1, dst2, src, cond);
+  } else {
+    MemOperand src2(src);
+    src2.set_offset(src2.offset() + 4);
+    if (dst1.is(src.rn())) {
+      ldr(dst2, src2, cond);
+      ldr(dst1, src, cond);
+    } else {
+      ldr(dst1, src, cond);
+      ldr(dst2, src2, cond);
+    }
+  }
+}
+
+
+void MacroAssembler::Strd(Register src1, Register src2,
+                          const MemOperand& dst, Condition cond) {
+  ASSERT(dst.rm().is(no_reg));
+  ASSERT(!src1.is(lr));  // r14.
+  ASSERT_EQ(0, src1.code() % 2);
+  ASSERT_EQ(src1.code() + 1, src2.code());
+
+  // Generate two str instructions if strd is not available.
+  if (CpuFeatures::IsSupported(ARMv7)) {
+    CpuFeatures::Scope scope(ARMv7);
+    strd(src1, src2, dst, cond);
+  } else {
+    MemOperand dst2(dst);
+    dst2.set_offset(dst2.offset() + 4);
+    str(src1, dst, cond);
+    str(src2, dst2, cond);
   }
 }
 
@@ -610,6 +625,7 @@ void MacroAssembler::InvokeFunction(Register fun,
   ldr(expected_reg,
       FieldMemOperand(code_reg,
                       SharedFunctionInfo::kFormalParameterCountOffset));
+  mov(expected_reg, Operand(expected_reg, ASR, kSmiTagSize));
   ldr(code_reg,
       MemOperand(code_reg, SharedFunctionInfo::kCodeOffset - kHeapObjectTag));
   add(code_reg, code_reg, Operand(Code::kHeaderSize - kHeapObjectTag));
@@ -926,6 +942,12 @@ void MacroAssembler::AllocateInNewSpace(int object_size,
   ASSERT(!result.is(scratch1));
   ASSERT(!scratch1.is(scratch2));
 
+  // Make object size into bytes.
+  if ((flags & SIZE_IN_WORDS) != 0) {
+    object_size *= kPointerSize;
+  }
+  ASSERT_EQ(0, object_size & kObjectAlignmentMask);
+
   // Load address of new object into result and allocation top address into
   // scratch1.
   ExternalReference new_space_allocation_top =
@@ -948,23 +970,16 @@ void MacroAssembler::AllocateInNewSpace(int object_size,
       ExternalReference::new_space_allocation_limit_address();
   mov(scratch2, Operand(new_space_allocation_limit));
   ldr(scratch2, MemOperand(scratch2));
-  add(result, result, Operand(object_size * kPointerSize));
+  add(result, result, Operand(object_size));
   cmp(result, Operand(scratch2));
   b(hi, gc_required);
-
-  // Update allocation top. result temporarily holds the new top.
-  if (FLAG_debug_code) {
-    tst(result, Operand(kObjectAlignmentMask));
-    Check(eq, "Unaligned allocation in new space");
-  }
   str(result, MemOperand(scratch1));
 
   // Tag and adjust back to start of new object.
   if ((flags & TAG_OBJECT) != 0) {
-    sub(result, result, Operand((object_size * kPointerSize) -
-                                kHeapObjectTag));
+    sub(result, result, Operand(object_size - kHeapObjectTag));
   } else {
-    sub(result, result, Operand(object_size * kPointerSize));
+    sub(result, result, Operand(object_size));
   }
 }
 
@@ -1001,7 +1016,11 @@ void MacroAssembler::AllocateInNewSpace(Register object_size,
       ExternalReference::new_space_allocation_limit_address();
   mov(scratch2, Operand(new_space_allocation_limit));
   ldr(scratch2, MemOperand(scratch2));
-  add(result, result, Operand(object_size, LSL, kPointerSizeLog2));
+  if ((flags & SIZE_IN_WORDS) != 0) {
+    add(result, result, Operand(object_size, LSL, kPointerSizeLog2));
+  } else {
+    add(result, result, Operand(object_size));
+  }
   cmp(result, Operand(scratch2));
   b(hi, gc_required);
 
@@ -1013,7 +1032,11 @@ void MacroAssembler::AllocateInNewSpace(Register object_size,
   str(result, MemOperand(scratch1));
 
   // Adjust back to start of new object.
-  sub(result, result, Operand(object_size, LSL, kPointerSizeLog2));
+  if ((flags & SIZE_IN_WORDS) != 0) {
+    sub(result, result, Operand(object_size, LSL, kPointerSizeLog2));
+  } else {
+    sub(result, result, Operand(object_size));
+  }
 
   // Tag object if requested.
   if ((flags & TAG_OBJECT) != 0) {
@@ -1054,10 +1077,7 @@ void MacroAssembler::AllocateTwoByteString(Register result,
   mov(scratch1, Operand(length, LSL, 1));  // Length in bytes, not chars.
   add(scratch1, scratch1,
       Operand(kObjectAlignmentMask + SeqTwoByteString::kHeaderSize));
-  // AllocateInNewSpace expects the size in words, so we can round down
-  // to kObjectAlignment and divide by kPointerSize in the same shift.
-  ASSERT_EQ(kPointerSize, kObjectAlignmentMask + 1);
-  mov(scratch1, Operand(scratch1, ASR, kPointerSizeLog2));
+  and_(scratch1, scratch1, Operand(~kObjectAlignmentMask));
 
   // Allocate two-byte string in new space.
   AllocateInNewSpace(scratch1,
@@ -1088,10 +1108,7 @@ void MacroAssembler::AllocateAsciiString(Register result,
   ASSERT(kCharSize == 1);
   add(scratch1, length,
       Operand(kObjectAlignmentMask + SeqAsciiString::kHeaderSize));
-  // AllocateInNewSpace expects the size in words, so we can round down
-  // to kObjectAlignment and divide by kPointerSize in the same shift.
-  ASSERT_EQ(kPointerSize, kObjectAlignmentMask + 1);
-  mov(scratch1, Operand(scratch1, ASR, kPointerSizeLog2));
+  and_(scratch1, scratch1, Operand(~kObjectAlignmentMask));
 
   // Allocate ASCII string in new space.
   AllocateInNewSpace(scratch1,
@@ -1115,7 +1132,7 @@ void MacroAssembler::AllocateTwoByteConsString(Register result,
                                                Register scratch1,
                                                Register scratch2,
                                                Label* gc_required) {
-  AllocateInNewSpace(ConsString::kSize / kPointerSize,
+  AllocateInNewSpace(ConsString::kSize,
                      result,
                      scratch1,
                      scratch2,
@@ -1135,7 +1152,7 @@ void MacroAssembler::AllocateAsciiConsString(Register result,
                                              Register scratch1,
                                              Register scratch2,
                                              Label* gc_required) {
-  AllocateInNewSpace(ConsString::kSize / kPointerSize,
+  AllocateInNewSpace(ConsString::kSize,
                      result,
                      scratch1,
                      scratch2,
@@ -1273,7 +1290,7 @@ void MacroAssembler::GetLeastBitsFromSmi(Register dst,
                                          Register src,
                                          int num_least_bits) {
   if (CpuFeatures::IsSupported(ARMv7)) {
-    ubfx(dst, src, Operand(kSmiTagSize), Operand(num_least_bits - 1));
+    ubfx(dst, src, kSmiTagSize, num_least_bits);
   } else {
     mov(dst, Operand(src, ASR, kSmiTagSize));
     and_(dst, dst, Operand((1 << num_least_bits) - 1));
@@ -1549,7 +1566,7 @@ void MacroAssembler::AllocateHeapNumber(Register result,
                                         Label* gc_required) {
   // Allocate an object in the heap for the heap number and tag it as a heap
   // object.
-  AllocateInNewSpace(HeapNumber::kSize / kPointerSize,
+  AllocateInNewSpace(HeapNumber::kSize,
                      result,
                      scratch1,
                      scratch2,
@@ -1717,3 +1734,5 @@ void CodePatcher::Emit(Address addr) {
 
 
 } }  // namespace v8::internal
+
+#endif  // V8_TARGET_ARCH_ARM

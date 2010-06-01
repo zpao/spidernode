@@ -205,6 +205,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\ast-inl.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\ast.cc"
 				>
 			</File>
@@ -590,6 +594,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\jump-target-heavy.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\jump-target.cc"
 				>
 			</File>
@@ -927,6 +935,14 @@
 			</File>
 			<File
 				RelativePath="..\..\src\type-info.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\unbound-queue-inl.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\unbound-queue.h"
 				>
 			</File>
 			<File

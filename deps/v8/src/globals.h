@@ -46,11 +46,35 @@ namespace internal {
 #elif defined(__ARMEL__)
 #define V8_HOST_ARCH_ARM 1
 #define V8_HOST_ARCH_32_BIT 1
+// Some CPU-OS combinations allow unaligned access on ARM. We assume
+// that unaligned accesses are not allowed unless the build system
+// defines the CAN_USE_UNALIGNED_ACCESSES macro to be non-zero.
+#if CAN_USE_UNALIGNED_ACCESSES
+#define V8_HOST_CAN_READ_UNALIGNED 1
+#endif
 #elif defined(_MIPS_ARCH_MIPS32R2)
 #define V8_HOST_ARCH_MIPS 1
 #define V8_HOST_ARCH_32_BIT 1
 #else
 #error Host architecture was not detected as supported by v8
+#endif
+
+// Target architecture detection. This may be set externally. If not, detect
+// in the same way as the host architecture, that is, target the native
+// environment as presented by the compiler.
+#if !defined(V8_TARGET_ARCH_X64) && !defined(V8_TARGET_ARCH_IA32) && \
+    !defined(V8_TARGET_ARCH_ARM) && !defined(V8_TARGET_ARCH_MIPS)
+#if defined(_M_X64) || defined(__x86_64__)
+#define V8_TARGET_ARCH_X64 1
+#elif defined(_M_IX86) || defined(__i386__)
+#define V8_TARGET_ARCH_IA32 1
+#elif defined(__ARMEL__)
+#define V8_TARGET_ARCH_ARM 1
+#elif defined(_MIPS_ARCH_MIPS32R2)
+#define V8_TARGET_ARCH_MIPS 1
+#else
+#error Target architecture was not detected as supported by v8
+#endif
 #endif
 
 // Check for supported combinations of host and target architectures.
@@ -73,6 +97,12 @@ namespace internal {
 #if defined(V8_TARGET_ARCH_X64) || defined(V8_TARGET_ARCH_IA32)
 #define V8_TARGET_CAN_READ_UNALIGNED 1
 #elif V8_TARGET_ARCH_ARM
+// Some CPU-OS combinations allow unaligned access on ARM. We assume
+// that unaligned accesses are not allowed unless the build system
+// defines the CAN_USE_UNALIGNED_ACCESSES macro to be non-zero.
+#if CAN_USE_UNALIGNED_ACCESSES
+#define V8_TARGET_CAN_READ_UNALIGNED 1
+#endif
 #elif V8_TARGET_ARCH_MIPS
 #else
 #error Target architecture is not supported by v8
@@ -273,7 +303,6 @@ class HeapObject;
 class IC;
 class InterceptorInfo;
 class IterationStatement;
-class Array;
 class JSArray;
 class JSFunction;
 class JSObject;
@@ -514,16 +543,16 @@ enum StateTag {
 #define HAS_FAILURE_TAG(value) \
   ((reinterpret_cast<intptr_t>(value) & kFailureTagMask) == kFailureTag)
 
-// OBJECT_SIZE_ALIGN returns the value aligned HeapObject size
-#define OBJECT_SIZE_ALIGN(value)                                \
+// OBJECT_POINTER_ALIGN returns the value aligned as a HeapObject pointer
+#define OBJECT_POINTER_ALIGN(value)                             \
   (((value) + kObjectAlignmentMask) & ~kObjectAlignmentMask)
 
 // POINTER_SIZE_ALIGN returns the value aligned as a pointer.
 #define POINTER_SIZE_ALIGN(value)                               \
   (((value) + kPointerAlignmentMask) & ~kPointerAlignmentMask)
 
-// MAP_SIZE_ALIGN returns the value aligned as a map pointer.
-#define MAP_SIZE_ALIGN(value)                               \
+// MAP_POINTER_ALIGN returns the value aligned as a map pointer.
+#define MAP_POINTER_ALIGN(value)                                \
   (((value) + kMapAlignmentMask) & ~kMapAlignmentMask)
 
 // The expression OFFSET_OF(type, field) computes the byte-offset

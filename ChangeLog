@@ -1,4 +1,76 @@
-2010.05.06, Version 0.1.94
+2010.05.29, Version 0.1.97
+
+* HTTP throttling: outgoing messages emit 'drain' and write() returns false
+  when send buffer is full.
+
+* API: readFileSync without encoding argument now returns a Buffer
+
+* Improve Buffer C++ API; addons now compile with debugging symbols.
+
+* Improvements to  path.extname() and REPL; add fs.chown().
+
+* fs.ReadStream now emits buffers, fs.readFileSync returns buffers.
+
+* Bugfix: parsing HTTP responses to HEAD requests.
+
+* Port to OpenBSD.
+
+* Upgrade V8 to 2.2.12, libeio, http-parser.
+
+
+2010.05.21, Version 0.1.96, 9514a4d5476225e8c8310ce5acae2857033bcaaa
+
+* Thrown errors in http and socket call back get bubbled up.
+
+* Add fs.fsync (Andrew Johnston)
+
+* Bugfix: signal unregistering (Jonas Pfenniger)
+
+* Added better error messages for async and sync fs calls with paths
+  (TJ Holowaychuk)
+
+* Support arrays and strings in buffer constructor.
+  (Felix Geisendörfer)
+
+* Fix errno reporting in DNS exceptions.
+
+* Support buffers in fs.WriteStream.write.
+
+* Bugfix: Safely decode a utf8 streams that are broken on a multbyte
+  character (http and net). (Felix Geisendörfer)
+
+* Make Buffer's C++ constructor public.
+
+* Deprecate sys.p()
+
+* FIX path.dirname('/tmp') => '/'. (Jonathan Rentzsch)
+
+
+2010.05.13, Version 0.1.95, 0914d33842976c2c870df06573b68f9192a1fb7a
+
+* Change GC idle notify so that it runs alongside setInterval
+
+* Install node_buffer.h on make install
+
+* fs.readFile returns Buffer by default (Tim Caswell)
+
+* Fix error reporting in child_process callbacks
+
+* Better logic for testing if an argument is a port
+
+* Improve error reporting (single line "node.js:176:9" errors)
+
+* Bugfix: Some http responses being truncated (appeared in 0.1.94)
+
+* Fix long standing net idle timeout bugs. Enable 2 minute timeout
+  by default in HTTP servers.
+
+* Add fs.fstat (Ben Noordhuis)
+
+* Upgrade to V8 2.2.9
+
+
+2010.05.06, Version 0.1.94, f711d5343b29d1e72e87107315708e40951a7826
 
 * Look in /usr/local/lib/node for modules, so that there's a way 
   to install modules globally (Issac Schlueter)

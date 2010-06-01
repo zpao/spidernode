@@ -205,6 +205,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\ast-inl.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\ast.cc"
 				>
 			</File>
@@ -597,6 +601,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\jump-target-light.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\jump-target.cc"
 				>
 			</File>
@@ -945,6 +953,14 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\unbound-queue-inl.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\unbound-queue.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\unicode-inl.h"
 				>
 			</File>
@@ -1010,6 +1026,10 @@
 			</File>
 			<File
 				RelativePath="..\..\src\virtual-frame.h"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\arm\virtual-frame-arm-inl.h"
 				>
 			</File>
 			<File

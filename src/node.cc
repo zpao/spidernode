@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <strings.h>
 #include <string.h>
 #include <limits.h> /* PATH_MAX */
 #include <assert.h>
@@ -13,10 +14,12 @@
 #include <dlfcn.h> /* dlopen(), dlsym() */
 #include <sys/types.h>
 #include <unistd.h> /* setuid, getuid */
+#include <pwd.h> /* getpwnam() */
+#include <grp.h> /* getgrnam() */
 
 #include <node_buffer.h>
 #include <node_io_watcher.h>
-#include <node_net2.h>
+#include <node_net.h>
 #include <node_events.h>
 #include <node_cares.h>
 #include <node_file.h>
@@ -50,6 +53,7 @@ static Persistent<Object> process;
 
 static Persistent<String> errno_symbol;
 static Persistent<String> syscall_symbol;
+static Persistent<String> errpath_symbol;
 
 static Persistent<String> dev_symbol;
 static Persistent<String> ino_symbol;
@@ -88,93 +92,82 @@ static ev_async eio_want_poll_notifier;
 static ev_async eio_done_poll_notifier;
 static ev_idle  eio_poller;
 
+// Buffer for getpwnam_r(), getgrpam_r(); keep this scoped at file-level rather
+// than method-level to avoid excess stack usage.
+static char getbuf[1024];
+
 // We need to notify V8 when we're idle so that it can run the garbage
 // collector. The interface to this is V8::IdleNotification(). It returns
 // true if the heap hasn't be fully compacted, and needs to be run again.
 // Returning false means that it doesn't have anymore work to do.
 //
-// We try to wait for a period of GC_INTERVAL (2 seconds) of idleness, where
-// idleness means that no libev watchers have been executed. Since
-// everything in node uses libev watchers, this is a pretty good measure of
-// idleness. This is done with gc_check, which records the timestamp
-// last_active on every tick of the event loop, and with gc_timer which
-// executes every few seconds to measure if
-//   last_active + GC_INTERVAL < ev_now()
-// If we do find a period of idleness, then we start the gc_idle timer which
-// will very repaidly call IdleNotification until the heap is fully
-// compacted.
-static ev_tstamp last_active;
-static ev_timer  gc_timer;
+// A rather convoluted algorithm has been devised to determine when Node is
+// idle. You'll have to figure it out for yourself.
 static ev_check gc_check;
 static ev_idle  gc_idle;
-#define GC_INTERVAL 1.0
+static ev_timer gc_timer;
+bool need_gc;
 
-static void gc_timer_start () {
+
+#define FAST_TICK 0.7
+#define GC_WAIT_TIME 5.
+#define RPM_SAMPLES 100
+#define TICK_TIME(n) tick_times[(tick_time_head - (n)) % RPM_SAMPLES]
+static ev_tstamp tick_times[RPM_SAMPLES];
+static int tick_time_head;
+
+static void StartGCTimer () {
   if (!ev_is_active(&gc_timer)) {
     ev_timer_start(EV_DEFAULT_UC_ &gc_timer);
     ev_unref(EV_DEFAULT_UC);
   }
 }
 
-static void gc_timer_stop () {
+static void StopGCTimer () {
   if (ev_is_active(&gc_timer)) {
     ev_ref(EV_DEFAULT_UC);
     ev_timer_stop(EV_DEFAULT_UC_ &gc_timer);
   }
 }
 
-
-static void CheckIdleness(EV_P_ ev_timer *watcher, int revents) {
-  assert(watcher == &gc_timer);
-  assert(revents == EV_TIMER);
-
-  //fprintf(stderr, "check idle\n");
-
-  ev_tstamp idle_time = ev_now(EV_DEFAULT_UC) - last_active;
-
-  if (idle_time > GC_INTERVAL) {
-    if (!V8::IdleNotification()) {
-      ev_idle_start(EV_DEFAULT_UC_ &gc_idle);
-    }
-    gc_timer_stop();
-  }
-}
-
-
-static void NotifyIdleness(EV_P_ ev_idle *watcher, int revents) {
+static void Idle(EV_P_ ev_idle *watcher, int revents) {
   assert(watcher == &gc_idle);
   assert(revents == EV_IDLE);
 
-  //fprintf(stderr, "notify idle\n");
+  //fprintf(stderr, "idle\n");
 
   if (V8::IdleNotification()) {
     ev_idle_stop(EV_A_ watcher);
-    gc_timer_stop();
+    StopGCTimer();
   }
 }
 
 
-static void Activity(EV_P_ ev_check *watcher, int revents) {
+// Called directly after every call to select() (or epoll, or whatever)
+static void Check(EV_P_ ev_check *watcher, int revents) {
   assert(watcher == &gc_check);
   assert(revents == EV_CHECK);
 
-  int pending = ev_pending_count(EV_DEFAULT_UC);
+  tick_times[tick_time_head] = ev_now(EV_DEFAULT_UC);
+  tick_time_head = (tick_time_head + 1) % RPM_SAMPLES;
 
-  // Don't count GC watchers as activity.
+  StartGCTimer();
 
-  if (ev_is_pending(&gc_timer)) pending--;
-  if (ev_is_pending(&gc_idle)) pending--;
-  if (ev_is_pending(&gc_check)) pending--;
-
-  assert(pending >= 0);
-
-  //fprintf(stderr, "activity, pending: %d\n", pending);
-
-  if (pending) {
-    last_active = ev_now(EV_DEFAULT_UC);
-    ev_idle_stop(EV_DEFAULT_UC_ &gc_idle);
-    gc_timer_start();
+  for (int i = 0; i < (int)(GC_WAIT_TIME/FAST_TICK); i++) {
+    double d = TICK_TIME(i+1) - TICK_TIME(i+2);
+    //printf("d = %f\n", d);
+    // If in the last 5 ticks the difference between
+    // ticks was less than 0.7 seconds, then continue.
+    if (d < FAST_TICK) {
+      //printf("---\n");
+      return;
+    }
   }
+
+  // Otherwise start the gc!
+
+  //fprintf(stderr, "start idle 2\n");
+  ev_idle_start(EV_A_ &gc_idle);
 }
 
 
@@ -751,7 +744,9 @@ const char *signo_string(int signo) {
 
 Local<Value> ErrnoException(int errorno,
                             const char *syscall,
-                            const char *msg) {
+                            const char *msg,
+                            const char *path) {
+  Local<Value> e;
   Local<String> estring = String::NewSymbol(errno_string(errorno));
   if (!msg[0]) msg = strerror(errorno);
   Local<String> message = String::NewSymbol(msg);
@@ -759,16 +754,25 @@ Local<Value> ErrnoException(int errorno,
   Local<String> cons1 = String::Concat(estring, String::NewSymbol(", "));
   Local<String> cons2 = String::Concat(cons1, message);
 
-  Local<Value> e = Exception::Error(cons2);
-
-  Local<Object> obj = e->ToObject();
-
   if (errno_symbol.IsEmpty()) {
     syscall_symbol = NODE_PSYMBOL("syscall");
     errno_symbol = NODE_PSYMBOL("errno");
+    errpath_symbol = NODE_PSYMBOL("path");
   }
 
+  if (path) {
+    Local<String> cons3 = String::Concat(cons2, String::NewSymbol(" '"));
+    Local<String> cons4 = String::Concat(cons3, String::New(path));
+    Local<String> cons5 = String::Concat(cons4, String::NewSymbol("'"));
+    e = Exception::Error(cons5);
+  } else {
+    e = Exception::Error(cons2);
+  }
+
+  Local<Object> obj = e->ToObject();
+
   obj->Set(errno_symbol, Integer::New(errorno));
+  if (path) obj->Set(errpath_symbol, String::New(path));
   if (syscall) obj->Set(syscall_symbol, String::NewSymbol(syscall));
   return e;
 }
@@ -943,7 +947,7 @@ Local<Object> BuildStatsObject(struct stat * s) {
   stats->Set(rdev_symbol, Integer::New(s->st_rdev));
 
   /* total size, in bytes */
-  stats->Set(size_symbol, Integer::New(s->st_size));
+  stats->Set(size_symbol, Number::New(s->st_size));
 
   /* blocksize for filesystem I/O */
   stats->Set(blksize_symbol, Integer::New(s->st_blksize));
@@ -969,17 +973,8 @@ const char* ToCString(const v8::String::Utf8Value& value) {
   return *value ? *value : "<str conversion failed>";
 }
 
-static void ReportException(TryCatch &try_catch, bool show_line = false, bool show_rest = true) {
+static void ReportException(TryCatch &try_catch, bool show_line) {
   Handle<Message> message = try_catch.Message();
-
-  Handle<Value> error = try_catch.Exception();
-  Handle<String> stack;
-
-  if (error->IsObject()) {
-    Handle<Object> obj = Handle<Object>::Cast(error);
-    Handle<Value> raw_stack = obj->Get(String::New("stack"));
-    if (raw_stack->IsString()) stack = Handle<String>::Cast(raw_stack);
-  }
 
   if (show_line && !message.IsEmpty()) {
     // Print (filename):(line number): (message).
@@ -990,10 +985,31 @@ static void ReportException(TryCatch &try_catch, bool show_line = false, bool sh
     // Print line of source code.
     String::Utf8Value sourceline(message->GetSourceLine());
     const char* sourceline_string = ToCString(sourceline);
-    fprintf(stderr, "%s\n", sourceline_string);
+
+    // HACK HACK HACK
+    //
+    // FIXME
+    //
+    // Because of how CommonJS modules work, all scripts are wrapped with a
+    // "function (function (exports, __filename, ...) {"
+    // to provide script local variables.
+    //
+    // When reporting errors on the first line of a script, this wrapper
+    // function is leaked to the user. This HACK is to remove it. The length
+    // of the wrapper is 62. That wrapper is defined in lib/module.js
+    //
+    // If that wrapper is ever changed, then this number also has to be
+    // updated. Or - someone could clean this up so that the two peices
+    // don't need to be changed.
+    //
+    // Even better would be to get support into V8 for wrappers that
+    // shouldn't be reported to users.
+    int offset = linenum == 1 ? 62 : 0;
+
+    fprintf(stderr, "%s\n", sourceline_string + offset);
     // Print wavy underline (GetUnderline is deprecated).
     int start = message->GetStartColumn();
-    for (int i = 0; i < start; i++) {
+    for (int i = offset; i < start; i++) {
       fprintf(stderr, " ");
     }
     int end = message->GetEndColumn();
@@ -1003,13 +1019,10 @@ static void ReportException(TryCatch &try_catch, bool show_line = false, bool sh
     fprintf(stderr, "\n");
   }
 
-  if (show_rest) {
-    if (stack.IsEmpty()) {
-      message->PrintCurrentStackTrace(stderr);
-    } else {
-      String::Utf8Value trace(stack);
-      fprintf(stderr, "%s\n", *trace);
-    }
+  String::Utf8Value trace(try_catch.StackTrace());
+
+  if (trace.length() > 0) {
+    fprintf(stderr, "%s\n", *trace);
   }
   fflush(stderr);
 }
@@ -1021,13 +1034,13 @@ Local<Value> ExecuteString(Local<String> source, Local<Value> filename) {
 
   Local<v8::Script> script = v8::Script::Compile(source, filename);
   if (script.IsEmpty()) {
-    ReportException(try_catch);
+    ReportException(try_catch, true);
     exit(1);
   }
 
   Local<Value> result = script->Run();
   if (result.IsEmpty()) {
-    ReportException(try_catch);
+    ReportException(try_catch, true);
     exit(1);
   }
 
@@ -1145,11 +1158,29 @@ static Handle<Value> SetGid(const Arguments& args) {
       String::New("setgid requires 1 argument")));
   }
 
-  Local<Integer> given_gid = args[0]->ToInteger();
-  int gid = given_gid->Int32Value();
+  int gid;
+ 
+  if (args[0]->IsNumber()) {
+    gid = args[0]->Int32Value();
+  } else if (args[0]->IsString()) {
+    String::Utf8Value grpnam(args[0]->ToString());
+    struct group grp, *grpp = NULL;
+    int err;
+
+    if ((err = getgrnam_r(*grpnam, &grp, getbuf, sizeof(getbuf), &grpp)) ||
+        grpp == NULL) {
+      return ThrowException(ErrnoException(errno, "getgrnam_r"));
+    }
+
+    gid = grpp->gr_gid;
+  } else {
+    return ThrowException(Exception::Error(
+      String::New("setgid argument must be a number or a string")));
+  }
+
   int result;
   if ((result = setgid(gid)) != 0) {
-    return ThrowException(Exception::Error(String::New(strerror(errno))));
+    return ThrowException(ErrnoException(errno, "setgid"));
   }
   return Undefined();
 }
@@ -1162,11 +1193,29 @@ static Handle<Value> SetUid(const Arguments& args) {
           String::New("setuid requires 1 argument")));
   }
 
-  Local<Integer> given_uid = args[0]->ToInteger();
-  int uid = given_uid->Int32Value();
+  int uid;
+
+  if (args[0]->IsNumber()) {
+    uid = args[0]->Int32Value();
+  } else if (args[0]->IsString()) {
+    String::Utf8Value pwnam(args[0]->ToString());
+    struct passwd pwd, *pwdp = NULL;
+    int err;
+
+    if ((err = getpwnam_r(*pwnam, &pwd, getbuf, sizeof(getbuf), &pwdp)) ||
+        pwdp == NULL) {
+      return ThrowException(ErrnoException(errno, "getpwnam_r"));
+    }
+
+    uid = pwdp->pw_uid;
+  } else {
+    return ThrowException(Exception::Error(
+      String::New("setuid argument must be a number or a string")));
+  }
+
   int result;
   if ((result = setuid(uid)) != 0) {
-    return ThrowException(Exception::Error(String::New(strerror(errno))));
+    return ThrowException(ErrnoException(errno, "setuid"));
   }
   return Undefined();
 }
@@ -1376,6 +1425,34 @@ error:
 }
 #endif  // __linux__
 
+
+static void CheckStatus(EV_P_ ev_timer *watcher, int revents) {
+  assert(watcher == &gc_timer);
+  assert(revents == EV_TIMER);
+
+#if HAVE_GETMEM
+  // check memory
+  size_t rss, vsize;
+  if (!ev_is_active(&gc_idle) && getmem(&rss, &vsize) == 0) {
+    if (rss > 1024*1024*128) {
+      // larger than 128 megs, just start the idle watcher
+      ev_idle_start(EV_A_ &gc_idle);
+      return;
+    }
+  }
+#endif // HAVE_GETMEM
+
+  double d = ev_now(EV_DEFAULT_UC) - TICK_TIME(3);
+
+  //printfb("timer d = %f\n", d);
+
+  if (d  >= GC_WAIT_TIME - 1.) {
+    //fprintf(stderr, "start idle\n");
+    ev_idle_start(EV_A_ &gc_idle);
+  }
+}
+
+
 v8::Handle<v8::Value> MemoryUsage(const v8::Arguments& args) {
   HandleScope scope;
   assert(args.Length() == 0);
@@ -1512,7 +1589,10 @@ Handle<Value> Compile(const Arguments& args) {
   }
 
   Local<Value> result = script->Run();
-  if (try_catch.HasCaught()) return try_catch.ReThrow();
+  if (try_catch.HasCaught()) {
+    ReportException(try_catch, false);
+    exit(1);
+  }
 
   return scope.Close(result);
 }
@@ -1533,7 +1613,7 @@ void FatalException(TryCatch &try_catch) {
 
   // Check if uncaught_exception_counter indicates a recursion
   if (uncaught_exception_counter > 0) {
-    ReportException(try_catch);
+    ReportException(try_catch, true);
     exit(1);
   }
 
@@ -1559,7 +1639,7 @@ void FatalException(TryCatch &try_catch) {
   uint32_t length = listener_array->Length();
   // Report and exit if process has no "uncaughtException" listener
   if (length == 0) {
-    ReportException(try_catch);
+    ReportException(try_catch, true);
     exit(1);
   }
 
@@ -1703,7 +1783,7 @@ static Handle<Value> Binding(const Arguments& args) {
       exports = binding_cache->Get(module)->ToObject();
     } else {
       exports = Object::New();
-      InitNet2(exports);
+      InitNet(exports);
       binding_cache->Set(module, exports);
     }
 
@@ -1782,6 +1862,7 @@ static Handle<Value> Binding(const Arguments& args) {
       exports->Set(String::New("utils"),        String::New(native_utils));
       exports->Set(String::New("path"),         String::New(native_path));
       exports->Set(String::New("module"),       String::New(native_module));
+      exports->Set(String::New("utf8decoder"),  String::New(native_utf8decoder));
       binding_cache->Set(module, exports);
     }
 
@@ -1888,18 +1969,14 @@ static void Load(int argc, char *argv[]) {
 
   // The node.js file returns a function 'f'
 
-#ifndef NDEBUG
   TryCatch try_catch;
-#endif
 
   Local<Value> f_value = ExecuteString(String::New(native_node),
                                        String::New("node.js"));
-#ifndef NDEBUG
   if (try_catch.HasCaught())  {
-    ReportException(try_catch);
+    ReportException(try_catch, true);
     exit(10);
   }
-#endif
   assert(f_value->IsFunction());
   Local<Function> f = Local<Function>::Cast(f_value);
 
@@ -1915,12 +1992,10 @@ static void Load(int argc, char *argv[]) {
 
   f->Call(global, 1, args);
 
-#ifndef NDEBUG
   if (try_catch.HasCaught())  {
-    ReportException(try_catch);
+    ReportException(try_catch, true);
     exit(11);
   }
-#endif
 }
 
 static void PrintHelp();
@@ -2042,13 +2117,12 @@ int main(int argc, char *argv[]) {
 
   ev_idle_init(&node::tick_spinner, node::Spin);
 
-  ev_timer_init(&node::gc_timer, node::CheckIdleness, 2*GC_INTERVAL, 2*GC_INTERVAL);
-
-  ev_check_init(&node::gc_check, node::Activity);
+  ev_check_init(&node::gc_check, node::Check);
   ev_check_start(EV_DEFAULT_UC_ &node::gc_check);
   ev_unref(EV_DEFAULT_UC);
 
-  ev_idle_init(&node::gc_idle, node::NotifyIdleness);
+  ev_idle_init(&node::gc_idle, node::Idle);
+  ev_timer_init(&node::gc_timer, node::CheckStatus, 5., 5.);
 
 
   // Setup the EIO thread pool

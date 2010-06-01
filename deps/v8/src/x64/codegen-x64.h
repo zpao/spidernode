@@ -28,7 +28,9 @@
 #ifndef V8_X64_CODEGEN_X64_H_
 #define V8_X64_CODEGEN_X64_H_
 
+#include "ast.h"
 #include "ic-inl.h"
+#include "jump-target-heavy.h"
 
 namespace v8 {
 namespace internal {
@@ -433,14 +435,27 @@ class CodeGenerator: public AstVisitor {
                                            TypeofState typeof_state,
                                            JumpTarget* slow);
 
+  // Support for loading from local/global variables and arguments
+  // whose location is known unless they are shadowed by
+  // eval-introduced bindings. Generates no code for unsupported slot
+  // types and therefore expects to fall through to the slow jump target.
+  void EmitDynamicLoadFromSlotFastCase(Slot* slot,
+                                       TypeofState typeof_state,
+                                       Result* result,
+                                       JumpTarget* slow,
+                                       JumpTarget* done);
+
   // Store the value on top of the expression stack into a slot, leaving the
   // value in place.
   void StoreToSlot(Slot* slot, InitState init_state);
 
+  // Receiver is passed on the frame and not consumed.
+  Result EmitNamedLoad(Handle<String> name, bool is_contextual);
+
   // Load a property of an object, returning it in a Result.
   // The object and the property name are passed on the stack, and
   // not changed.
-  Result EmitKeyedLoad(bool is_global);
+  Result EmitKeyedLoad();
 
   // Special code for typeof expressions: Unfortunately, we must
   // be careful when loading the expression in 'typeof'
@@ -556,10 +571,13 @@ class CodeGenerator: public AstVisitor {
   void GenerateSetValueOf(ZoneList<Expression*>* args);
 
   // Fast support for charCodeAt(n).
-  void GenerateFastCharCodeAt(ZoneList<Expression*>* args);
+  void GenerateStringCharCodeAt(ZoneList<Expression*>* args);
 
   // Fast support for string.charAt(n) and string[n].
-  void GenerateCharFromCode(ZoneList<Expression*>* args);
+  void GenerateStringCharFromCode(ZoneList<Expression*>* args);
+
+  // Fast support for string.charAt(n) and string[n].
+  void GenerateStringCharAt(ZoneList<Expression*>* args);
 
   // Fast support for object equality testing.
   void GenerateObjectEquals(ZoneList<Expression*>* args);
@@ -711,7 +729,6 @@ class GenericBinaryOpStub: public CodeStub {
         static_operands_type_(operands_type),
         runtime_operands_type_(BinaryOpIC::DEFAULT),
         name_(NULL) {
-    use_sse3_ = CpuFeatures::IsSupported(SSE3);
     ASSERT(OpBits::is_valid(Token::NUM_TOKENS));
   }
 
@@ -721,7 +738,6 @@ class GenericBinaryOpStub: public CodeStub {
         flags_(FlagBits::decode(key)),
         args_in_registers_(ArgsInRegistersBits::decode(key)),
         args_reversed_(ArgsReversedBits::decode(key)),
-        use_sse3_(SSE3Bits::decode(key)),
         static_operands_type_(TypeInfo::ExpandedRepresentation(
             StaticTypeInfoBits::decode(key))),
         runtime_operands_type_(type_info),
@@ -746,7 +762,6 @@ class GenericBinaryOpStub: public CodeStub {
   GenericBinaryFlags flags_;
   bool args_in_registers_;  // Arguments passed in registers not on the stack.
   bool args_reversed_;  // Left and right argument are swapped.
-  bool use_sse3_;
 
   // Number type information of operands, determined by code generator.
   TypeInfo static_operands_type_;
@@ -772,15 +787,14 @@ class GenericBinaryOpStub: public CodeStub {
   }
 #endif
 
-  // Minor key encoding in 18 bits TTNNNFRASOOOOOOOMM.
+  // Minor key encoding in 17 bits TTNNNFRAOOOOOOOMM.
   class ModeBits: public BitField<OverwriteMode, 0, 2> {};
   class OpBits: public BitField<Token::Value, 2, 7> {};
-  class SSE3Bits: public BitField<bool, 9, 1> {};
-  class ArgsInRegistersBits: public BitField<bool, 10, 1> {};
-  class ArgsReversedBits: public BitField<bool, 11, 1> {};
-  class FlagBits: public BitField<GenericBinaryFlags, 12, 1> {};
-  class StaticTypeInfoBits: public BitField<int, 13, 3> {};
-  class RuntimeTypeInfoBits: public BitField<BinaryOpIC::TypeInfo, 16, 2> {};
+  class ArgsInRegistersBits: public BitField<bool, 9, 1> {};
+  class ArgsReversedBits: public BitField<bool, 10, 1> {};
+  class FlagBits: public BitField<GenericBinaryFlags, 11, 1> {};
+  class StaticTypeInfoBits: public BitField<int, 12, 3> {};
+  class RuntimeTypeInfoBits: public BitField<BinaryOpIC::TypeInfo, 15, 2> {};
 
   Major MajorKey() { return GenericBinaryOp; }
   int MinorKey() {
@@ -788,7 +802,6 @@ class GenericBinaryOpStub: public CodeStub {
     return OpBits::encode(op_)
            | ModeBits::encode(mode_)
            | FlagBits::encode(flags_)
-           | SSE3Bits::encode(use_sse3_)
            | ArgsInRegistersBits::encode(args_in_registers_)
            | ArgsReversedBits::encode(args_reversed_)
            | StaticTypeInfoBits::encode(
@@ -836,38 +849,6 @@ class GenericBinaryOpStub: public CodeStub {
 
 class StringHelper : public AllStatic {
  public:
-  // Generates fast code for getting a char code out of a string
-  // object at the given index. May bail out for four reasons (in the
-  // listed order):
-  //   * Receiver is not a string (receiver_not_string label).
-  //   * Index is not a smi (index_not_smi label).
-  //   * Index is out of range (index_out_of_range).
-  //   * Some other reason (slow_case label). In this case it's
-  //     guaranteed that the above conditions are not violated,
-  //     e.g. it's safe to assume the receiver is a string and the
-  //     index is a non-negative smi < length.
-  // When successful, object, index, and scratch are clobbered.
-  // Otherwise, scratch and result are clobbered.
-  static void GenerateFastCharCodeAt(MacroAssembler* masm,
-                                     Register object,
-                                     Register index,
-                                     Register scratch,
-                                     Register result,
-                                     Label* receiver_not_string,
-                                     Label* index_not_smi,
-                                     Label* index_out_of_range,
-                                     Label* slow_case);
-
-  // Generates code for creating a one-char string from the given char
-  // code. May do a runtime call, so any register can be clobbered
-  // and, if the given invoke flag specifies a call, an internal frame
-  // is required. In tail call mode the result must be rax register.
-  static void GenerateCharFromCode(MacroAssembler* masm,
-                                   Register code,
-                                   Register result,
-                                   Register scratch,
-                                   InvokeFlag flag);
-
   // Generate code for copying characters using a simple loop. This should only
   // be used in places where the number of characters is small and the
   // additional setup and checking in GenerateCopyCharactersREP adds too much

@@ -29,6 +29,7 @@
 #define V8_ARM_CODEGEN_ARM_H_
 
 #include "ic-inl.h"
+#include "ast.h"
 
 namespace v8 {
 namespace internal {
@@ -36,6 +37,7 @@ namespace internal {
 // Forward declarations
 class CompilationInfo;
 class DeferredCode;
+class JumpTarget;
 class RegisterAllocator;
 class RegisterFile;
 
@@ -98,6 +100,11 @@ class Reference BASE_EMBEDDED {
   // by the reference, and is left on top of the stack, after the reference
   // is popped from beneath it (unloaded).
   void SetValue(InitState init_state);
+
+  // This is in preparation for something that uses the reference on the stack.
+  // If we need this reference afterwards get then dup it now.  Otherwise mark
+  // it as used.
+  inline void DupIfPersist();
 
  private:
   CodeGenerator* cgen_;
@@ -217,6 +224,10 @@ class CodeGenerator: public AstVisitor {
   // expected arguments. Otherwise return -1.
   static int InlineRuntimeCallArgumentsCount(Handle<String> name);
 
+  // Constants related to patching of inlined load/store.
+  static const int kInlinedKeyedLoadInstructionsAfterPatch = 19;
+  static const int kInlinedKeyedStoreInstructionsAfterPatch = 5;
+
  private:
   // Construction/Destruction
   explicit CodeGenerator(MacroAssembler* masm);
@@ -245,16 +256,6 @@ class CodeGenerator: public AstVisitor {
   void Visit##type(type* node);
   AST_NODE_LIST(DEF_VISIT)
 #undef DEF_VISIT
-
-  // Visit a statement and then spill the virtual frame if control flow can
-  // reach the end of the statement (ie, it does not exit via break,
-  // continue, return, or throw).  This function is used temporarily while
-  // the code generator is being transformed.
-  inline void VisitAndSpill(Statement* statement);
-
-  // Visit a list of statements and then spill the virtual frame if control
-  // flow can reach the end of the list.
-  inline void VisitStatementsAndSpill(ZoneList<Statement*>* statements);
 
   // Main code generation function
   void Generate(CompilationInfo* info);
@@ -293,22 +294,10 @@ class CodeGenerator: public AstVisitor {
   void LoadGlobal();
   void LoadGlobalReceiver(Register scratch);
 
-  // Generate code to push the value of an expression on top of the frame
-  // and then spill the frame fully to memory.  This function is used
-  // temporarily while the code generator is being transformed.
-  inline void LoadAndSpill(Expression* expression);
-
-  // Call LoadCondition and then spill the virtual frame unless control flow
-  // cannot reach the end of the expression (ie, by emitting only
-  // unconditional jumps to the control targets).
-  inline void LoadConditionAndSpill(Expression* expression,
-                                    JumpTarget* true_target,
-                                    JumpTarget* false_target,
-                                    bool force_control);
-
   // Read a value from a slot and leave it on top of the expression stack.
   void LoadFromSlot(Slot* slot, TypeofState typeof_state);
   void LoadFromSlotCheckForArguments(Slot* slot, TypeofState state);
+
   // Store the value on top of the stack to a slot.
   void StoreToSlot(Slot* slot, InitState init_state);
 
@@ -337,6 +326,15 @@ class CodeGenerator: public AstVisitor {
   void LoadFromGlobalSlotCheckExtensions(Slot* slot,
                                          TypeofState typeof_state,
                                          JumpTarget* slow);
+
+  // Support for loading from local/global variables and arguments
+  // whose location is known unless they are shadowed by
+  // eval-introduced bindings. Generates no code for unsupported slot
+  // types and therefore expects to fall through to the slow jump target.
+  void EmitDynamicLoadFromSlotFastCase(Slot* slot,
+                                       TypeofState typeof_state,
+                                       JumpTarget* slow,
+                                       JumpTarget* done);
 
   // Special code for typeof expressions: Unfortunately, we must
   // be careful when loading the expression in 'typeof'
@@ -429,10 +427,13 @@ class CodeGenerator: public AstVisitor {
   void GenerateSetValueOf(ZoneList<Expression*>* args);
 
   // Fast support for charCodeAt(n).
-  void GenerateFastCharCodeAt(ZoneList<Expression*>* args);
+  void GenerateStringCharCodeAt(ZoneList<Expression*>* args);
 
   // Fast support for string.charAt(n) and string[n].
-  void GenerateCharFromCode(ZoneList<Expression*>* args);
+  void GenerateStringCharFromCode(ZoneList<Expression*>* args);
+
+  // Fast support for string.charAt(n) and string[n].
+  void GenerateStringCharAt(ZoneList<Expression*>* args);
 
   // Fast support for object equality testing.
   void GenerateObjectEquals(ZoneList<Expression*>* args);
@@ -677,38 +678,6 @@ class GenericBinaryOpStub : public CodeStub {
 
 class StringHelper : public AllStatic {
  public:
-  // Generates fast code for getting a char code out of a string
-  // object at the given index. May bail out for four reasons (in the
-  // listed order):
-  //   * Receiver is not a string (receiver_not_string label).
-  //   * Index is not a smi (index_not_smi label).
-  //   * Index is out of range (index_out_of_range).
-  //   * Some other reason (slow_case label). In this case it's
-  //     guaranteed that the above conditions are not violated,
-  //     e.g. it's safe to assume the receiver is a string and the
-  //     index is a non-negative smi < length.
-  // When successful, object, index, and scratch are clobbered.
-  // Otherwise, scratch and result are clobbered.
-  static void GenerateFastCharCodeAt(MacroAssembler* masm,
-                                     Register object,
-                                     Register index,
-                                     Register scratch,
-                                     Register result,
-                                     Label* receiver_not_string,
-                                     Label* index_not_smi,
-                                     Label* index_out_of_range,
-                                     Label* slow_case);
-
-  // Generates code for creating a one-char string from the given char
-  // code. May do a runtime call, so any register can be clobbered
-  // and, if the given invoke flag specifies a call, an internal frame
-  // is required. In tail call mode the result must be r0 register.
-  static void GenerateCharFromCode(MacroAssembler* masm,
-                                   Register code,
-                                   Register scratch,
-                                   Register result,
-                                   InvokeFlag flag);
-
   // Generate code for copying characters using a simple loop. This should only
   // be used in places where the number of characters is small and the
   // additional setup and checking in GenerateCopyCharactersLong adds too much
