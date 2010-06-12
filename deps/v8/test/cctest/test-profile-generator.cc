@@ -7,12 +7,14 @@
 #include "v8.h"
 #include "profile-generator-inl.h"
 #include "cctest.h"
+#include "../include/v8-profiler.h"
 
 namespace i = v8::internal;
 
 using i::CodeEntry;
 using i::CodeMap;
 using i::CpuProfile;
+using i::CpuProfiler;
 using i::CpuProfilesCollection;
 using i::ProfileNode;
 using i::ProfileTree;
@@ -37,7 +39,7 @@ class TokenEnumeratorTester {
 
 TEST(TokenEnumerator) {
   TokenEnumerator te;
-  CHECK_EQ(CodeEntry::kNoSecurityToken, te.GetTokenId(NULL));
+  CHECK_EQ(TokenEnumerator::kNoSecurityToken, te.GetTokenId(NULL));
   v8::HandleScope hs;
   v8::Local<v8::String> token1(v8::String::New("1"));
   CHECK_EQ(0, te.GetTokenId(*v8::Utils::OpenHandle(*token1)));
@@ -63,20 +65,20 @@ TEST(TokenEnumerator) {
 
 TEST(ProfileNodeFindOrAddChild) {
   ProfileNode node(NULL, NULL);
-  CodeEntry entry1(
-      i::Logger::FUNCTION_TAG, "", "aaa", "", 0, CodeEntry::kNoSecurityToken);
+  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
   ProfileNode* childNode1 = node.FindOrAddChild(&entry1);
   CHECK_NE(NULL, childNode1);
   CHECK_EQ(childNode1, node.FindOrAddChild(&entry1));
-  CodeEntry entry2(
-      i::Logger::FUNCTION_TAG, "", "bbb", "", 0, CodeEntry::kNoSecurityToken);
+  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
   ProfileNode* childNode2 = node.FindOrAddChild(&entry2);
   CHECK_NE(NULL, childNode2);
   CHECK_NE(childNode1, childNode2);
   CHECK_EQ(childNode1, node.FindOrAddChild(&entry1));
   CHECK_EQ(childNode2, node.FindOrAddChild(&entry2));
-  CodeEntry entry3(
-      i::Logger::FUNCTION_TAG, "", "ccc", "", 0, CodeEntry::kNoSecurityToken);
+  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
   ProfileNode* childNode3 = node.FindOrAddChild(&entry3);
   CHECK_NE(NULL, childNode3);
   CHECK_NE(childNode1, childNode3);
@@ -117,12 +119,12 @@ class ProfileTreeTestHelper {
 }  // namespace
 
 TEST(ProfileTreeAddPathFromStart) {
-  CodeEntry entry1(
-      i::Logger::FUNCTION_TAG, "", "aaa", "", 0, CodeEntry::kNoSecurityToken);
-  CodeEntry entry2(
-      i::Logger::FUNCTION_TAG, "", "bbb", "", 0, CodeEntry::kNoSecurityToken);
-  CodeEntry entry3(
-      i::Logger::FUNCTION_TAG, "", "ccc", "", 0, CodeEntry::kNoSecurityToken);
+  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
   ProfileTree tree;
   ProfileTreeTestHelper helper(&tree);
   CHECK_EQ(NULL, helper.Walk(&entry1));
@@ -187,12 +189,12 @@ TEST(ProfileTreeAddPathFromStart) {
 
 
 TEST(ProfileTreeAddPathFromEnd) {
-  CodeEntry entry1(
-      i::Logger::FUNCTION_TAG, "", "aaa", "", 0, CodeEntry::kNoSecurityToken);
-  CodeEntry entry2(
-      i::Logger::FUNCTION_TAG, "", "bbb", "", 0, CodeEntry::kNoSecurityToken);
-  CodeEntry entry3(
-      i::Logger::FUNCTION_TAG, "", "ccc", "", 0, CodeEntry::kNoSecurityToken);
+  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
   ProfileTree tree;
   ProfileTreeTestHelper helper(&tree);
   CHECK_EQ(NULL, helper.Walk(&entry1));
@@ -270,8 +272,8 @@ TEST(ProfileTreeCalculateTotalTicks) {
   CHECK_EQ(1, empty_tree.root()->total_ticks());
   CHECK_EQ(1, empty_tree.root()->self_ticks());
 
-  CodeEntry entry1(
-      i::Logger::FUNCTION_TAG, "", "aaa", "", 0, CodeEntry::kNoSecurityToken);
+  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
   CodeEntry* e1_path[] = {&entry1};
   Vector<CodeEntry*> e1_path_vec(
       e1_path, sizeof(e1_path) / sizeof(e1_path[0]));
@@ -292,8 +294,8 @@ TEST(ProfileTreeCalculateTotalTicks) {
   CHECK_EQ(1, node1->total_ticks());
   CHECK_EQ(1, node1->self_ticks());
 
-  CodeEntry entry2(
-      i::Logger::FUNCTION_TAG, "", "bbb", "", 0, CodeEntry::kNoSecurityToken);
+  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
   CodeEntry* e1_e2_path[] = {&entry1, &entry2};
   Vector<CodeEntry*> e1_e2_path_vec(
       e1_e2_path, sizeof(e1_e2_path) / sizeof(e1_e2_path[0]));
@@ -328,8 +330,8 @@ TEST(ProfileTreeCalculateTotalTicks) {
   CodeEntry* e2_path[] = {&entry2};
   Vector<CodeEntry*> e2_path_vec(
       e2_path, sizeof(e2_path) / sizeof(e2_path[0]));
-  CodeEntry entry3(
-      i::Logger::FUNCTION_TAG, "", "ccc", "", 0, CodeEntry::kNoSecurityToken);
+  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
   CodeEntry* e3_path[] = {&entry3};
   Vector<CodeEntry*> e3_path_vec(
       e3_path, sizeof(e3_path) / sizeof(e3_path[0]));
@@ -392,7 +394,7 @@ TEST(ProfileTreeFilteredClone) {
   CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc", "", 0, token0);
   CodeEntry entry4(
       i::Logger::FUNCTION_TAG, "", "ddd", "", 0,
-      CodeEntry::kInheritsSecurityToken);
+      TokenEnumerator::kInheritsSecurityToken);
 
   {
     CodeEntry* e1_e2_path[] = {&entry1, &entry2};
@@ -489,14 +491,14 @@ static inline i::Address ToAddress(int n) {
 
 TEST(CodeMapAddCode) {
   CodeMap code_map;
-  CodeEntry entry1(
-      i::Logger::FUNCTION_TAG, "", "aaa", "", 0, CodeEntry::kNoSecurityToken);
-  CodeEntry entry2(
-      i::Logger::FUNCTION_TAG, "", "bbb", "", 0, CodeEntry::kNoSecurityToken);
-  CodeEntry entry3(
-      i::Logger::FUNCTION_TAG, "", "ccc", "", 0, CodeEntry::kNoSecurityToken);
-  CodeEntry entry4(
-      i::Logger::FUNCTION_TAG, "", "ddd", "", 0, CodeEntry::kNoSecurityToken);
+  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry3(i::Logger::FUNCTION_TAG, "", "ccc", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry4(i::Logger::FUNCTION_TAG, "", "ddd", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
   code_map.AddCode(ToAddress(0x1500), &entry1, 0x200);
   code_map.AddCode(ToAddress(0x1700), &entry2, 0x100);
   code_map.AddCode(ToAddress(0x1900), &entry3, 0x50);
@@ -523,10 +525,10 @@ TEST(CodeMapAddCode) {
 
 TEST(CodeMapMoveAndDeleteCode) {
   CodeMap code_map;
-  CodeEntry entry1(
-      i::Logger::FUNCTION_TAG, "", "aaa", "", 0, CodeEntry::kNoSecurityToken);
-  CodeEntry entry2(
-      i::Logger::FUNCTION_TAG, "", "bbb", "", 0, CodeEntry::kNoSecurityToken);
+  CodeEntry entry1(i::Logger::FUNCTION_TAG, "", "aaa", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
+  CodeEntry entry2(i::Logger::FUNCTION_TAG, "", "bbb", "", 0,
+                   TokenEnumerator::kNoSecurityToken);
   code_map.AddCode(ToAddress(0x1500), &entry1, 0x200);
   code_map.AddCode(ToAddress(0x1700), &entry2, 0x100);
   CHECK_EQ(&entry1, code_map.FindEntry(ToAddress(0x1500)));
@@ -599,7 +601,7 @@ TEST(RecordTickSample) {
   generator.RecordTickSample(sample3);
 
   CpuProfile* profile =
-      profiles.StopProfiling(CodeEntry::kNoSecurityToken, "", 1);
+      profiles.StopProfiling(TokenEnumerator::kNoSecurityToken, "", 1);
   CHECK_NE(NULL, profile);
   ProfileTreeTestHelper top_down_test_helper(profile->top_down());
   CHECK_EQ(NULL, top_down_test_helper.Walk(entry2));
@@ -666,6 +668,111 @@ TEST(SampleRateCalculator) {
   calc3.UpdateMeasurements(time);
   // (1.0 + 0.5 + 0.5) / 3
   CHECK_EQ(kSamplingIntervalMs * 0.66666, calc3.ticks_per_ms());
+}
+
+
+// --- P r o f i l e r   E x t e n s i o n ---
+
+class ProfilerExtension : public v8::Extension {
+ public:
+  ProfilerExtension() : v8::Extension("v8/profiler", kSource) { }
+  virtual v8::Handle<v8::FunctionTemplate> GetNativeFunction(
+      v8::Handle<v8::String> name);
+  static v8::Handle<v8::Value> StartProfiling(const v8::Arguments& args);
+  static v8::Handle<v8::Value> StopProfiling(const v8::Arguments& args);
+ private:
+  static const char* kSource;
+};
+
+
+const char* ProfilerExtension::kSource =
+    "native function startProfiling();"
+    "native function stopProfiling();";
+
+v8::Handle<v8::FunctionTemplate> ProfilerExtension::GetNativeFunction(
+    v8::Handle<v8::String> name) {
+  if (name->Equals(v8::String::New("startProfiling"))) {
+    return v8::FunctionTemplate::New(ProfilerExtension::StartProfiling);
+  } else if (name->Equals(v8::String::New("stopProfiling"))) {
+    return v8::FunctionTemplate::New(ProfilerExtension::StopProfiling);
+  } else {
+    CHECK(false);
+    return v8::Handle<v8::FunctionTemplate>();
+  }
+}
+
+
+v8::Handle<v8::Value> ProfilerExtension::StartProfiling(
+    const v8::Arguments& args) {
+  if (args.Length() > 0)
+    v8::CpuProfiler::StartProfiling(args[0].As<v8::String>());
+  else
+    v8::CpuProfiler::StartProfiling(v8::String::New(""));
+  return v8::Undefined();
+}
+
+
+v8::Handle<v8::Value> ProfilerExtension::StopProfiling(
+    const v8::Arguments& args) {
+  if (args.Length() > 0)
+    v8::CpuProfiler::StopProfiling(args[0].As<v8::String>());
+  else
+    v8::CpuProfiler::StopProfiling(v8::String::New(""));
+  return v8::Undefined();
+}
+
+
+static ProfilerExtension kProfilerExtension;
+v8::DeclareExtension kProfilerExtensionDeclaration(&kProfilerExtension);
+static v8::Persistent<v8::Context> env;
+
+static const ProfileNode* PickChild(const ProfileNode* parent,
+                                    const char* name) {
+  for (int i = 0; i < parent->children()->length(); ++i) {
+    const ProfileNode* child = parent->children()->at(i);
+    if (strcmp(child->entry()->name(), name) == 0) return child;
+  }
+  return NULL;
+}
+
+
+TEST(RecordStackTraceAtStartProfiling) {
+  if (env.IsEmpty()) {
+    v8::HandleScope scope;
+    const char* extensions[] = { "v8/profiler" };
+    v8::ExtensionConfiguration config(1, extensions);
+    env = v8::Context::New(&config);
+  }
+  v8::HandleScope scope;
+  env->Enter();
+
+  CHECK_EQ(0, CpuProfiler::GetProfilesCount());
+  CompileRun(
+      "function c() { startProfiling(); }\n"
+      "function b() { c(); }\n"
+      "function a() { b(); }\n"
+      "a();\n"
+      "stopProfiling();");
+  CHECK_EQ(1, CpuProfiler::GetProfilesCount());
+  CpuProfile* profile =
+      CpuProfiler::GetProfile(NULL, 0);
+  const ProfileTree* topDown = profile->top_down();
+  const ProfileNode* current = topDown->root();
+  // The tree should look like this:
+  //  (root)
+  //   (anonymous function)
+  //     a
+  //       b
+  //         c
+  current = PickChild(current, "(anonymous function)");
+  CHECK_NE(NULL, const_cast<ProfileNode*>(current));
+  current = PickChild(current, "a");
+  CHECK_NE(NULL, const_cast<ProfileNode*>(current));
+  current = PickChild(current, "b");
+  CHECK_NE(NULL, const_cast<ProfileNode*>(current));
+  current = PickChild(current, "c");
+  CHECK_NE(NULL, const_cast<ProfileNode*>(current));
+  CHECK_EQ(0, current->children()->length());
 }
 
 #endif  // ENABLE_LOGGING_AND_PROFILING

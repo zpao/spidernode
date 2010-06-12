@@ -12,15 +12,15 @@ World':
     http.createServer(function (request, response) {
       response.writeHead(200, {'Content-Type': 'text/plain'});
       response.end('Hello World\n');
-    }).listen(8000);
+    }).listen(8124);
 
-    sys.puts('Server running at http://127.0.0.1:8000/');
+    sys.puts('Server running at http://127.0.0.1:8124/');
 
 To run the server, put the code into a file called `example.js` and execute
 it with the node program
 
     > node example.js
-    Server running at http://127.0.0.1:8000/
+    Server running at http://127.0.0.1:8124/
 
 All of the examples in the documentation can be run similarly.
 
@@ -1496,7 +1496,7 @@ Objects returned from `fs.stat()` and `fs.lstat()` are of this type.
  - `stats.isDirectory()`
  - `stats.isBlockDevice()`
  - `stats.isCharacterDevice()`
- - `stats.isSymbolicLink()`
+ - `stats.isSymbolicLink()` (only valid with  `fs.lstat()`)
  - `stats.isFIFO()`
  - `stats.isSocket()`
 
@@ -1913,7 +1913,7 @@ Returns true or false depending on the validity of the server's certificate in t
 
 ### client.getPeerCertificate()
 
-Returns a JSON structure detailing the server's certificate, containing a dictionary with keys for the certificate 'subject', 'issuer', 'valid_from' and 'valid_to'
+Returns a JSON structure detailing the server's certificate, containing a dictionary with keys for the certificate 'subject', 'issuer', 'valid\_from' and 'valid\_to'
 
 
 ## http.ClientRequest
@@ -2052,7 +2052,7 @@ A reference to the `http.Client` that this response belongs to.
 This class is used to create a TCP or UNIX server.
 
 Here is an example of a echo server which listens for connections
-on port 7000:
+on port 8124:
 
     var net = require('net');
     var server = net.createServer(function (stream) {
@@ -2068,7 +2068,7 @@ on port 7000:
         stream.end();
       });
     });
-    server.listen(7000, 'localhost');
+    server.listen(8124, 'localhost');
 
 To listen on the socket `'/tmp/echo.sock'`, the last line would just be
 changed to
@@ -2241,7 +2241,7 @@ Returns true or false depending on the validity of the peers's certificate in th
 
 ### stream.getPeerCertificate()
 
-Returns a JSON structure detailing the peer's certificate, containing a dictionary with keys for the certificate 'subject', 'issuer', 'valid_from' and 'valid_to'
+Returns a JSON structure detailing the peer's certificate, containing a dictionary with keys for the certificate 'subject', 'issuer', 'valid\_from' and 'valid\_to'
 
 
 ### stream.write(data, encoding='ascii')
@@ -2760,21 +2760,18 @@ The escape function used by `querystring.stringify`, provided so that it could b
 
 The unescape function used by `querystring.parse`, provided so that it could be overridden if necessary.
 
+
 ## REPL
 
-A Read-Eval-Print-Loop is available both as a standalone program and easily
+A Read-Eval-Print-Loop (REPL) is available both as a standalone program and easily
 includable in other programs.  REPL provides a way to interactively run
 JavaScript and see the results.  It can be used for debugging, testing, or
 just trying things out.
 
-The standalone REPL is called `node-repl` and is installed at
-`$PREFIX/bin/node-repl`.
+By executing `node` without any arguments from the command-line you will be
+dropped into the REPL. It has simplistic emacs line-editting.
 
-    mjr:~$ /usr/local/bin/node-repl
-    Welcome to the Node.js REPL.
-    Enter ECMAScript at the prompt.
-    Tip 1: Use 'rlwrap node-repl' for a better interface
-    Tip 2: Type Control-D to exit.
+    mjr:~$ node
     Type '.help' for options.
     node> a = [ 1, 2, 3];
     [ 1, 2, 3 ]
@@ -2784,6 +2781,13 @@ The standalone REPL is called `node-repl` and is installed at
     1
     2
     3
+
+For advanced line-editors, start node with the environmental variable `NODE_NO_READLINE=1`.
+This will start the REPL in canonical terminal settings which will allow you to use with `rlwrap`.
+
+For example, you could add this to your bashrc file:
+
+    alias node="env NODE_NO_READLINE=1 rlwrap node"
 
 
 ### repl.start(prompt, stream)
@@ -2822,28 +2826,6 @@ TCP sockets.
 
 By starting a REPL from a Unix socket-based server instead of stdin, you can 
 connect to a long-running node process without restarting it.
-
-
-### readline support
-
-Interactive command history for REPL is available from external programs like `rlwrap`
-or `socat`.  These programs are available from many Unix package managers.
-
-To start the standalone REPL with `rlwrap`:
-
-    rlwrap node-repl
-    
-It might be convenient to use this alias in your shell configuration:
-
-    alias repl='rlwrap node-repl'
-
-Using `socat` to connect to a Unix socket:
-
-    socat READLINE UNIX-CONNECT:/tmp/node-repl-sock
-
-Using `socat` to connect to a TCP socket on localhost:
-
-    socat READLINE TCP-CONNECT:localhost:5001
 
 
 ### REPL Features

@@ -33,56 +33,53 @@
 
       <p id="introduction">
         Evented I/O for
-        <a href="http://code.google.com/p/v8/">V8 javascript</a>.
+        <a href="http://code.google.com/p/v8/">V8 JavaScript</a>.
       </p>
 
       <p>
-        An example of a web server written with Node which responds with
-        "Hello World" after waiting two seconds:
+        An example of a web server written in Node which responds with
+        "Hello World" for every request.
       </p>
 
       <pre>
 var sys = require('sys'),
    http = require('http');
 http.createServer(function (req, res) {
-  setTimeout(function () {
-    res.writeHead(200, {'Content-Type': 'text/plain'});
-    res.end('Hello World\n');
-  }, 2000);
-}).listen(8000);
-sys.puts('Server running at http://127.0.0.1:8000/');</pre>
+  res.writeHead(200, {'Content-Type': 'text/plain'});
+  res.end('Hello World\n');
+}).listen(8124, "127.0.0.1");
+sys.puts('Server running at http://127.0.0.1:8124/');
 </pre>
 
       <p>
         To run the server, put the code into a file
         <code>example.js</code> and execute it with the <code>node</code>
-        program
+        program:
       </p>
       <pre class="sh_none">
 % node example.js
-Server running at http://127.0.0.1:8000/</pre>
+Server running at http://127.0.0.1:8124/</pre>
 
       <p>
-        Here is an example of a simple TCP server which listens on port 7000
-        and echos whatever you send it:
+        Here is an example of a simple TCP server which listens on port 8124
+        and echoes whatever you send it:
       </p>
 
       <pre>
-var tcp = require('tcp');
-var server = tcp.createServer(function (socket) {
+var net = require('net');
+net.createServer(function (socket) {
   socket.setEncoding("utf8");
   socket.addListener("connect", function () {
-    socket.write("hello\r\n");
+    socket.write("Echo server\r\n");
   });
   socket.addListener("data", function (data) {
     socket.write(data);
   });
   socket.addListener("end", function () {
-    socket.write("goodbye\r\n");
     socket.end();
   });
-});
-server.listen(7000, "localhost");</pre>
+}).listen(8124, "127.0.0.1");
+</pre>
 
       <p>
         See the <a href="api.html">API documentation</a> for more
@@ -95,8 +92,8 @@ server.listen(7000, "localhost");</pre>
         <a href="http://github.com/ry/node/tree/master">git repo</a>
       </p>
       <p>
-        2010.05.29
-        <a href="http://nodejs.org/dist/node-v0.1.97.tar.gz">node-v0.1.97.tar.gz</a>
+        2010.06.11
+        <a href="http://nodejs.org/dist/node-v0.1.98.tar.gz">node-v0.1.98.tar.gz</a>
       </p>
 
       <p>Historical: <a href="http://nodejs.org/dist">versions</a>, <a href="http://nodejs.org/docs">docs</a></p>
@@ -109,7 +106,7 @@ server.listen(7000, "localhost");</pre>
         tested on <b>Linux</b>, <b>Macintosh</b>, and <b>Solaris</b>. The
         build system requires Python 2.4 or better.  V8, on which Node is
         built, supports only IA-32 and ARM processors. V8 is included in the
-        Node distribution. To use TLS, OpenSSL are required.
+        Node distribution. To use TLS, OpenSSL is required.
         There are no other dependencies.
       </p>
 
@@ -130,25 +127,22 @@ make install</pre>
 
       <p>
         Node's goal is to provide an easy way to build scalable network
-        programs. In the above example, the two second delay does not
-        prevent the server from handling new requests. Node tells the
+        programs. In the "hello world" web server example above, many
+        client connections can be handled concurrently.  Node tells the
         operating system (through <code>epoll</code>, <code>kqueue</code>,
         <code class="sh_none">/dev/poll</code>, or <code>select</code>)
-        that it should be notified when the 2 seconds are up or if a new
-        connection is made&mdash;then it goes to sleep. If someone new
-        connects, then it executes the callback, if the timeout expires,
-        it executes the inner callback. Each connection is only a small
-        heap allocation.
+        that it should be notified when a new connection is made, and 
+        then it goes to sleep. If someone new connects, then it executes
+        the callback.  Each connection is only a small heap allocation.
       </p>
 
       <p>
         This is in contrast to today's more common concurrency model where
-        OS threads are employed. Thread-based networking
-        <a href="http://www.sics.se/~joe/apachevsyaws.html">is</a>
-        <a href="http://www.kegel.com/c10k.html">relatively</a>
-        <a href="http://bulk.fefe.de/scalable-networking.pdf">inefficient</a>
-        <!-- TODO needs links -->
-        and very difficult to use.
+        OS threads are employed. Thread-based networking is relatively 
+        inefficient and very difficult to use.  See:
+        <a href="http://www.sics.se/~joe/apachevsyaws.html">this,</a>
+        <a href="http://www.kegel.com/c10k.html">this,</a> and 
+        <a href="http://bulk.fefe.de/scalable-networking.pdf">this.</a>
 
         Node will show much better memory efficiency under high-loads
         <!-- TODO benchmark -->
@@ -198,12 +192,16 @@ make install</pre>
         passing.  In future versions, Node will be able to fork new
         processes (using the <a
         href="http://www.whatwg.org/specs/web-workers/current-work/"> Web
-        Workers API </a>), but this is something that fits well into the
-        current design.
+        Workers API </a>) which fits well into the current design.
       </p>
 
       <p>
-        See also: <a href="http://s3.amazonaws.com/four.livejournal/20091117/jsconf.pdf">slides</a> from jsconf.
+        See also:
+        <ul>
+          <li><a href="http://s3.amazonaws.com/four.livejournal/20091117/jsconf.pdf">slides</a> from JSConf 2009</li>
+          <li><a href="http://nodejs.org/jsconf2010.pdf">slides</a> from JSConf 2010</li>
+          <li><a href="http://www.yuiblog.com/blog/2010/05/20/video-dahl/">video</a> from a talk at Yahoo in May 2010</li>
+        </ul>
       </p>
 
 
