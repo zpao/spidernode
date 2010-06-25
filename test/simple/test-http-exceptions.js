@@ -12,7 +12,6 @@ server = http.createServer(function (req, res) {
   res.write(server_response);
   res.end();
 });
-server.listen(PORT);
 
 function check_reqs() {
   var done_reqs = 0;
@@ -29,6 +28,7 @@ function check_reqs() {
 
 function add_client(num) {
   var req = http.createClient(PORT).request('GET', '/busy/' + num);
+  req.end();
 
   req.addListener('response', function(res) {
     var response_body = "";
@@ -42,14 +42,22 @@ function add_client(num) {
       check_reqs();
     });
   });
-  req.end();
 
   return req;
 }
 
-for (req_num = 0; req_num < 4 ; req_num += 1) {
-  client_requests.push(add_client(req_num));
-}
+server.listen(PORT, function () {
+  for (req_num = 0; req_num < 4 ; req_num += 1) {
+    client_requests.push(add_client(req_num));
+  }
+
+  timer = setTimeout(function () {
+    process.removeListener("uncaughtException", exception_handler);
+    server.close();
+    assert.strictEqual(4, exception_count);
+    process.exit(0);
+  }, 300);
+});
 
 function exception_handler(err) {
   sys.puts("Caught an exception: " + err);
@@ -58,11 +66,5 @@ function exception_handler(err) {
   }
   exception_count += 1;
 }
-process.addListener("uncaughtException", exception_handler);
 
-timer = setTimeout(function () {
-  process.removeListener("uncaughtException", exception_handler);
-  server.close();
-  assert.strictEqual(4, exception_count);
-  process.exit(0);
-}, 300);
+process.addListener("uncaughtException", exception_handler);

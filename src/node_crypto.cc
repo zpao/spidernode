@@ -28,328 +28,6 @@ static Persistent<String> valid_to_symbol;
 static Persistent<String> name_symbol;
 static Persistent<String> version_symbol;
 
-static inline const char *errno_string(int errorno) {
-#define ERRNO_CASE(e)  case e: return #e;
-  switch (errorno) {
-#ifdef EACCES
-  ERRNO_CASE(EACCES);
-#endif
-
-#ifdef EADDRINUSE
-  ERRNO_CASE(EADDRINUSE);
-#endif
-
-#ifdef EADDRNOTAVAIL
-  ERRNO_CASE(EADDRNOTAVAIL);
-#endif
-
-#ifdef EAFNOSUPPORT
-  ERRNO_CASE(EAFNOSUPPORT);
-#endif
-
-#ifdef EAGAIN
-  ERRNO_CASE(EAGAIN);
-#else
-# ifdef EWOULDBLOCK
-  ERRNO_CASE(EWOULDBLOCK);
-# endif
-#endif
-
-#ifdef EALREADY
-  ERRNO_CASE(EALREADY);
-#endif
-
-#ifdef EBADF
-  ERRNO_CASE(EBADF);
-#endif
-
-#ifdef EBADMSG
-  ERRNO_CASE(EBADMSG);
-#endif
-
-#ifdef EBUSY
-  ERRNO_CASE(EBUSY);
-#endif
-
-#ifdef ECANCELED
-  ERRNO_CASE(ECANCELED);
-#endif
-
-#ifdef ECHILD
-  ERRNO_CASE(ECHILD);
-#endif
-
-#ifdef ECONNABORTED
-  ERRNO_CASE(ECONNABORTED);
-#endif
-
-#ifdef ECONNREFUSED
-  ERRNO_CASE(ECONNREFUSED);
-#endif
-
-#ifdef ECONNRESET
-  ERRNO_CASE(ECONNRESET);
-#endif
-
-#ifdef EDEADLK
-  ERRNO_CASE(EDEADLK);
-#endif
-
-#ifdef EDESTADDRREQ
-  ERRNO_CASE(EDESTADDRREQ);
-#endif
-
-#ifdef EDOM
-  ERRNO_CASE(EDOM);
-#endif
-
-#ifdef EDQUOT
-  ERRNO_CASE(EDQUOT);
-#endif
-
-#ifdef EEXIST
-  ERRNO_CASE(EEXIST);
-#endif
-
-#ifdef EFAULT
-  ERRNO_CASE(EFAULT);
-#endif
-
-#ifdef EFBIG
-  ERRNO_CASE(EFBIG);
-#endif
-
-#ifdef EHOSTUNREACH
-  ERRNO_CASE(EHOSTUNREACH);
-#endif
-
-#ifdef EIDRM
-  ERRNO_CASE(EIDRM);
-#endif
-
-#ifdef EILSEQ
-  ERRNO_CASE(EILSEQ);
-#endif
-
-#ifdef EINPROGRESS
-  ERRNO_CASE(EINPROGRESS);
-#endif
-
-#ifdef EINTR
-  ERRNO_CASE(EINTR);
-#endif
-
-#ifdef EINVAL
-  ERRNO_CASE(EINVAL);
-#endif
-
-#ifdef EIO
-  ERRNO_CASE(EIO);
-#endif
-
-#ifdef EISCONN
-  ERRNO_CASE(EISCONN);
-#endif
-
-#ifdef EISDIR
-  ERRNO_CASE(EISDIR);
-#endif
-
-#ifdef ELOOP
-  ERRNO_CASE(ELOOP);
-#endif
-
-#ifdef EMFILE
-  ERRNO_CASE(EMFILE);
-#endif
-
-#ifdef EMLINK
-  ERRNO_CASE(EMLINK);
-#endif
-
-#ifdef EMSGSIZE
-  ERRNO_CASE(EMSGSIZE);
-#endif
-
-#ifdef EMULTIHOP
-  ERRNO_CASE(EMULTIHOP);
-#endif
-
-#ifdef ENAMETOOLONG
-  ERRNO_CASE(ENAMETOOLONG);
-#endif
-
-#ifdef ENETDOWN
-  ERRNO_CASE(ENETDOWN);
-#endif
-
-#ifdef ENETRESET
-  ERRNO_CASE(ENETRESET);
-#endif
-
-#ifdef ENETUNREACH
-  ERRNO_CASE(ENETUNREACH);
-#endif
-
-#ifdef ENFILE
-  ERRNO_CASE(ENFILE);
-#endif
-
-#ifdef ENOBUFS
-  ERRNO_CASE(ENOBUFS);
-#endif
-
-#ifdef ENODATA
-  ERRNO_CASE(ENODATA);
-#endif
-
-#ifdef ENODEV
-  ERRNO_CASE(ENODEV);
-#endif
-
-#ifdef ENOENT
-  ERRNO_CASE(ENOENT);
-#endif
-
-#ifdef ENOEXEC
-  ERRNO_CASE(ENOEXEC);
-#endif
-
-#ifdef ENOLCK
-  ERRNO_CASE(ENOLCK);
-#endif
-
-#ifdef ENOLINK
-  ERRNO_CASE(ENOLINK);
-#endif
-
-#ifdef ENOMEM
-  ERRNO_CASE(ENOMEM);
-#endif
-
-#ifdef ENOMSG
-  ERRNO_CASE(ENOMSG);
-#endif
-
-#ifdef ENOPROTOOPT
-  ERRNO_CASE(ENOPROTOOPT);
-#endif
-
-#ifdef ENOSPC
-  ERRNO_CASE(ENOSPC);
-#endif
-
-#ifdef ENOSR
-  ERRNO_CASE(ENOSR);
-#endif
-
-#ifdef ENOSTR
-  ERRNO_CASE(ENOSTR);
-#endif
-
-#ifdef ENOSYS
-  ERRNO_CASE(ENOSYS);
-#endif
-
-#ifdef ENOTCONN
-  ERRNO_CASE(ENOTCONN);
-#endif
-
-#ifdef ENOTDIR
-  ERRNO_CASE(ENOTDIR);
-#endif
-
-#ifdef ENOTEMPTY
-  ERRNO_CASE(ENOTEMPTY);
-#endif
-
-#ifdef ENOTSOCK
-  ERRNO_CASE(ENOTSOCK);
-#endif
-
-#ifdef ENOTSUP
-  ERRNO_CASE(ENOTSUP);
-#else
-# ifdef EOPNOTSUPP
-  ERRNO_CASE(EOPNOTSUPP);
-# endif
-#endif
-
-#ifdef ENOTTY
-  ERRNO_CASE(ENOTTY);
-#endif
-
-#ifdef ENXIO
-  ERRNO_CASE(ENXIO);
-#endif
-
-
-#ifdef EOVERFLOW
-  ERRNO_CASE(EOVERFLOW);
-#endif
-
-#ifdef EPERM
-  ERRNO_CASE(EPERM);
-#endif
-
-#ifdef EPIPE
-  ERRNO_CASE(EPIPE);
-#endif
-
-#ifdef EPROTO
-  ERRNO_CASE(EPROTO);
-#endif
-
-#ifdef EPROTONOSUPPORT
-  ERRNO_CASE(EPROTONOSUPPORT);
-#endif
-
-#ifdef EPROTOTYPE
-  ERRNO_CASE(EPROTOTYPE);
-#endif
-
-#ifdef ERANGE
-  ERRNO_CASE(ERANGE);
-#endif
-
-#ifdef EROFS
-  ERRNO_CASE(EROFS);
-#endif
-
-#ifdef ESPIPE
-  ERRNO_CASE(ESPIPE);
-#endif
-
-#ifdef ESRCH
-  ERRNO_CASE(ESRCH);
-#endif
-
-#ifdef ESTALE
-  ERRNO_CASE(ESTALE);
-#endif
-
-#ifdef ETIME
-  ERRNO_CASE(ETIME);
-#endif
-
-#ifdef ETIMEDOUT
-  ERRNO_CASE(ETIMEDOUT);
-#endif
-
-#ifdef ETXTBSY
-  ERRNO_CASE(ETXTBSY);
-#endif
-
-#ifdef EXDEV
-  ERRNO_CASE(EXDEV);
-#endif
-
-  default: return "";
-  }
-}
-
-
-
 
 static int verify_callback(int ok, X509_STORE_CTX *ctx) {
   return(1); // Ignore errors by now. VerifyPeer will catch them by using SSL_get_verify_result.
@@ -380,6 +58,7 @@ Handle<Value> SecureContext::New(const Arguments& args) {
   p->Wrap(args.Holder());
   return args.This();
 }
+
 
 Handle<Value> SecureContext::Init(const Arguments& args) {
   HandleScope scope;
@@ -420,8 +99,6 @@ Handle<Value> SecureContext::Init(const Arguments& args) {
       method = TLSv1_client_method();
   }
 
-
-
   sc->pCtx = SSL_CTX_new(method);
   // Enable session caching?
   SSL_CTX_set_session_cache_mode(sc->pCtx, SSL_SESS_CACHE_SERVER);
@@ -431,6 +108,7 @@ Handle<Value> SecureContext::Init(const Arguments& args) {
   SSL_CTX_set_cert_store(sc->pCtx, sc->caStore);
   return True();
 }
+
 
 Handle<Value> SecureContext::SetKey(const Arguments& args) {
   HandleScope scope;
@@ -460,6 +138,7 @@ Handle<Value> SecureContext::SetKey(const Arguments& args) {
   return True();
 }
 
+
 Handle<Value> SecureContext::SetCert(const Arguments& args) {
   HandleScope scope;
 
@@ -488,6 +167,7 @@ Handle<Value> SecureContext::SetCert(const Arguments& args) {
 
   return True();
 }
+
 
 Handle<Value> SecureContext::AddCACert(const Arguments& args) {
   HandleScope scope;
@@ -550,7 +230,6 @@ Handle<Value> SecureContext::Close(const Arguments& args) {
 }
 
 
-
 void SecureStream::Initialize(Handle<Object> target) {
   HandleScope scope;
 
@@ -594,7 +273,8 @@ Handle<Value> SecureStream::New(const Arguments& args) {
 
   if (args.Length() <1 ||
       !args[0]->IsObject()) {
-    return ThrowException(Exception::Error(String::New("First argument must be a crypto module Credentials")));
+    return ThrowException(Exception::Error(String::New(
+      "First argument must be a crypto module Credentials")));
   }
   SecureContext *sc = ObjectWrap::Unwrap<SecureContext>(args[0]->ToObject());
   int isServer = 0;
@@ -666,6 +346,7 @@ Handle<Value> SecureStream::ReadInject(const Arguments& args) {
   return scope.Close(Integer::New(bytes_written));
 }
 
+
 Handle<Value> SecureStream::ReadExtract(const Arguments& args) {
   HandleScope scope;
 
@@ -730,6 +411,7 @@ Handle<Value> SecureStream::ReadExtract(const Arguments& args) {
   return scope.Close(Integer::New(bytes_read));
 }
 
+
 Handle<Value> SecureStream::ReadPending(const Arguments& args) {
   HandleScope scope;
 
@@ -738,6 +420,7 @@ Handle<Value> SecureStream::ReadPending(const Arguments& args) {
   return scope.Close(Integer::New(bytes_pending));
 }
 
+
 Handle<Value> SecureStream::WriteCanExtract(const Arguments& args) {
   HandleScope scope;
 
@@ -745,6 +428,7 @@ Handle<Value> SecureStream::WriteCanExtract(const Arguments& args) {
   int bytes_pending = BIO_pending(ss->pbioWrite);
   return scope.Close(Integer::New(bytes_pending));
 }
+
 
 Handle<Value> SecureStream::WriteExtract(const Arguments& args) {
   HandleScope scope;
@@ -861,6 +545,7 @@ Handle<Value> SecureStream::GetPeerCertificate(const Arguments& args) {
   return scope.Close(info);
 }
 
+
 Handle<Value> SecureStream::Shutdown(const Arguments& args) {
   HandleScope scope;
 
@@ -872,6 +557,7 @@ Handle<Value> SecureStream::Shutdown(const Arguments& args) {
   }
   return False();
 }
+
 
 Handle<Value> SecureStream::IsInitFinished(const Arguments& args) {
   HandleScope scope;
@@ -915,6 +601,7 @@ Handle<Value> SecureStream::VerifyPeer(const Arguments& args) {
   return False();
 }
 
+
 Handle<Value> SecureStream::GetCurrentCipher(const Arguments& args) {
   HandleScope scope;
 
@@ -945,10 +632,12 @@ Handle<Value> SecureStream::Close(const Arguments& args) {
 }
 
 
-void hex_encode(unsigned char *md_value, int md_len, char** md_hexdigest,
-                int* md_hex_len) {
+static void HexEncode(unsigned char *md_value,
+                      int md_len,
+                      char** md_hexdigest,
+                      int* md_hex_len) {
   *md_hex_len = (2*(md_len));
-  *md_hexdigest = (char *) malloc(*md_hex_len + 1);
+  *md_hexdigest = new char[*md_hex_len + 1];
   for (int i = 0; i < md_len; i++) {
     sprintf((char *)(*md_hexdigest + (i*2)), "%02x",  md_value[i]);
   }
@@ -956,18 +645,21 @@ void hex_encode(unsigned char *md_value, int md_len, char** md_hexdigest,
 
 #define hex2i(c) ((c) <= '9' ? ((c) - '0') : (c) <= 'Z' ? ((c) - 'A' + 10) \
                  : ((c) - 'a' + 10))
-void hex_decode(unsigned char *input, int length, char** buf64, 
-                int* buf64_len) {
+
+static void HexDecode(unsigned char *input,
+                      int length,
+                      char** buf64,
+                      int* buf64_len) {
   *buf64_len = (length/2);
-  *buf64 = (char*) malloc(length/2 + 1);
+  *buf64 = new char[length/2 + 1];
   char *b = *buf64;
   for(int i = 0; i < length-1; i+=2) {
     b[i/2]  = (hex2i(input[i])<<4) | (hex2i(input[i+1]));
   }
 }
 
-void base64(unsigned char *input, int length, char** buf64, int* buf64_len)
-{
+
+void base64(unsigned char *input, int length, char** buf64, int* buf64_len) {
   BIO *bmem, *b64;
   BUF_MEM *bptr;
 
@@ -980,19 +672,21 @@ void base64(unsigned char *input, int length, char** buf64, int* buf64_len)
   BIO_get_mem_ptr(b64, &bptr);
 
   *buf64_len = bptr->length;
-  *buf64 = (char *)malloc(*buf64_len+1);
+  *buf64 = new char[*buf64_len+1];
   memcpy(*buf64, bptr->data, bptr->length);
   char* b = *buf64;
   b[bptr->length] = 0;
 
   BIO_free_all(b64);
-
 }
 
-void *unbase64(unsigned char *input, int length, char** buffer, int* buffer_len)
-{
+
+void *unbase64(unsigned char *input,
+               int length,
+               char** buffer,
+               int* buffer_len) {
   BIO *b64, *bmem;
-  *buffer = (char *)malloc(length);
+  *buffer = new char[length];
   memset(*buffer, 0, length);
 
   b64 = BIO_new(BIO_f_base64());
@@ -1002,7 +696,6 @@ void *unbase64(unsigned char *input, int length, char** buffer, int* buffer_len)
 
   *buffer_len = BIO_read(bmem, *buffer, length);
   BIO_free_all(bmem);
-
 }
 
 
@@ -1058,65 +751,66 @@ static int LengthWithoutIncompleteUtf8(char* buffer, int len) {
   return 0;
 }
 
+
 // local decrypt final without strict padding check
 // to work with php mcrypt
 // see http://www.mail-archive.com/openssl-dev@openssl.org/msg19927.html
-int local_EVP_DecryptFinal_ex(EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl)
-{
+int local_EVP_DecryptFinal_ex(EVP_CIPHER_CTX *ctx,
+                              unsigned char *out,
+                              int *outl) {
   int i,b;
   int n;
 
   *outl=0;
   b=ctx->cipher->block_size;
-  if (ctx->flags & EVP_CIPH_NO_PADDING)
-    {
-      if(ctx->buf_len)
-	{
-	  EVPerr(EVP_F_EVP_DECRYPTFINAL,EVP_R_DATA_NOT_MULTIPLE_OF_BLOCK_LENGTH);
-	  return 0;
-	}
-      *outl = 0;
-      return 1;
+
+  if (ctx->flags & EVP_CIPH_NO_PADDING) {
+    if(ctx->buf_len) {
+      EVPerr(EVP_F_EVP_DECRYPTFINAL,EVP_R_DATA_NOT_MULTIPLE_OF_BLOCK_LENGTH);
+      return 0;
     }
-  if (b > 1)
-    {
-      if (ctx->buf_len || !ctx->final_used)
-	{
-	  EVPerr(EVP_F_EVP_DECRYPTFINAL,EVP_R_WRONG_FINAL_BLOCK_LENGTH);
-	  return(0);
-	}
-      OPENSSL_assert(b <= sizeof ctx->final);
-      n=ctx->final[b-1];
-      if (n > b)
-	{
-	  EVPerr(EVP_F_EVP_DECRYPTFINAL,EVP_R_BAD_DECRYPT);
-	  return(0);
-	}
-      for (i=0; i<n; i++)
-	{
-	  if (ctx->final[--b] != n)
-	    {
-	      EVPerr(EVP_F_EVP_DECRYPTFINAL,EVP_R_BAD_DECRYPT);
-	      return(0);
-	    }
-	}
-      n=ctx->cipher->block_size-n;
-      for (i=0; i<n; i++)
-	out[i]=ctx->final[i];
-      *outl=n;
+    *outl = 0;
+    return 1;
+  }
+
+  if (b > 1) {
+    if (ctx->buf_len || !ctx->final_used) {
+      EVPerr(EVP_F_EVP_DECRYPTFINAL,EVP_R_WRONG_FINAL_BLOCK_LENGTH);
+      return(0);
     }
-  else
+
+    OPENSSL_assert(b <= sizeof ctx->final);
+    n=ctx->final[b-1];
+
+    if (n > b) {
+      EVPerr(EVP_F_EVP_DECRYPTFINAL,EVP_R_BAD_DECRYPT);
+      return(0);
+    }
+
+    for (i=0; i<n; i++) {
+      if (ctx->final[--b] != n) {
+        EVPerr(EVP_F_EVP_DECRYPTFINAL,EVP_R_BAD_DECRYPT);
+        return(0);
+      }
+    }
+
+    n=ctx->cipher->block_size-n;
+
+    for (i=0; i<n; i++) {
+      out[i]=ctx->final[i];
+    }
+    *outl=n;
+  } else {
     *outl=0;
+  }
+
   return(1);
 }
 
 
-
 class Cipher : public ObjectWrap {
  public:
-  static void
-  Initialize (v8::Handle<v8::Object> target)
-  {
+  static void Initialize (v8::Handle<v8::Object> target) {
     HandleScope scope;
 
     Local<FunctionTemplate> t = FunctionTemplate::New(New);
@@ -1131,8 +825,8 @@ class Cipher : public ObjectWrap {
     target->Set(String::NewSymbol("Cipher"), t->GetFunction());
   }
 
-  bool CipherInit(char* cipherType, char* key_buf, int key_buf_len)
-  {
+
+  bool CipherInit(char* cipherType, char* key_buf, int key_buf_len) {
     cipher = EVP_get_cipherbyname(cipherType);
     if(!cipher) {
       fprintf(stderr, "node-crypto : Unknown cipher %s\n", cipherType);
@@ -1149,13 +843,16 @@ class Cipher : public ObjectWrap {
     	EVP_CIPHER_CTX_cleanup(&ctx);
     	return false;
     }
-    initialised = true;
+    initialised_ = true;
     return true;
   }
 
 
-  bool CipherInitIv(char* cipherType, char* key, int key_len, char *iv, int iv_len)
-  {
+  bool CipherInitIv(char* cipherType,
+                    char* key,
+                    int key_len,
+                    char *iv,
+                    int iv_len) {
     cipher = EVP_get_cipherbyname(cipherType);
     if(!cipher) {
       fprintf(stderr, "node-crypto : Unknown cipher %s\n", cipherType);
@@ -1172,37 +869,33 @@ class Cipher : public ObjectWrap {
     	EVP_CIPHER_CTX_cleanup(&ctx);
     	return false;
     }
-    initialised = true;
+    initialised_ = true;
     return true;
   }
 
 
   int CipherUpdate(char* data, int len, unsigned char** out, int* out_len) {
-    if (!initialised)
-      return 0;
+    if (!initialised_) return 0;
     *out_len=len+EVP_CIPHER_CTX_block_size(&ctx);
-    *out=(unsigned char*)malloc(*out_len);
-    
+    *out= new unsigned char[*out_len];
+
     EVP_CipherUpdate(&ctx, *out, out_len, (unsigned char*)data, len);
     return 1;
   }
 
   int CipherFinal(unsigned char** out, int *out_len) {
-    if (!initialised)
-      return 0;
-    *out = (unsigned char*) malloc(EVP_CIPHER_CTX_block_size(&ctx));
+    if (!initialised_) return 0;
+    *out = new unsigned char[EVP_CIPHER_CTX_block_size(&ctx)];
     EVP_CipherFinal(&ctx,*out,out_len);
     EVP_CIPHER_CTX_cleanup(&ctx);
-    initialised = false;
+    initialised_ = false;
     return 1;
   }
 
 
  protected:
 
-  static Handle<Value>
-  New (const Arguments& args)
-  {
+  static Handle<Value> New (const Arguments& args) {
     HandleScope scope;
 
     Cipher *cipher = new Cipher();
@@ -1210,18 +903,17 @@ class Cipher : public ObjectWrap {
     return args.This();
   }
 
-  static Handle<Value>
-  CipherInit(const Arguments& args) {
-    Cipher *cipher = ObjectWrap::Unwrap<Cipher>(args.This());
-		
+  static Handle<Value> CipherInit(const Arguments& args) {
     HandleScope scope;
+
+    Cipher *cipher = ObjectWrap::Unwrap<Cipher>(args.This());
 
     cipher->incomplete_base64=NULL;
 
     if (args.Length() <= 1 || !args[0]->IsString() || !args[1]->IsString()) {
-      return ThrowException(String::New("Must give cipher-type, key"));
+      return ThrowException(Exception::Error(String::New(
+        "Must give cipher-type, key")));
     }
-    
 
     ssize_t key_buf_len = DecodeBytes(args[1], BINARY);
 
@@ -1229,20 +921,22 @@ class Cipher : public ObjectWrap {
       Local<Value> exception = Exception::TypeError(String::New("Bad argument"));
       return ThrowException(exception);
     }
-    
+
     char* key_buf = new char[key_buf_len];
     ssize_t key_written = DecodeWrite(key_buf, key_buf_len, args[1], BINARY);
     assert(key_written == key_buf_len);
-    
+
     String::Utf8Value cipherType(args[0]->ToString());
 
     bool r = cipher->CipherInit(*cipherType, key_buf, key_buf_len);
 
+    delete [] key_buf;
+
     return args.This();
   }
 
-  static Handle<Value>
-  CipherInitIv(const Arguments& args) {
+
+  static Handle<Value> CipherInitIv(const Arguments& args) {
     Cipher *cipher = ObjectWrap::Unwrap<Cipher>(args.This());
 		
     HandleScope scope;
@@ -1250,7 +944,8 @@ class Cipher : public ObjectWrap {
     cipher->incomplete_base64=NULL;
 
     if (args.Length() <= 2 || !args[0]->IsString() || !args[1]->IsString() || !args[2]->IsString()) {
-      return ThrowException(String::New("Must give cipher-type, key, and iv as argument"));
+      return ThrowException(Exception::Error(String::New(
+        "Must give cipher-type, key, and iv as argument")));
     }
     ssize_t key_len = DecodeBytes(args[1], BINARY);
 
@@ -1258,7 +953,7 @@ class Cipher : public ObjectWrap {
       Local<Value> exception = Exception::TypeError(String::New("Bad argument"));
       return ThrowException(exception);
     }
-    
+
     ssize_t iv_len = DecodeBytes(args[2], BINARY);
 
     if (iv_len < 0) {
@@ -1269,7 +964,7 @@ class Cipher : public ObjectWrap {
     char* key_buf = new char[key_len];
     ssize_t key_written = DecodeWrite(key_buf, key_len, args[1], BINARY);
     assert(key_written == key_len);
-    
+
     char* iv_buf = new char[iv_len];
     ssize_t iv_written = DecodeWrite(iv_buf, iv_len, args[2], BINARY);
     assert(iv_written == iv_len);
@@ -1278,12 +973,14 @@ class Cipher : public ObjectWrap {
     	
     bool r = cipher->CipherInitIv(*cipherType, key_buf,key_len,iv_buf,iv_len);
 
+    delete [] key_buf;
+    delete [] iv_buf;
+
     return args.This();
   }
 
 
-  static Handle<Value>
-  CipherUpdate(const Arguments& args) {
+  static Handle<Value> CipherUpdate(const Arguments& args) {
     Cipher *cipher = ObjectWrap::Unwrap<Cipher>(args.This());
 
     HandleScope scope;
@@ -1303,10 +1000,13 @@ class Cipher : public ObjectWrap {
     unsigned char *out=0;
     int out_len=0;
     int r = cipher->CipherUpdate(buf, len,&out,&out_len);
-    
+
+    delete [] buf;
+
     Local<Value> outString;
-    if (out_len==0) outString=String::New("");
-    else {
+    if (out_len==0) { 
+      outString=String::New("");
+    } else {
     	if (args.Length() <= 2 || !args[2]->IsString()) {
 	      // Binary
 	      outString = Encode(out, out_len, BINARY);
@@ -1316,49 +1016,54 @@ class Cipher : public ObjectWrap {
 	      String::Utf8Value encoding(args[2]->ToString());
 	      if (strcasecmp(*encoding, "hex") == 0) {
 	        // Hex encoding
-	        hex_encode(out, out_len, &out_hexdigest, &out_hex_len);
+	        HexEncode(out, out_len, &out_hexdigest, &out_hex_len);
 	        outString = Encode(out_hexdigest, out_hex_len, BINARY);
-	        free(out_hexdigest);
+	        delete [] out_hexdigest;
 	      } else if (strcasecmp(*encoding, "base64") == 0) {
-		// Base64 encoding
-		// Check to see if we need to add in previous base64 overhang
-		if (cipher->incomplete_base64!=NULL){
-		  unsigned char* complete_base64 = (unsigned char *)malloc(out_len+cipher->incomplete_base64_len+1);
-		  memcpy(complete_base64, cipher->incomplete_base64, cipher->incomplete_base64_len);
-		  memcpy(&complete_base64[cipher->incomplete_base64_len], out, out_len);
-		  free(out);
-		  free(cipher->incomplete_base64);
-		  cipher->incomplete_base64=NULL;
-		  out=complete_base64;
-		  out_len += cipher->incomplete_base64_len;
-		}
+          // Base64 encoding
+          // Check to see if we need to add in previous base64 overhang
+          if (cipher->incomplete_base64!=NULL){
+            unsigned char* complete_base64 = new unsigned char[out_len+cipher->incomplete_base64_len+1];
+            memcpy(complete_base64, cipher->incomplete_base64, cipher->incomplete_base64_len);
+            memcpy(&complete_base64[cipher->incomplete_base64_len], out, out_len);
+            delete [] out;
 
-		// Check to see if we need to trim base64 stream
-		if (out_len%3!=0){
-		  cipher->incomplete_base64_len = out_len%3;
-		  cipher->incomplete_base64 = (char *)malloc(cipher->incomplete_base64_len+1);
-		  memcpy(cipher->incomplete_base64, &out[out_len-cipher->incomplete_base64_len], cipher->incomplete_base64_len);
-		  out_len -= cipher->incomplete_base64_len;
-		  out[out_len]=0;
-		}
+            delete [] cipher->incomplete_base64;
+            cipher->incomplete_base64=NULL;
+
+            out=complete_base64;
+            out_len += cipher->incomplete_base64_len;
+          }
+
+          // Check to see if we need to trim base64 stream
+          if (out_len%3!=0){
+            cipher->incomplete_base64_len = out_len%3;
+            cipher->incomplete_base64 = new char[cipher->incomplete_base64_len+1];
+            memcpy(cipher->incomplete_base64,
+                   &out[out_len-cipher->incomplete_base64_len],
+                   cipher->incomplete_base64_len);
+            out_len -= cipher->incomplete_base64_len;
+            out[out_len]=0;
+          }
 
 	        base64(out, out_len, &out_hexdigest, &out_hex_len);
 	        outString = Encode(out_hexdigest, out_hex_len, BINARY);
-	        free(out_hexdigest);
+	        delete [] out_hexdigest;
 	      } else if (strcasecmp(*encoding, "binary") == 0) {
 	        outString = Encode(out, out_len, BINARY);
 	      } else {
-		fprintf(stderr, "node-crypto : Cipher .update encoding "
-			"can be binary, hex or base64\n");
+          fprintf(stderr, "node-crypto : Cipher .update encoding "
+                          "can be binary, hex or base64\n");
 	      }
 	    }
     }
-    if (out) free(out);
+
+    if (out) delete [] out;
+
     return scope.Close(outString);
   }
 
-  static Handle<Value>
-  CipherFinal(const Arguments& args) {
+  static Handle<Value> CipherFinal(const Arguments& args) {
     Cipher *cipher = ObjectWrap::Unwrap<Cipher>(args.This());
 
     HandleScope scope;
@@ -1382,28 +1087,27 @@ class Cipher : public ObjectWrap {
       String::Utf8Value encoding(args[0]->ToString());
       if (strcasecmp(*encoding, "hex") == 0) {
         // Hex encoding
-        hex_encode(out_value, out_len, &out_hexdigest, &out_hex_len);
+        HexEncode(out_value, out_len, &out_hexdigest, &out_hex_len);
         outString = Encode(out_hexdigest, out_hex_len, BINARY);
-        free(out_hexdigest);
+        delete [] out_hexdigest;
       } else if (strcasecmp(*encoding, "base64") == 0) {
         base64(out_value, out_len, &out_hexdigest, &out_hex_len);
         outString = Encode(out_hexdigest, out_hex_len, BINARY);
-        free(out_hexdigest);
+        delete [] out_hexdigest;
       } else if (strcasecmp(*encoding, "binary") == 0) {
         outString = Encode(out_value, out_len, BINARY);
       } else {
-	fprintf(stderr, "node-crypto : Cipher .final encoding "
-		"can be binary, hex or base64\n");
+        fprintf(stderr, "node-crypto : Cipher .final encoding "
+                        "can be binary, hex or base64\n");
       }
     }
-    free(out_value);
+    delete [] out_value;
     return scope.Close(outString);
-
   }
 
-  Cipher () : ObjectWrap () 
+  Cipher () : ObjectWrap ()
   {
-    initialised = false;
+    initialised_ = false;
   }
 
   ~Cipher ()
@@ -1414,7 +1118,7 @@ class Cipher : public ObjectWrap {
 
   EVP_CIPHER_CTX ctx;
   const EVP_CIPHER *cipher;
-  bool initialised;
+  bool initialised_;
   char* incomplete_base64;
   int incomplete_base64_len;
 
@@ -1442,81 +1146,95 @@ class Decipher : public ObjectWrap {
     target->Set(String::NewSymbol("Decipher"), t->GetFunction());
   }
 
-  bool DecipherInit(char* cipherType, char* key_buf, int key_buf_len)
-  {
-    cipher = EVP_get_cipherbyname(cipherType);
-    if(!cipher) {
+  bool DecipherInit(char* cipherType, char* key_buf, int key_buf_len) {
+    cipher_ = EVP_get_cipherbyname(cipherType);
+
+    if(!cipher_) {
       fprintf(stderr, "node-crypto : Unknown cipher %s\n", cipherType);
       return false;
     }
 
     unsigned char key[EVP_MAX_KEY_LENGTH],iv[EVP_MAX_IV_LENGTH];
-    int key_len = EVP_BytesToKey(cipher, EVP_md5(), NULL, (unsigned char*) key_buf, key_buf_len, 1, key, iv);
+    int key_len = EVP_BytesToKey(cipher_,
+                                 EVP_md5(),
+                                 NULL,
+                                 (unsigned char*)(key_buf),
+                                 key_buf_len,
+                                 1,
+                                 key,
+                                 iv);
 
     EVP_CIPHER_CTX_init(&ctx);
-    EVP_CipherInit(&ctx,cipher,(unsigned char *)key,(unsigned char *)iv, false);
+    EVP_CipherInit(&ctx,
+                   cipher_,
+                   (unsigned char*)(key),
+                   (unsigned char *)(iv),
+                   false);
     if (!EVP_CIPHER_CTX_set_key_length(&ctx,key_len)) {
     	fprintf(stderr, "node-crypto : Invalid key length %d\n", key_len);
     	EVP_CIPHER_CTX_cleanup(&ctx);
     	return false;
     }
-    initialised = true;
+    initialised_ = true;
     return true;
   }
 
 
-  bool DecipherInitIv(char* cipherType, char* key, int key_len, char *iv, int iv_len)
-  {
-    cipher = EVP_get_cipherbyname(cipherType);
-    if(!cipher) {
+  bool DecipherInitIv(char* cipherType,
+                      char* key,
+                      int key_len,
+                      char *iv,
+                      int iv_len) {
+    cipher_ = EVP_get_cipherbyname(cipherType);
+    if(!cipher_) {
       fprintf(stderr, "node-crypto : Unknown cipher %s\n", cipherType);
       return false;
     }
-    if (EVP_CIPHER_iv_length(cipher)!=iv_len) {
+    if (EVP_CIPHER_iv_length(cipher_) != iv_len) {
     	fprintf(stderr, "node-crypto : Invalid IV length %d\n", iv_len);
       return false;
     }
     EVP_CIPHER_CTX_init(&ctx);
-    EVP_CipherInit(&ctx,cipher,(unsigned char *)key,(unsigned char *)iv, false);
+    EVP_CipherInit(&ctx,
+                   cipher_,
+                   (unsigned char*)(key),
+                   (unsigned char *)(iv),
+                   false);
     if (!EVP_CIPHER_CTX_set_key_length(&ctx,key_len)) {
     	fprintf(stderr, "node-crypto : Invalid key length %d\n", key_len);
     	EVP_CIPHER_CTX_cleanup(&ctx);
     	return false;
     }
-    initialised = true;
+    initialised_ = true;
     return true;
   }
 
   int DecipherUpdate(char* data, int len, unsigned char** out, int* out_len) {
-    if (!initialised)
-      return 0;
+    if (!initialised_) return 0;
     *out_len=len+EVP_CIPHER_CTX_block_size(&ctx);
-    *out=(unsigned char*)malloc(*out_len);
-    
+    *out= new unsigned char[*out_len];
+
     EVP_CipherUpdate(&ctx, *out, out_len, (unsigned char*)data, len);
     return 1;
   }
 
   int DecipherFinal(unsigned char** out, int *out_len, bool tolerate_padding) {
-    if (!initialised)
-      return 0;
-    *out = (unsigned char*) malloc(EVP_CIPHER_CTX_block_size(&ctx));
+    if (!initialised_) return 0;
+    *out = new unsigned char[EVP_CIPHER_CTX_block_size(&ctx)];
     if (tolerate_padding) {
       local_EVP_DecryptFinal_ex(&ctx,*out,out_len);
     } else {
       EVP_CipherFinal(&ctx,*out,out_len);
     }
     EVP_CIPHER_CTX_cleanup(&ctx);
-    initialised = false;
+    initialised_ = false;
     return 1;
   }
 
 
  protected:
 
-  static Handle<Value>
-  New (const Arguments& args)
-  {
+  static Handle<Value> New (const Arguments& args) {
     HandleScope scope;
 
     Decipher *cipher = new Decipher();
@@ -1524,8 +1242,7 @@ class Decipher : public ObjectWrap {
     return args.This();
   }
 
-  static Handle<Value>
-  DecipherInit(const Arguments& args) {
+  static Handle<Value> DecipherInit(const Arguments& args) {
     Decipher *cipher = ObjectWrap::Unwrap<Decipher>(args.This());
 		
     HandleScope scope;
@@ -1534,7 +1251,8 @@ class Decipher : public ObjectWrap {
     cipher->incomplete_hex_flag=false;
 
     if (args.Length() <= 1 || !args[0]->IsString() || !args[1]->IsString()) {
-      return ThrowException(String::New("Must give cipher-type, key as argument"));
+      return ThrowException(Exception::Error(String::New(
+        "Must give cipher-type, key as argument")));
     }
 
     ssize_t key_len = DecodeBytes(args[1], BINARY);
@@ -1543,20 +1261,21 @@ class Decipher : public ObjectWrap {
       Local<Value> exception = Exception::TypeError(String::New("Bad argument"));
       return ThrowException(exception);
     }
-    
+
     char* key_buf = new char[key_len];
     ssize_t key_written = DecodeWrite(key_buf, key_len, args[1], BINARY);
     assert(key_written == key_len);
-    
+
     String::Utf8Value cipherType(args[0]->ToString());
     	
     bool r = cipher->DecipherInit(*cipherType, key_buf,key_len);
 
+    delete [] key_buf;
+
     return args.This();
   }
 
-  static Handle<Value>
-  DecipherInitIv(const Arguments& args) {
+  static Handle<Value> DecipherInitIv(const Arguments& args) {
     Decipher *cipher = ObjectWrap::Unwrap<Decipher>(args.This());
 		
     HandleScope scope;
@@ -1565,7 +1284,8 @@ class Decipher : public ObjectWrap {
     cipher->incomplete_hex_flag=false;
 
     if (args.Length() <= 2 || !args[0]->IsString() || !args[1]->IsString() || !args[2]->IsString()) {
-      return ThrowException(String::New("Must give cipher-type, key, and iv as argument"));
+      return ThrowException(Exception::Error(String::New(
+        "Must give cipher-type, key, and iv as argument")));
     }
 
     ssize_t key_len = DecodeBytes(args[1], BINARY);
@@ -1574,7 +1294,7 @@ class Decipher : public ObjectWrap {
       Local<Value> exception = Exception::TypeError(String::New("Bad argument"));
       return ThrowException(exception);
     }
-    
+
     ssize_t iv_len = DecodeBytes(args[2], BINARY);
 
     if (iv_len < 0) {
@@ -1585,7 +1305,7 @@ class Decipher : public ObjectWrap {
     char* key_buf = new char[key_len];
     ssize_t key_written = DecodeWrite(key_buf, key_len, args[1], BINARY);
     assert(key_written == key_len);
-    
+
     char* iv_buf = new char[iv_len];
     ssize_t iv_written = DecodeWrite(iv_buf, iv_len, args[2], BINARY);
     assert(iv_written == iv_len);
@@ -1594,14 +1314,16 @@ class Decipher : public ObjectWrap {
     	
     bool r = cipher->DecipherInitIv(*cipherType, key_buf,key_len,iv_buf,iv_len);
 
+    delete [] key_buf;
+    delete [] iv_buf;
+
     return args.This();
   }
 
-  static Handle<Value>
-  DecipherUpdate(const Arguments& args) {
-    Decipher *cipher = ObjectWrap::Unwrap<Decipher>(args.This());
-
+  static Handle<Value> DecipherUpdate(const Arguments& args) {
     HandleScope scope;
+
+    Decipher *cipher = ObjectWrap::Unwrap<Decipher>(args.This());
 
     ssize_t len = DecodeBytes(args[0], BINARY);
     char* buf = new char[len];
@@ -1609,51 +1331,53 @@ class Decipher : public ObjectWrap {
     char* ciphertext;
     int ciphertext_len;
 
-
     if (args.Length() <= 1 || !args[1]->IsString()) {
       // Binary - do nothing
     } else {
       String::Utf8Value encoding(args[1]->ToString());
       if (strcasecmp(*encoding, "hex") == 0) {
-	// Hex encoding
-	// Do we have a previous hex carry over?
-	if (cipher->incomplete_hex_flag) {
-	  char* complete_hex = (char*)malloc(len+2);
-	  memcpy(complete_hex, &cipher->incomplete_hex, 1);
-	  memcpy(complete_hex+1, buf, len);
-	  free(buf);
-	  buf = complete_hex;
-	  len += 1;
-	}
-	// Do we have an incomplete hex stream?
-	if ((len>0) && (len % 2 !=0)) {
-	  len--;
-	  cipher->incomplete_hex=buf[len];
-	  cipher->incomplete_hex_flag=true;
-	  buf[len]=0;
-	}
-        hex_decode((unsigned char*)buf, len, (char **)&ciphertext, &ciphertext_len);
+        // Hex encoding
+        // Do we have a previous hex carry over?
+        if (cipher->incomplete_hex_flag) {
+          char* complete_hex = new char[len+2];
+          memcpy(complete_hex, &cipher->incomplete_hex, 1);
+          memcpy(complete_hex+1, buf, len);
+          delete [] buf;
+          buf = complete_hex;
+          len += 1;
+        }
+        // Do we have an incomplete hex stream?
+        if ((len>0) && (len % 2 !=0)) {
+          len--;
+          cipher->incomplete_hex=buf[len];
+          cipher->incomplete_hex_flag=true;
+          buf[len]=0;
+        }
+        HexDecode((unsigned char*)buf, len, (char **)&ciphertext, &ciphertext_len);
 
-        free(buf);
-	buf = ciphertext;
-	len = ciphertext_len;
+
+        delete [] buf;
+        buf = ciphertext;
+        len = ciphertext_len;
+
       } else if (strcasecmp(*encoding, "base64") == 0) {
         unbase64((unsigned char*)buf, len, (char **)&ciphertext, &ciphertext_len);
-        free(buf);
-	buf = ciphertext;
-	len = ciphertext_len;
+        delete [] buf;
+        buf = ciphertext;
+        len = ciphertext_len;
+
       } else if (strcasecmp(*encoding, "binary") == 0) {
         // Binary - do nothing
+
       } else {
-	fprintf(stderr, "node-crypto : Decipher .update encoding "
-		"can be binary, hex or base64\n");
+        fprintf(stderr, "node-crypto : Decipher .update encoding "
+                        "can be binary, hex or base64\n");
       }
-  
     }
 
     unsigned char *out=0;
     int out_len=0;
-    int r = cipher->DecipherUpdate(buf, len,&out,&out_len);
+    int r = cipher->DecipherUpdate(buf, len, &out, &out_len);
 
     Local<Value> outString;
     if (out_len==0) {
@@ -1663,41 +1387,43 @@ class Decipher : public ObjectWrap {
     } else {
       enum encoding enc = ParseEncoding(args[2]);
       if (enc == UTF8) {
-	// See if we have any overhang from last utf8 partial ending
-	if (cipher->incomplete_utf8!=NULL) {
-	  char* complete_out = (char *)malloc(cipher->incomplete_utf8_len + out_len);
-	  memcpy(complete_out, cipher->incomplete_utf8, cipher->incomplete_utf8_len);
-	  memcpy((char *)complete_out+cipher->incomplete_utf8_len, out, out_len);
-	  free(out);
-	  free(cipher->incomplete_utf8);
-	  cipher->incomplete_utf8=NULL;
-	  out = (unsigned char*)complete_out;
-	  out_len += cipher->incomplete_utf8_len;
-	}
-	// Check to see if we have a complete utf8 stream
-	int utf8_len = LengthWithoutIncompleteUtf8((char *)out, out_len);
-	if (utf8_len<out_len) { // We have an incomplete ut8 ending
-	  cipher->incomplete_utf8_len = out_len-utf8_len;
-          cipher->incomplete_utf8 = (unsigned char *)malloc(cipher->incomplete_utf8_len+1);
+        // See if we have any overhang from last utf8 partial ending
+        if (cipher->incomplete_utf8!=NULL) {
+          char* complete_out = new char[cipher->incomplete_utf8_len + out_len];
+          memcpy(complete_out, cipher->incomplete_utf8, cipher->incomplete_utf8_len);
+          memcpy((char *)complete_out+cipher->incomplete_utf8_len, out, out_len);
+          delete [] out;
+
+          delete [] cipher->incomplete_utf8;
+          cipher->incomplete_utf8 = NULL;
+
+          out = (unsigned char*)complete_out;
+          out_len += cipher->incomplete_utf8_len;
+        }
+        // Check to see if we have a complete utf8 stream
+        int utf8_len = LengthWithoutIncompleteUtf8((char *)out, out_len);
+        if (utf8_len<out_len) { // We have an incomplete ut8 ending
+          cipher->incomplete_utf8_len = out_len-utf8_len;
+          cipher->incomplete_utf8 = new unsigned char[cipher->incomplete_utf8_len+1];
           memcpy(cipher->incomplete_utf8, &out[utf8_len], cipher->incomplete_utf8_len);
-	} 
+        }
         outString = Encode(out, utf8_len, enc);
       } else {
         outString = Encode(out, out_len, enc);
       }
     }
 
-    if (out) free(out);
-    free(buf);
+    if (out) delete [] out;
+
+    delete [] buf;
     return scope.Close(outString);
 
   }
 
-  static Handle<Value>
-  DecipherFinal(const Arguments& args) {
-    Decipher *cipher = ObjectWrap::Unwrap<Decipher>(args.This());
-
+  static Handle<Value> DecipherFinal(const Arguments& args) {
     HandleScope scope;
+
+    Decipher *cipher = ObjectWrap::Unwrap<Decipher>(args.This());
 
     unsigned char* out_value;
     int out_len;
@@ -1717,29 +1443,29 @@ class Decipher : public ObjectWrap {
     } else {
       enum encoding enc = ParseEncoding(args[0]);
       if (enc == UTF8) {
-	// See if we have any overhang from last utf8 partial ending
-	if (cipher->incomplete_utf8!=NULL) {
-	  char* complete_out = (char *)malloc(cipher->incomplete_utf8_len + out_len);
-	  memcpy(complete_out, cipher->incomplete_utf8, cipher->incomplete_utf8_len);
-	  memcpy((char *)complete_out+cipher->incomplete_utf8_len, out_value, out_len);
-	  free(cipher->incomplete_utf8);
-	  cipher->incomplete_utf8=NULL;
-	  outString = Encode(complete_out, cipher->incomplete_utf8_len+out_len, enc);
-	  free(complete_out);
-	} else {
-	  outString = Encode(out_value, out_len, enc);
-	}
+        // See if we have any overhang from last utf8 partial ending
+        if (cipher->incomplete_utf8!=NULL) {
+          char* complete_out = new char[cipher->incomplete_utf8_len + out_len];
+          memcpy(complete_out, cipher->incomplete_utf8, cipher->incomplete_utf8_len);
+          memcpy((char *)complete_out+cipher->incomplete_utf8_len, out_value, out_len);
+
+          delete [] cipher->incomplete_utf8;
+          cipher->incomplete_utf8=NULL;
+
+          outString = Encode(complete_out, cipher->incomplete_utf8_len+out_len, enc);
+          delete [] complete_out;
+        } else {
+          outString = Encode(out_value, out_len, enc);
+        }
       } else {
-	outString = Encode(out_value, out_len, enc);
+        outString = Encode(out_value, out_len, enc);
       }
     }
-    free(out_value);
+    delete [] out_value;
     return scope.Close(outString);
-
   }
 
-  static Handle<Value>
-  DecipherFinalTolerate(const Arguments& args) {
+  static Handle<Value> DecipherFinalTolerate(const Arguments& args) {
     Decipher *cipher = ObjectWrap::Unwrap<Decipher>(args.This());
 
     HandleScope scope;
@@ -1762,41 +1488,39 @@ class Decipher : public ObjectWrap {
     } else {
       enum encoding enc = ParseEncoding(args[0]);
       if (enc == UTF8) {
-	// See if we have any overhang from last utf8 partial ending
-	if (cipher->incomplete_utf8!=NULL) {
-	  char* complete_out = (char *)malloc(cipher->incomplete_utf8_len + out_len);
-	  memcpy(complete_out, cipher->incomplete_utf8, cipher->incomplete_utf8_len);
-	  memcpy((char *)complete_out+cipher->incomplete_utf8_len, out_value, out_len);
-	  free(cipher->incomplete_utf8);
-	  cipher->incomplete_utf8=NULL;
-	  outString = Encode(complete_out, cipher->incomplete_utf8_len+out_len, enc);
-	  free(complete_out);
-	} else {
-	  outString = Encode(out_value, out_len, enc);
-	}
+        // See if we have any overhang from last utf8 partial ending
+        if (cipher->incomplete_utf8!=NULL) {
+          char* complete_out = new char[cipher->incomplete_utf8_len + out_len];
+          memcpy(complete_out, cipher->incomplete_utf8, cipher->incomplete_utf8_len);
+          memcpy((char *)complete_out+cipher->incomplete_utf8_len, out_value, out_len);
+
+          delete [] cipher->incomplete_utf8;
+          cipher->incomplete_utf8 = NULL;
+
+          outString = Encode(complete_out, cipher->incomplete_utf8_len+out_len, enc);
+          delete [] complete_out;
+        } else {
+          outString = Encode(out_value, out_len, enc);
+        }
       } else {
-	outString = Encode(out_value, out_len, enc);
+        outString = Encode(out_value, out_len, enc);
       }
     }
-    free(out_value);
+    delete [] out_value;
     return scope.Close(outString);
-
   }
 
-  Decipher () : ObjectWrap () 
-  {
-    initialised = false;
+  Decipher () : ObjectWrap () {
+    initialised_ = false;
   }
 
-  ~Decipher ()
-  {
-  }
+  ~Decipher () { }
 
  private:
 
   EVP_CIPHER_CTX ctx;
-  const EVP_CIPHER *cipher;
-  bool initialised;
+  const EVP_CIPHER *cipher_;
+  bool initialised_;
   unsigned char* incomplete_utf8;
   int incomplete_utf8_len;
   char incomplete_hex;
@@ -1808,9 +1532,7 @@ class Decipher : public ObjectWrap {
 
 class Hmac : public ObjectWrap {
  public:
-  static void
-  Initialize (v8::Handle<v8::Object> target)
-  {
+  static void Initialize (v8::Handle<v8::Object> target) {
     HandleScope scope;
 
     Local<FunctionTemplate> t = FunctionTemplate::New(New);
@@ -1824,8 +1546,7 @@ class Hmac : public ObjectWrap {
     target->Set(String::NewSymbol("Hmac"), t->GetFunction());
   }
 
-  bool HmacInit(char* hashType, char* key, int key_len)
-  {
+  bool HmacInit(char* hashType, char* key, int key_len) {
     md = EVP_get_digestbyname(hashType);
     if(!md) {
       fprintf(stderr, "node-crypto : Unknown message digest %s\n", hashType);
@@ -1833,34 +1554,30 @@ class Hmac : public ObjectWrap {
     }
     HMAC_CTX_init(&ctx);
     HMAC_Init(&ctx, key, key_len, md);
-    initialised = true;
+    initialised_ = true;
     return true;
-    
+
   }
 
   int HmacUpdate(char* data, int len) {
-    if (!initialised)
-      return 0;
+    if (!initialised_) return 0;
     HMAC_Update(&ctx, (unsigned char*)data, len);
     return 1;
   }
 
   int HmacDigest(unsigned char** md_value, unsigned int *md_len) {
-    if (!initialised)
-      return 0;
-    *md_value = (unsigned char*) malloc(EVP_MAX_MD_SIZE);
+    if (!initialised_) return 0;
+    *md_value = new unsigned char[EVP_MAX_MD_SIZE];
     HMAC_Final(&ctx, *md_value, md_len);
     HMAC_CTX_cleanup(&ctx);
-    initialised = false;
+    initialised_ = false;
     return 1;
   }
 
 
  protected:
 
-  static Handle<Value>
-  New (const Arguments& args)
-  {
+  static Handle<Value> New (const Arguments& args) {
     HandleScope scope;
 
     Hmac *hmac = new Hmac();
@@ -1868,14 +1585,14 @@ class Hmac : public ObjectWrap {
     return args.This();
   }
 
-  static Handle<Value>
-  HmacInit(const Arguments& args) {
+  static Handle<Value> HmacInit(const Arguments& args) {
     Hmac *hmac = ObjectWrap::Unwrap<Hmac>(args.This());
 
     HandleScope scope;
 
     if (args.Length() == 0 || !args[0]->IsString()) {
-      return ThrowException(String::New("Must give hashtype string as argument"));
+      return ThrowException(Exception::Error(String::New(
+        "Must give hashtype string as argument")));
     }
 
     ssize_t len = DecodeBytes(args[1], BINARY);
@@ -1893,11 +1610,12 @@ class Hmac : public ObjectWrap {
 
     bool r = hmac->HmacInit(*hashType, buf, len);
 
+    delete [] buf;
+
     return args.This();
   }
 
-  static Handle<Value>
-  HmacUpdate(const Arguments& args) {
+  static Handle<Value> HmacUpdate(const Arguments& args) {
     Hmac *hmac = ObjectWrap::Unwrap<Hmac>(args.This());
 
     HandleScope scope;
@@ -1916,11 +1634,12 @@ class Hmac : public ObjectWrap {
 
     int r = hmac->HmacUpdate(buf, len);
 
+    delete [] buf;
+
     return args.This();
   }
 
-  static Handle<Value>
-  HmacDigest(const Arguments& args) {
+  static Handle<Value> HmacDigest(const Arguments& args) {
     Hmac *hmac = ObjectWrap::Unwrap<Hmac>(args.This());
 
     HandleScope scope;
@@ -1944,63 +1663,54 @@ class Hmac : public ObjectWrap {
       String::Utf8Value encoding(args[0]->ToString());
       if (strcasecmp(*encoding, "hex") == 0) {
         // Hex encoding
-        hex_encode(md_value, md_len, &md_hexdigest, &md_hex_len);
+        HexEncode(md_value, md_len, &md_hexdigest, &md_hex_len);
         outString = Encode(md_hexdigest, md_hex_len, BINARY);
-        free(md_hexdigest);
+        delete [] md_hexdigest;
       } else if (strcasecmp(*encoding, "base64") == 0) {
         base64(md_value, md_len, &md_hexdigest, &md_hex_len);
         outString = Encode(md_hexdigest, md_hex_len, BINARY);
-        free(md_hexdigest);
+        delete [] md_hexdigest;
       } else if (strcasecmp(*encoding, "binary") == 0) {
         outString = Encode(md_value, md_len, BINARY);
       } else {
-	fprintf(stderr, "node-crypto : Hmac .digest encoding "
-		"can be binary, hex or base64\n");
+        fprintf(stderr, "node-crypto : Hmac .digest encoding "
+                        "can be binary, hex or base64\n");
       }
     }
-    free(md_value);
+    delete [] md_value;
     return scope.Close(outString);
-
   }
 
-  Hmac () : ObjectWrap () 
-  {
-    initialised = false;
+  Hmac () : ObjectWrap () {
+    initialised_ = false;
   }
 
-  ~Hmac ()
-  {
-  }
+  ~Hmac () { }
 
  private:
 
   HMAC_CTX ctx;
   const EVP_MD *md;
-  bool initialised;
-
+  bool initialised_;
 };
 
 
 class Hash : public ObjectWrap {
  public:
-  static void
-  Initialize (v8::Handle<v8::Object> target)
-  {
+  static void Initialize (v8::Handle<v8::Object> target) {
     HandleScope scope;
 
     Local<FunctionTemplate> t = FunctionTemplate::New(New);
 
     t->InstanceTemplate()->SetInternalFieldCount(1);
 
-    NODE_SET_PROTOTYPE_METHOD(t, "init", HashInit);
     NODE_SET_PROTOTYPE_METHOD(t, "update", HashUpdate);
     NODE_SET_PROTOTYPE_METHOD(t, "digest", HashDigest);
 
     target->Set(String::NewSymbol("Hash"), t->GetFunction());
   }
 
-  bool HashInit (const char* hashType)
-  {
+  bool HashInit (const char* hashType) {
     md = EVP_get_digestbyname(hashType);
     if(!md) {
       fprintf(stderr, "node-crypto : Unknown message digest %s\n", hashType);
@@ -2008,63 +1718,50 @@ class Hash : public ObjectWrap {
     }
     EVP_MD_CTX_init(&mdctx);
     EVP_DigestInit_ex(&mdctx, md, NULL);
-    initialised = true;
+    initialised_ = true;
     return true;
-    
   }
 
   int HashUpdate(char* data, int len) {
-    if (!initialised)
-      return 0;
+    if (!initialised_) return 0;
     EVP_DigestUpdate(&mdctx, data, len);
     return 1;
   }
 
   int HashDigest(unsigned char** md_value, unsigned int *md_len) {
-    if (!initialised)
-      return 0;
-    *md_value = (unsigned char*) malloc(EVP_MAX_MD_SIZE);
+    if (!initialised_) return 0;
+    *md_value = new unsigned char[EVP_MAX_MD_SIZE];
     EVP_DigestFinal_ex(&mdctx, *md_value, md_len);
     EVP_MD_CTX_cleanup(&mdctx);
-    initialised = false;
+    initialised_ = false;
     return 1;
   }
 
 
  protected:
 
-  static Handle<Value>
-  New (const Arguments& args)
-  {
-    HandleScope scope;
-
-    Hash *hash = new Hash();
-    hash->Wrap(args.This());
-    return args.This();
-  }
-
-  static Handle<Value>
-  HashInit(const Arguments& args) {
-    Hash *hash = ObjectWrap::Unwrap<Hash>(args.This());
-
+  static Handle<Value> New (const Arguments& args) {
     HandleScope scope;
 
     if (args.Length() == 0 || !args[0]->IsString()) {
-      return ThrowException(String::New("Must give hashtype string as argument"));
+      return ThrowException(Exception::Error(String::New(
+        "Must give hashtype string as argument")));
     }
+
+    Hash *hash = new Hash();
+    hash->Wrap(args.This());
 
     String::Utf8Value hashType(args[0]->ToString());
 
-    bool r = hash->HashInit(*hashType);
+    hash->HashInit(*hashType);
 
     return args.This();
   }
 
-  static Handle<Value>
-  HashUpdate(const Arguments& args) {
-    Hash *hash = ObjectWrap::Unwrap<Hash>(args.This());
-
+  static Handle<Value> HashUpdate(const Arguments& args) {
     HandleScope scope;
+
+    Hash *hash = ObjectWrap::Unwrap<Hash>(args.This());
 
     enum encoding enc = ParseEncoding(args[1]);
     ssize_t len = DecodeBytes(args[0], enc);
@@ -2080,11 +1777,12 @@ class Hash : public ObjectWrap {
 
     int r = hash->HashUpdate(buf, len);
 
+    delete[] buf;
+
     return args.This();
   }
 
-  static Handle<Value>
-  HashDigest(const Arguments& args) {
+  static Handle<Value> HashDigest(const Arguments& args) {
     Hash *hash = ObjectWrap::Unwrap<Hash>(args.This());
 
     HandleScope scope;
@@ -2108,47 +1806,42 @@ class Hash : public ObjectWrap {
       String::Utf8Value encoding(args[0]->ToString());
       if (strcasecmp(*encoding, "hex") == 0) {
         // Hex encoding
-        hex_encode(md_value, md_len, &md_hexdigest, &md_hex_len);
+        HexEncode(md_value, md_len, &md_hexdigest, &md_hex_len);
         outString = Encode(md_hexdigest, md_hex_len, BINARY);
-        free(md_hexdigest);
+        delete [] md_hexdigest;
       } else if (strcasecmp(*encoding, "base64") == 0) {
         base64(md_value, md_len, &md_hexdigest, &md_hex_len);
         outString = Encode(md_hexdigest, md_hex_len, BINARY);
-        free(md_hexdigest);
+        delete [] md_hexdigest;
       } else if (strcasecmp(*encoding, "binary") == 0) {
         outString = Encode(md_value, md_len, BINARY);
       } else {
-	fprintf(stderr, "node-crypto : Hash .digest encoding "
-		"can be binary, hex or base64\n");
+        fprintf(stderr, "node-crypto : Hash .digest encoding "
+                        "can be binary, hex or base64\n");
       }
     }
-    free(md_value);
+    delete [] md_value;
     return scope.Close(outString);
 
   }
 
-  Hash () : ObjectWrap () 
-  {
-    initialised = false;
+  Hash () : ObjectWrap () {
+    initialised_ = false;
   }
 
-  ~Hash ()
-  {
-  }
+  ~Hash () { }
 
  private:
 
   EVP_MD_CTX mdctx;
   const EVP_MD *md;
-  bool initialised;
-
+  bool initialised_;
 };
 
 class Sign : public ObjectWrap {
  public:
   static void
-  Initialize (v8::Handle<v8::Object> target)
-  {
+  Initialize (v8::Handle<v8::Object> target) {
     HandleScope scope;
 
     Local<FunctionTemplate> t = FunctionTemplate::New(New);
@@ -2162,8 +1855,7 @@ class Sign : public ObjectWrap {
     target->Set(String::NewSymbol("Sign"), t->GetFunction());
   }
 
-  bool SignInit (const char* signType)
-  {
+  bool SignInit (const char* signType) {
     md = EVP_get_digestbyname(signType);
     if(!md) {
       printf("Unknown message digest %s\n", signType);
@@ -2171,35 +1863,34 @@ class Sign : public ObjectWrap {
     }
     EVP_MD_CTX_init(&mdctx);
     EVP_SignInit_ex(&mdctx, md, NULL);
-    initialised = true;
+    initialised_ = true;
     return true;
-    
+
   }
 
   int SignUpdate(char* data, int len) {
-    if (!initialised)
-      return 0;
+    if (!initialised_) return 0;
     EVP_SignUpdate(&mdctx, data, len);
     return 1;
   }
 
-  int SignFinal(unsigned char** md_value, unsigned int *md_len, char* keyPem, int keyPemLen) {
-    if (!initialised)
-      return 0;
+  int SignFinal(unsigned char** md_value,
+                unsigned int *md_len,
+                char* keyPem,
+                int keyPemLen) {
+    if (!initialised_) return 0;
 
     BIO *bp = NULL;
     EVP_PKEY* pkey;
-    bp = BIO_new(BIO_s_mem()); 
-    if(!BIO_write(bp, keyPem, keyPemLen))
-      return 0;
+    bp = BIO_new(BIO_s_mem());
+    if(!BIO_write(bp, keyPem, keyPemLen)) return 0;
 
     pkey = PEM_read_bio_PrivateKey( bp, NULL, NULL, NULL );
-    if (pkey == NULL)
-      return 0;
+    if (pkey == NULL) return 0;
 
     EVP_SignFinal(&mdctx, *md_value, md_len, pkey);
     EVP_MD_CTX_cleanup(&mdctx);
-    initialised = false;
+    initialised_ = false;
     EVP_PKEY_free(pkey);
     BIO_free(bp);
     return 1;
@@ -2208,9 +1899,7 @@ class Sign : public ObjectWrap {
 
  protected:
 
-  static Handle<Value>
-  New (const Arguments& args)
-  {
+  static Handle<Value> New (const Arguments& args) {
     HandleScope scope;
 
     Sign *sign = new Sign();
@@ -2219,14 +1908,14 @@ class Sign : public ObjectWrap {
     return args.This();
   }
 
-  static Handle<Value>
-  SignInit(const Arguments& args) {
-    Sign *sign = ObjectWrap::Unwrap<Sign>(args.This());
-
+  static Handle<Value> SignInit(const Arguments& args) {
     HandleScope scope;
 
+    Sign *sign = ObjectWrap::Unwrap<Sign>(args.This());
+
     if (args.Length() == 0 || !args[0]->IsString()) {
-      return ThrowException(String::New("Must give signtype string as argument"));
+      return ThrowException(Exception::Error(String::New(
+        "Must give signtype string as argument")));
     }
 
     String::Utf8Value signType(args[0]->ToString());
@@ -2236,8 +1925,7 @@ class Sign : public ObjectWrap {
     return args.This();
   }
 
-  static Handle<Value>
-  SignUpdate(const Arguments& args) {
+  static Handle<Value> SignUpdate(const Arguments& args) {
     Sign *sign = ObjectWrap::Unwrap<Sign>(args.This());
 
     HandleScope scope;
@@ -2256,11 +1944,12 @@ class Sign : public ObjectWrap {
 
     int r = sign->SignUpdate(buf, len);
 
+    delete [] buf;
+
     return args.This();
   }
 
-  static Handle<Value>
-  SignFinal(const Arguments& args) {
+  static Handle<Value> SignFinal(const Arguments& args) {
     Sign *sign = ObjectWrap::Unwrap<Sign>(args.This());
 
     HandleScope scope;
@@ -2285,8 +1974,9 @@ class Sign : public ObjectWrap {
     ssize_t written = DecodeWrite(buf, len, args[0], BINARY);
     assert(written == len);
 
-
     int r = sign->SignFinal(&md_value, &md_len, buf, len);
+
+    delete [] buf;
 
     if (md_len == 0 || r == 0) {
       return scope.Close(String::New(""));
@@ -2299,47 +1989,41 @@ class Sign : public ObjectWrap {
       String::Utf8Value encoding(args[1]->ToString());
       if (strcasecmp(*encoding, "hex") == 0) {
         // Hex encoding
-        hex_encode(md_value, md_len, &md_hexdigest, &md_hex_len);
+        HexEncode(md_value, md_len, &md_hexdigest, &md_hex_len);
         outString = Encode(md_hexdigest, md_hex_len, BINARY);
-        free(md_hexdigest);
+        delete [] md_hexdigest;
       } else if (strcasecmp(*encoding, "base64") == 0) {
         base64(md_value, md_len, &md_hexdigest, &md_hex_len);
         outString = Encode(md_hexdigest, md_hex_len, BINARY);
-        free(md_hexdigest);
+        delete [] md_hexdigest;
       } else if (strcasecmp(*encoding, "binary") == 0) {
         outString = Encode(md_value, md_len, BINARY);
       } else {
-	outString = String::New("");
-	fprintf(stderr, "node-crypto : Sign .sign encoding "
-		"can be binary, hex or base64\n");
+        outString = String::New("");
+        fprintf(stderr, "node-crypto : Sign .sign encoding "
+                        "can be binary, hex or base64\n");
       }
     }
     return scope.Close(outString);
 
   }
 
-  Sign () : ObjectWrap () 
-  {
-    initialised = false;
+  Sign () : ObjectWrap () {
+    initialised_ = false;
   }
 
-  ~Sign ()
-  {
-  }
+  ~Sign () { }
 
  private:
 
   EVP_MD_CTX mdctx;
   const EVP_MD *md;
-  bool initialised;
-
+  bool initialised_;
 };
 
 class Verify : public ObjectWrap {
  public:
-  static void
-  Initialize (v8::Handle<v8::Object> target)
-  {
+  static void Initialize (v8::Handle<v8::Object> target) {
     HandleScope scope;
 
     Local<FunctionTemplate> t = FunctionTemplate::New(New);
@@ -2353,8 +2037,8 @@ class Verify : public ObjectWrap {
     target->Set(String::NewSymbol("Verify"), t->GetFunction());
   }
 
-  bool VerifyInit (const char* verifyType)
-  {
+
+  bool VerifyInit (const char* verifyType) {
     md = EVP_get_digestbyname(verifyType);
     if(!md) {
       fprintf(stderr, "node-crypto : Unknown message digest %s\n", verifyType);
@@ -2362,37 +2046,33 @@ class Verify : public ObjectWrap {
     }
     EVP_MD_CTX_init(&mdctx);
     EVP_VerifyInit_ex(&mdctx, md, NULL);
-    initialised = true;
+    initialised_ = true;
     return true;
-    
   }
 
+
   int VerifyUpdate(char* data, int len) {
-    if (!initialised)
-      return 0;
+    if (!initialised_) return 0;
     EVP_VerifyUpdate(&mdctx, data, len);
     return 1;
   }
 
+
   int VerifyFinal(char* keyPem, int keyPemLen, unsigned char* sig, int siglen) {
-    if (!initialised)
-      return 0;
+    if (!initialised_) return 0;
 
     BIO *bp = NULL;
     EVP_PKEY* pkey;
-    X509 *        x509;
+    X509 *x509;
 
-    bp = BIO_new(BIO_s_mem()); 
-    if(!BIO_write(bp, keyPem, keyPemLen))
-      return 0;
+    bp = BIO_new(BIO_s_mem());
+    if(!BIO_write(bp, keyPem, keyPemLen)) return 0;
 
     x509 = PEM_read_bio_X509(bp, NULL, NULL, NULL );
-    if (x509==NULL)
-      return 0;
+    if (x509==NULL) return 0;
 
     pkey=X509_get_pubkey(x509);
-    if (pkey==NULL)
-      return 0;
+    if (pkey==NULL) return 0;
 
     int r = EVP_VerifyFinal(&mdctx, sig, siglen, pkey);
     EVP_PKEY_free (pkey);
@@ -2403,16 +2083,14 @@ class Verify : public ObjectWrap {
     X509_free(x509);
     BIO_free(bp);
     EVP_MD_CTX_cleanup(&mdctx);
-    initialised = false;
+    initialised_ = false;
     return r;
   }
 
 
  protected:
 
-  static Handle<Value>
-  New (const Arguments& args)
-  {
+  static Handle<Value> New (const Arguments& args) {
     HandleScope scope;
 
     Verify *verify = new Verify();
@@ -2421,14 +2099,15 @@ class Verify : public ObjectWrap {
     return args.This();
   }
 
-  static Handle<Value>
-  VerifyInit(const Arguments& args) {
+
+  static Handle<Value> VerifyInit(const Arguments& args) {
     Verify *verify = ObjectWrap::Unwrap<Verify>(args.This());
 
     HandleScope scope;
 
     if (args.Length() == 0 || !args[0]->IsString()) {
-      return ThrowException(String::New("Must give verifytype string as argument"));
+      return ThrowException(Exception::Error(String::New(
+        "Must give verifytype string as argument")));
     }
 
     String::Utf8Value verifyType(args[0]->ToString());
@@ -2438,11 +2117,11 @@ class Verify : public ObjectWrap {
     return args.This();
   }
 
-  static Handle<Value>
-  VerifyUpdate(const Arguments& args) {
-    Verify *verify = ObjectWrap::Unwrap<Verify>(args.This());
 
+  static Handle<Value> VerifyUpdate(const Arguments& args) {
     HandleScope scope;
+
+    Verify *verify = ObjectWrap::Unwrap<Verify>(args.This());
 
     enum encoding enc = ParseEncoding(args[1]);
     ssize_t len = DecodeBytes(args[0], enc);
@@ -2458,14 +2137,16 @@ class Verify : public ObjectWrap {
 
     int r = verify->VerifyUpdate(buf, len);
 
+    delete [] buf;
+
     return args.This();
   }
 
-  static Handle<Value>
-  VerifyFinal(const Arguments& args) {
-    Verify *verify = ObjectWrap::Unwrap<Verify>(args.This());
 
+  static Handle<Value> VerifyFinal(const Arguments& args) {
     HandleScope scope;
+
+    Verify *verify = ObjectWrap::Unwrap<Verify>(args.This());
 
     ssize_t klen = DecodeBytes(args[0], BINARY);
 
@@ -2485,7 +2166,7 @@ class Verify : public ObjectWrap {
       Local<Value> exception = Exception::TypeError(String::New("Bad argument"));
       return ThrowException(exception);
     }
-    
+
     unsigned char* hbuf = new unsigned char[hlen];
     ssize_t hwritten = DecodeWrite((char *)hbuf, hlen, args[1], BINARY);
     assert(hwritten == hlen);
@@ -2501,39 +2182,39 @@ class Verify : public ObjectWrap {
       String::Utf8Value encoding(args[2]->ToString());
       if (strcasecmp(*encoding, "hex") == 0) {
         // Hex encoding
-        hex_decode(hbuf, hlen, (char **)&dbuf, &dlen);
+        HexDecode(hbuf, hlen, (char **)&dbuf, &dlen);
         r = verify->VerifyFinal(kbuf, klen, dbuf, dlen);
-	free(dbuf);
+        delete [] dbuf;
       } else if (strcasecmp(*encoding, "base64") == 0) {
         // Base64 encoding
         unbase64(hbuf, hlen, (char **)&dbuf, &dlen);
         r = verify->VerifyFinal(kbuf, klen, dbuf, dlen);
-	free(dbuf);
+        delete [] dbuf;
       } else if (strcasecmp(*encoding, "binary") == 0) {
         r = verify->VerifyFinal(kbuf, klen, hbuf, hlen);
       } else {
-	fprintf(stderr, "node-crypto : Verify .verify encoding "
-		"can be binary, hex or base64\n");
+        fprintf(stderr, "node-crypto : Verify .verify encoding "
+                        "can be binary, hex or base64\n");
       }
     }
+
+    delete [] kbuf;
+    delete [] hbuf;
 
     return scope.Close(Integer::New(r));
   }
 
-  Verify () : ObjectWrap () 
-  {
-    initialised = false;
+  Verify () : ObjectWrap () {
+    initialised_ = false;
   }
 
-  ~Verify ()
-  {
-  }
+  ~Verify () { }
 
  private:
 
   EVP_MD_CTX mdctx;
   const EVP_MD *md;
-  bool initialised;
+  bool initialised_;
 
 };
 
@@ -2559,12 +2240,12 @@ void InitCrypto(Handle<Object> target) {
   Sign::Initialize(target);
   Verify::Initialize(target);
 
-  subject_symbol        = NODE_PSYMBOL("subject");
-  issuer_symbol        = NODE_PSYMBOL("issuer");
-  valid_from_symbol        = NODE_PSYMBOL("valid_from");
-  valid_to_symbol        = NODE_PSYMBOL("valid_to");
-  name_symbol        = NODE_PSYMBOL("name");
-  version_symbol        = NODE_PSYMBOL("version");
+  subject_symbol    = NODE_PSYMBOL("subject");
+  issuer_symbol     = NODE_PSYMBOL("issuer");
+  valid_from_symbol = NODE_PSYMBOL("valid_from");
+  valid_to_symbol   = NODE_PSYMBOL("valid_to");
+  name_symbol       = NODE_PSYMBOL("name");
+  version_symbol    = NODE_PSYMBOL("version");
 }
 
 

@@ -7,14 +7,13 @@ from os.path import join, dirname, abspath
 from logging import fatal
 
 cwd = os.getcwd()
-VERSION="0.1.98"
+VERSION="0.1.99"
 APPNAME="node.js"
 
 import js2c
 
 srcdir = '.'
 blddir = 'build'
-
 
 
 jobs=1
@@ -278,7 +277,7 @@ def configure(conf):
     conf.env.append_value('CXXFLAGS', '-DHAVE_FDATASYNC=0')
 
   # platform
-  platform_def = '-DPLATFORM=' + sys.platform
+  platform_def = '-DPLATFORM=' + conf.env['DEST_OS']
   conf.env.append_value('CCFLAGS', platform_def)
   conf.env.append_value('CXXFLAGS', platform_def)
 
@@ -358,6 +357,7 @@ def build_v8(bld):
     bld.env_of_name('debug').append_value("LINKFLAGS_V8_G", t)
 
   bld.install_files('${PREFIX}/include/node/', 'deps/v8/include/*.h')
+
 
 def build(bld):
   ## This snippet is to show full commands as WAF executes
@@ -468,7 +468,15 @@ def build(bld):
     src/node_timer.cc
     src/node_script.cc
   """
-  if bld.env["USE_OPENSSL"]: node.source += "src/node_crypto.cc"
+
+  platform_file = "src/platform_%s.cc" % bld.env['DEST_OS']
+  if os.path.exists(join(cwd, platform_file)):
+    node.source += platform_file
+  else:
+    node.source += "src/platform_none.cc "
+
+
+  if bld.env["USE_OPENSSL"]: node.source += " src/node_crypto.cc "
 
   node.includes = """
     src/
@@ -486,9 +494,18 @@ def build(bld):
     node.add_objects += ' cares '
     node.includes += '  deps/c-ares deps/c-ares/' + bld.env['DEST_OS'] + '-' + bld.env['DEST_CPU']
 
+  if sys.platform.startswith('cygwin'):
+    bld.env.append_value('LINKFLAGS', '-Wl,--export-all-symbols')
+    bld.env.append_value('LINKFLAGS', '-Wl,--out-implib,default/libnode.dll.a')
+    bld.env.append_value('LINKFLAGS', '-Wl,--output-def,default/libnode.def')
+    bld.install_files('${PREFIX}/lib', "build/default/libnode.*")
+
   def subflags(program):
     if os.path.exists(join(cwd, ".git")):
-      actual_version=cmd_output("git describe").strip()
+      try:
+        actual_version=cmd_output("git describe").strip()
+      except:
+        actual_version=VERSION+'+'
     else:
       actual_version=VERSION
 
