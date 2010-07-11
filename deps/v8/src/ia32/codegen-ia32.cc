@@ -604,6 +604,10 @@ void CodeGenerator::ConvertInt32ResultToNumber(Result* value) {
     RegisterFile empty_regs;
     SetFrame(clone, &empty_regs);
     __ bind(&allocation_failed);
+    if (!CpuFeatures::IsSupported(SSE2)) {
+      // Pop the value from the floating point stack.
+      __ fstp(0);
+    }
     unsafe_bailout_->Jump();
 
     done.Bind(value);
@@ -2991,7 +2995,7 @@ void CodeGenerator::GenerateInlineNumberComparison(Result* left_side,
                               &not_numbers);
     LoadComparisonOperandSSE2(masm_, right_side, xmm1, left_side, right_side,
                               &not_numbers);
-    __ comisd(xmm0, xmm1);
+    __ ucomisd(xmm0, xmm1);
   } else {
     Label check_right, compare;
 
@@ -7306,7 +7310,7 @@ void CodeGenerator::GenerateMathPow(ZoneList<Expression*>* args) {
     // Since xmm3 is 1 and xmm2 is -0.5 this is simply xmm2 + xmm3.
     __ addsd(xmm2, xmm3);
     // xmm2 now has 0.5.
-    __ comisd(xmm2, xmm1);
+    __ ucomisd(xmm2, xmm1);
     call_runtime.Branch(not_equal);
     // Calculates square root.
     __ movsd(xmm1, xmm0);
@@ -8849,7 +8853,7 @@ Result CodeGenerator::EmitKeyedLoad() {
     // Use masm-> here instead of the double underscore macro since extra
     // coverage code can interfere with the patching.
     masm_->cmp(FieldOperand(receiver.reg(), HeapObject::kMapOffset),
-              Immediate(Factory::null_value()));
+               Immediate(Factory::null_value()));
     deferred->Branch(not_equal);
 
     // Check that the key is a smi.
@@ -8864,9 +8868,11 @@ Result CodeGenerator::EmitKeyedLoad() {
     // is not a dictionary.
     __ mov(elements.reg(),
            FieldOperand(receiver.reg(), JSObject::kElementsOffset));
-    __ cmp(FieldOperand(elements.reg(), HeapObject::kMapOffset),
-           Immediate(Factory::fixed_array_map()));
-    deferred->Branch(not_equal);
+    if (FLAG_debug_code) {
+      __ cmp(FieldOperand(elements.reg(), HeapObject::kMapOffset),
+             Immediate(Factory::fixed_array_map()));
+      __ Assert(equal, "JSObject with fast elements map has slow elements");
+    }
 
     // Check that the key is within bounds.
     __ cmp(key.reg(),
@@ -11592,7 +11598,7 @@ void NumberToStringStub::GenerateLookupNumberStringCache(MacroAssembler* masm,
       CpuFeatures::Scope fscope(SSE2);
       __ movdbl(xmm0, FieldOperand(object, HeapNumber::kValueOffset));
       __ movdbl(xmm1, FieldOperand(probe, HeapNumber::kValueOffset));
-      __ comisd(xmm0, xmm1);
+      __ ucomisd(xmm0, xmm1);
     } else {
       __ fld_d(FieldOperand(object, HeapNumber::kValueOffset));
       __ fld_d(FieldOperand(probe, HeapNumber::kValueOffset));
@@ -11680,16 +11686,18 @@ void CompareStub::Generate(MacroAssembler* masm) {
       __ Set(eax, Immediate(Smi::FromInt(EQUAL)));
       __ ret(0);
     } else {
-      Label return_equal;
       Label heap_number;
-      // If it's not a heap number, then return equal.
       __ cmp(FieldOperand(edx, HeapObject::kMapOffset),
              Immediate(Factory::heap_number_map()));
-      __ j(equal, &heap_number);
-      __ bind(&return_equal);
-      __ Set(eax, Immediate(Smi::FromInt(EQUAL)));
-      __ ret(0);
-
+      if (cc_ == equal) {
+        __ j(equal, &heap_number);
+        // Identical objects are equal for operators ==, !=, and ===.
+        __ Set(eax, Immediate(Smi::FromInt(EQUAL)));
+        __ ret(0);
+      } else {
+        // Identical objects must call ToPrimitive for <, <=, >, and >=.
+        __ j(not_equal, &not_identical);
+      }
       __ bind(&heap_number);
       // It is a heap number, so return non-equal if it's NaN and equal if
       // it's not NaN.
@@ -11817,7 +11825,7 @@ void CompareStub::Generate(MacroAssembler* masm) {
       CpuFeatures::Scope use_cmov(CMOV);
 
       FloatingPointHelper::LoadSSE2Operands(masm, &non_number_comparison);
-      __ comisd(xmm0, xmm1);
+      __ ucomisd(xmm0, xmm1);
 
       // Don't base result on EFLAGS when a NaN is involved.
       __ j(parity_even, &unordered, not_taken);
@@ -12848,7 +12856,7 @@ void StringAddStub::Generate(MacroAssembler* masm) {
 
   // If result is not supposed to be flat allocate a cons string object. If both
   // strings are ascii the result is an ascii cons string.
-  Label non_ascii, allocated;
+  Label non_ascii, allocated, ascii_data;
   __ mov(edi, FieldOperand(eax, HeapObject::kMapOffset));
   __ movzx_b(ecx, FieldOperand(edi, Map::kInstanceTypeOffset));
   __ mov(edi, FieldOperand(edx, HeapObject::kMapOffset));
@@ -12857,6 +12865,7 @@ void StringAddStub::Generate(MacroAssembler* masm) {
   ASSERT(kStringEncodingMask == kAsciiStringTag);
   __ test(ecx, Immediate(kAsciiStringTag));
   __ j(zero, &non_ascii);
+  __ bind(&ascii_data);
   // Allocate an acsii cons string.
   __ AllocateAsciiConsString(ecx, edi, no_reg, &string_add_runtime);
   __ bind(&allocated);
@@ -12871,6 +12880,19 @@ void StringAddStub::Generate(MacroAssembler* masm) {
   __ IncrementCounter(&Counters::string_add_native, 1);
   __ ret(2 * kPointerSize);
   __ bind(&non_ascii);
+  // At least one of the strings is two-byte. Check whether it happens
+  // to contain only ascii characters.
+  // ecx: first instance type AND second instance type.
+  // edi: second instance type.
+  __ test(ecx, Immediate(kAsciiDataHintMask));
+  __ j(not_zero, &ascii_data);
+  __ mov(ecx, FieldOperand(eax, HeapObject::kMapOffset));
+  __ movzx_b(ecx, FieldOperand(ecx, Map::kInstanceTypeOffset));
+  __ xor_(edi, Operand(ecx));
+  ASSERT(kAsciiStringTag != 0 && kAsciiDataHintTag != 0);
+  __ and_(edi, kAsciiStringTag | kAsciiDataHintTag);
+  __ cmp(edi, kAsciiStringTag | kAsciiDataHintTag);
+  __ j(equal, &ascii_data);
   // Allocate a two byte cons string.
   __ AllocateConsString(ecx, edi, no_reg, &string_add_runtime);
   __ jmp(&allocated);
@@ -13275,6 +13297,9 @@ void SubStringStub::Generate(MacroAssembler* masm) {
   __ test(edx, Immediate(kSmiTagMask));
   __ j(not_zero, &runtime);
   __ sub(ecx, Operand(edx));
+  __ cmp(ecx, FieldOperand(eax, String::kLengthOffset));
+  Label return_eax;
+  __ j(equal, &return_eax);
   // Special handling of sub-strings of length 1 and 2. One character strings
   // are handled in the runtime system (looked up in the single character
   // cache). Two character strings are looked for in the symbol cache.
@@ -13379,6 +13404,8 @@ void SubStringStub::Generate(MacroAssembler* masm) {
   // esi: character of sub string start
   StringHelper::GenerateCopyCharactersREP(masm, edi, esi, ecx, ebx, false);
   __ mov(esi, edx);  // Restore esi.
+
+  __ bind(&return_eax);
   __ IncrementCounter(&Counters::sub_string_native, 1);
   __ ret(3 * kPointerSize);
 

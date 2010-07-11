@@ -7,7 +7,7 @@ from os.path import join, dirname, abspath
 from logging import fatal
 
 cwd = os.getcwd()
-VERSION="0.1.99"
+VERSION="0.1.100"
 APPNAME="node.js"
 
 import js2c
@@ -19,6 +19,12 @@ blddir = 'build'
 jobs=1
 if os.environ.has_key('JOBS'):
   jobs = int(os.environ['JOBS'])
+else:
+  try:
+    import multiprocessing
+    jobs = multiprocessing.cpu_count()
+  except:
+    pass
 
 def set_options(opt):
   # the gcc module provides a --debug-level option

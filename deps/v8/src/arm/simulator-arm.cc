@@ -26,6 +26,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <stdlib.h>
+#include <math.h>
 #include <cstdarg>
 #include "v8.h"
 
@@ -1859,7 +1860,9 @@ void Simulator::DecodeType01(Instr* instr) {
           SetNZFlags(alu_out);
           SetCFlag(shifter_carry_out);
         } else {
-          UNIMPLEMENTED();
+          // Format(instr, "movw'cond 'rd, 'imm").
+          alu_out = instr->ImmedMovwMovtField();
+          set_register(rd, alu_out);
         }
         break;
       }
@@ -1888,7 +1891,10 @@ void Simulator::DecodeType01(Instr* instr) {
           SetCFlag(!BorrowFrom(rn_val, shifter_operand));
           SetVFlag(OverflowFrom(alu_out, rn_val, shifter_operand, false));
         } else {
-          UNIMPLEMENTED();
+          // Format(instr, "movt'cond 'rd, 'imm").
+          alu_out = (get_register(rd) & 0xffff) |
+              (instr->ImmedMovwMovtField() << 16);
+          set_register(rd, alu_out);
         }
         break;
       }
@@ -2257,7 +2263,8 @@ static int GlueRegCode(bool last_bit, int vm, int m) {
 // Dd = vmul(Dn, Dm)
 // Dd = vdiv(Dn, Dm)
 // vcmp(Dd, Dm)
-// VMRS
+// vmrs
+// Dd = vsqrt(Dm)
 void Simulator::DecodeTypeVFP(Instr* instr) {
   ASSERT((instr->TypeField() == 7) && (instr->Bit(24) == 0x0) );
   ASSERT(instr->Bits(11, 9) == 0x5);
@@ -2279,6 +2286,11 @@ void Simulator::DecodeTypeVFP(Instr* instr) {
       } else if (((instr->Opc2Field() == 0x4) || (instr->Opc2Field() == 0x5)) &&
                  (instr->Opc3Field() & 0x1)) {
         DecodeVCMP(instr);
+      } else if (((instr->Opc2Field() == 0x1)) && (instr->Opc3Field() == 0x3)) {
+        // vsqrt
+        double dm_value = get_double_from_d_register(vm);
+        double dd_value = sqrt(dm_value);
+        set_d_register_from_double(vd, dd_value);
       } else {
         UNREACHABLE();  // Not used by V8.
       }

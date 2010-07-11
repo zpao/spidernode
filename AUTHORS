@@ -10,7 +10,7 @@ Jeff Smick <sprsquish@gmail.com>
 Jon Crosby <jon@joncrosby.me>
 Felix Geisendörfer <felix@debuggable.com>
 Ray Morgan <rmorgan@zappos.com>
-Jérémy Lal <holisme@gmail.com>
+Jérémy Lal <kapouer@melix.org>
 Isaac Z. Schlueter <i@izs.me>
 Brandon Beacher <brandon.beacher@gmail.com>
 Tim Caswell <tim@creationix.com>
@@ -22,11 +22,11 @@ Rhys Jones <rhys@wave.to>
 Jan Lehnardt <jan@apache.org>
 Simon Willison <simon@simonwillison.net>
 Chew Choon Keat <choonkeat@gmail.com>
-Jed Schmidt <tr@nslator.jp>
+Jered Schmidt <tr@nslator.jp>
 Michaeljohn Clement <inimino@inimino.org>
 Karl Guertin <grayrest@gr.ayre.st>
 Xavier Shay <xavier@rhnh.net>
-Christopher Lenz <chris@lamech.local>
+Christopher Lenz <cmlenz@gmail.com>
 TJ Holowaychuk <tj@vision-media.ca>
 Johan Dahlberg <jfd@distrop.com>
 Simon Cornelius P. Umacob <simoncpu@gmail.com>
@@ -38,13 +38,13 @@ David Sklar <david.sklar@gmail.com>
 Charles Lehner <celehner1@gmail.com>
 Elliott Cable <me@ell.io>
 Benjamin Thomas <benjamin@benjaminthomas.org>
-Vanilla Hsu <v@fatpipi.com>
+San-Tai Hsu <v@fatpipi.com>
 Ben Williamson <benw@pobox.com>
 Joseph Pecoraro <joepeck02@gmail.com>
 Erich Ocean <erich.ocean@me.com>
 Alexis Sellier <self@cloudhead.net>
 Blaine Cook <romeda@gmail.com>
-Standa Opichal <opichals@gmail.com>
+Stanislav Opichal <opichals@gmail.com>
 Aaron Heckmann <aaron.heckmann@gmail.com>
 Mikeal Rogers <mikeal.rogers@gmail.com>
 Matt Brubeck <mbrubeck@limpet.net>
@@ -59,10 +59,10 @@ Arlo Breault <arlolra@gmail.com>
 Kris Kowal <kris.kowal@cixar.com>
 Jacek Becela <jacek.becela@gmail.com>
 Rob Ellis <kazoomer@gmail.com>
-Tim-Smart <timehAndGod@gmail.com>
+Tim Smart <timehAndGod@gmail.com>
 Herbert Vojčík <herby@mailbox.sk>
 Krishna Rajendran <krishna@emptybox.org>
-pyrotechnick <pyrotechnick@feistystudios.com>
+Nicholas Kinsey <pyrotechnick@feistystudios.com>
 Scott Taylor <scott@railsnewbie.com>
 Carson McDonald <carson@ioncannon.net>
 Matt Ranney <mjr@ranney.com>
@@ -71,13 +71,13 @@ Julian Lamb <thepurlieu@gmail.com>
 Brian Hammond <brian@fictorial.com>
 Mathias Pettersson <mape@mape.me>
 Trevor Blackwell <tlb@tlb.org>
-Thomas Lee <tom@tom-debian.sensis.com.au>
+Thomas Lee <thomas.lee@shinetech.com>
 Daniel Berger <code+node@dpbis.net>
 Paulo Matias <paulo.matias@usp.br>
 Peter Griess <pg@std.in>
 Jonathan Knezek <jdknezek@gmail.com>
 Jonathan Rentzsch <jwr.git@redshed.net>
-Ben Noordhuis <bnoordhuis@bender.(none)>
+Ben Noordhuis <info@bnoordhuis.nl>
 Elijah Insua <tmpvar@gmail.com>
 Andrew Johnston <apjohnsto@gmail.com>
 Brian White <mscdex@mscdex.net>
@@ -90,3 +90,7 @@ Paul Querna <pquerna@apache.org>
 Ben Lowery <ben@blowery.org>
 Peter Dekkers <soderblom.peter@gmail.com>
 David Siegel <david@artcom.de>
+Marshall Culpepper <marshall.law@gmail.com>
+Ruben Rodriguez <cha0s@therealcha0s.net>
+Dmitry Baranovskiy <Dmitry@Baranovskiy.com>
+Blake Mizerany <blake.mizerany@gmail.com>

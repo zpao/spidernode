@@ -106,9 +106,6 @@ static i::HandleScopeImplementer thread_local;
 
 
 static FatalErrorCallback exception_behavior = NULL;
-int i::Internals::kJSObjectType = JS_OBJECT_TYPE;
-int i::Internals::kFirstNonstringType = FIRST_NONSTRING_TYPE;
-int i::Internals::kProxyType = PROXY_TYPE;
 
 static void DefaultFatalErrorHandler(const char* location,
                                      const char* message) {
@@ -2609,6 +2606,8 @@ void v8::Object::SetIndexedPropertiesToPixelData(uint8_t* data, int length) {
     return;
   }
   i::Handle<i::PixelArray> pixels = i::Factory::NewPixelArray(length, data);
+  self->set_map(
+      *i::Factory::GetSlowElementsMap(i::Handle<i::Map>(self->map())));
   self->set_elements(*pixels);
 }
 
@@ -2662,6 +2661,8 @@ void v8::Object::SetIndexedPropertiesToExternalArrayData(
   }
   i::Handle<i::ExternalArray> array =
       i::Factory::NewExternalArray(length, array_type, data);
+  self->set_map(
+      *i::Factory::GetSlowElementsMap(i::Handle<i::Map>(self->map())));
   self->set_elements(*array);
 }
 
@@ -4460,6 +4461,7 @@ Handle<Value> HeapGraphEdge::GetName() const {
       reinterpret_cast<const i::HeapGraphEdge*>(this);
   switch (edge->type()) {
     case i::HeapGraphEdge::CONTEXT_VARIABLE:
+    case i::HeapGraphEdge::INTERNAL:
     case i::HeapGraphEdge::PROPERTY:
       return Handle<String>(ToApi<String>(i::Factory::LookupAsciiSymbol(
           edge->name())));

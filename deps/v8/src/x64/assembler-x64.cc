@@ -376,9 +376,19 @@ void Assembler::GetCode(CodeDesc* desc) {
 
 void Assembler::Align(int m) {
   ASSERT(IsPowerOf2(m));
-  while ((pc_offset() & (m - 1)) != 0) {
-    nop();
+  int delta = (m - (pc_offset() & (m - 1))) & (m - 1);
+  while (delta >= 9) {
+    nop(9);
+    delta -= 9;
   }
+  if (delta > 0) {
+    nop(delta);
+  }
+}
+
+
+void Assembler::CodeTargetAlign() {
+  Align(16);  // Preferred alignment of jump targets on x64.
 }
 
 
@@ -832,9 +842,7 @@ void Assembler::call(Register adr) {
   EnsureSpace ensure_space(this);
   last_pc_ = pc_;
   // Opcode: FF /2 r64.
-  if (adr.high_bit()) {
-    emit_rex_64(adr);
-  }
+  emit_optional_rex_32(adr);
   emit(0xFF);
   emit_modrm(0x2, adr);
 }
@@ -844,9 +852,9 @@ void Assembler::call(const Operand& op) {
   EnsureSpace ensure_space(this);
   last_pc_ = pc_;
   // Opcode: FF /2 m64.
-  emit_rex_64(op);
+  emit_optional_rex_32(op);
   emit(0xFF);
-  emit_operand(2, op);
+  emit_operand(0x2, op);
 }
 
 
@@ -1148,6 +1156,15 @@ void Assembler::incl(const Operand& dst) {
 }
 
 
+void Assembler::incl(Register dst) {
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  emit_optional_rex_32(dst);
+  emit(0xFF);
+  emit_modrm(0, dst);
+}
+
+
 void Assembler::int3() {
   EnsureSpace ensure_space(this);
   last_pc_ = pc_;
@@ -1256,9 +1273,7 @@ void Assembler::jmp(Register target) {
   EnsureSpace ensure_space(this);
   last_pc_ = pc_;
   // Opcode FF/4 r64.
-  if (target.high_bit()) {
-    emit_rex_64(target);
-  }
+  emit_optional_rex_32(target);
   emit(0xFF);
   emit_modrm(0x4, target);
 }
@@ -1548,7 +1563,7 @@ void Assembler::movq(Register dst, Handle<Object> value, RelocInfo::Mode mode) {
 void Assembler::movsxbq(Register dst, const Operand& src) {
   EnsureSpace ensure_space(this);
   last_pc_ = pc_;
-  emit_rex_32(dst, src);
+  emit_rex_64(dst, src);
   emit(0x0F);
   emit(0xBE);
   emit_operand(dst, src);
@@ -1586,7 +1601,7 @@ void Assembler::movsxlq(Register dst, const Operand& src) {
 void Assembler::movzxbq(Register dst, const Operand& src) {
   EnsureSpace ensure_space(this);
   last_pc_ = pc_;
-  emit_rex_64(dst, src);
+  emit_optional_rex_32(dst, src);
   emit(0x0F);
   emit(0xB6);
   emit_operand(dst, src);
@@ -1606,7 +1621,7 @@ void Assembler::movzxbl(Register dst, const Operand& src) {
 void Assembler::movzxwq(Register dst, const Operand& src) {
   EnsureSpace ensure_space(this);
   last_pc_ = pc_;
-  emit_rex_64(dst, src);
+  emit_optional_rex_32(dst, src);
   emit(0x0F);
   emit(0xB7);
   emit_operand(dst, src);
@@ -1817,9 +1832,7 @@ void Assembler::nop(int n) {
 void Assembler::pop(Register dst) {
   EnsureSpace ensure_space(this);
   last_pc_ = pc_;
-  if (dst.high_bit()) {
-    emit_rex_64(dst);
-  }
+  emit_optional_rex_32(dst);
   emit(0x58 | dst.low_bits());
 }
 
@@ -1827,7 +1840,7 @@ void Assembler::pop(Register dst) {
 void Assembler::pop(const Operand& dst) {
   EnsureSpace ensure_space(this);
   last_pc_ = pc_;
-  emit_rex_64(dst);  // Could be omitted in some cases.
+  emit_optional_rex_32(dst);
   emit(0x8F);
   emit_operand(0, dst);
 }
@@ -1843,9 +1856,7 @@ void Assembler::popfq() {
 void Assembler::push(Register src) {
   EnsureSpace ensure_space(this);
   last_pc_ = pc_;
-  if (src.high_bit()) {
-    emit_rex_64(src);
-  }
+  emit_optional_rex_32(src);
   emit(0x50 | src.low_bits());
 }
 
@@ -1853,7 +1864,7 @@ void Assembler::push(Register src) {
 void Assembler::push(const Operand& src) {
   EnsureSpace ensure_space(this);
   last_pc_ = pc_;
-  emit_rex_64(src);  // Could be omitted in some cases.
+  emit_optional_rex_32(src);
   emit(0xFF);
   emit_operand(6, src);
 }
@@ -2595,6 +2606,28 @@ void Assembler::movsd(XMMRegister dst, const Operand& src) {
 }
 
 
+void Assembler::movss(XMMRegister dst, const Operand& src) {
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  emit(0xF3);  // single
+  emit_optional_rex_32(dst, src);
+  emit(0x0F);
+  emit(0x10);  // load
+  emit_sse_operand(dst, src);
+}
+
+
+void Assembler::movss(const Operand& src, XMMRegister dst) {
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  emit(0xF3);  // single
+  emit_optional_rex_32(dst, src);
+  emit(0x0F);
+  emit(0x11);  // store
+  emit_sse_operand(dst, src);
+}
+
+
 void Assembler::cvttss2si(Register dst, const Operand& src) {
   EnsureSpace ensure_space(this);
   last_pc_ = pc_;
@@ -2650,6 +2683,17 @@ void Assembler::cvtlsi2sd(XMMRegister dst, Register src) {
 }
 
 
+void Assembler::cvtlsi2ss(XMMRegister dst, Register src) {
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  emit(0xF3);
+  emit_optional_rex_32(dst, src);
+  emit(0x0F);
+  emit(0x2A);
+  emit_sse_operand(dst, src);
+}
+
+
 void Assembler::cvtqsi2sd(XMMRegister dst, Register src) {
   EnsureSpace ensure_space(this);
   last_pc_ = pc_;
@@ -2668,6 +2712,50 @@ void Assembler::cvtss2sd(XMMRegister dst, XMMRegister src) {
   emit_optional_rex_32(dst, src);
   emit(0x0F);
   emit(0x5A);
+  emit_sse_operand(dst, src);
+}
+
+
+void Assembler::cvtss2sd(XMMRegister dst, const Operand& src) {
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  emit(0xF3);
+  emit_optional_rex_32(dst, src);
+  emit(0x0F);
+  emit(0x5A);
+  emit_sse_operand(dst, src);
+}
+
+
+void Assembler::cvtsd2ss(XMMRegister dst, XMMRegister src) {
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  emit(0xF2);
+  emit_optional_rex_32(dst, src);
+  emit(0x0F);
+  emit(0x5A);
+  emit_sse_operand(dst, src);
+}
+
+
+void Assembler::cvtsd2si(Register dst, XMMRegister src) {
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  emit(0xF2);
+  emit_optional_rex_32(dst, src);
+  emit(0x0F);
+  emit(0x2D);
+  emit_sse_operand(dst, src);
+}
+
+
+void Assembler::cvtsd2siq(Register dst, XMMRegister src) {
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  emit(0xF2);
+  emit_rex_64(dst, src);
+  emit(0x0F);
+  emit(0x2D);
   emit_sse_operand(dst, src);
 }
 
@@ -2738,17 +2826,6 @@ void Assembler::sqrtsd(XMMRegister dst, XMMRegister src) {
 }
 
 
-void Assembler::comisd(XMMRegister dst, XMMRegister src) {
-  EnsureSpace ensure_space(this);
-  last_pc_ = pc_;
-  emit(0x66);
-  emit_optional_rex_32(dst, src);
-  emit(0x0f);
-  emit(0x2f);
-  emit_sse_operand(dst, src);
-}
-
-
 void Assembler::ucomisd(XMMRegister dst, XMMRegister src) {
   EnsureSpace ensure_space(this);
   last_pc_ = pc_;
@@ -2758,6 +2835,18 @@ void Assembler::ucomisd(XMMRegister dst, XMMRegister src) {
   emit(0x2e);
   emit_sse_operand(dst, src);
 }
+
+
+void Assembler::ucomisd(XMMRegister dst, const Operand& src) {
+  EnsureSpace ensure_space(this);
+  last_pc_ = pc_;
+  emit(0x66);
+  emit_optional_rex_32(dst, src);
+  emit(0x0f);
+  emit(0x2e);
+  emit_sse_operand(dst, src);
+}
+
 
 
 void Assembler::emit_sse_operand(XMMRegister reg, const Operand& adr) {

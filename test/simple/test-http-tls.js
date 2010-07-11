@@ -14,9 +14,9 @@ try {
   have_openssl=true;
 } catch (e) {
   have_openssl=false;
-  puts("Not compiled with OPENSSL support.");
+  console.log("Not compiled with OPENSSL support.");
   process.exit();
-} 
+}
 
 var request_number = 0;
 var requests_sent = 0;
@@ -61,7 +61,7 @@ var https_server = http.createServer(function (req, res) {
   if (req.id == 3) {
     assert.equal("bar", req.headers['x-x']);
     this.close();
-    //puts("server closed");
+    //console.log("server closed");
   }
   setTimeout(function () {
     res.writeHead(200, {"Content-Type": "text/plain"});

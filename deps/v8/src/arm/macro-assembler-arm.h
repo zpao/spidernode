@@ -67,6 +67,17 @@ enum AllocationFlags {
 };
 
 
+// Flags used for the ObjectToDoubleVFPRegister function.
+enum ObjectToDoubleFlags {
+  // No special flags.
+  NO_OBJECT_TO_DOUBLE_FLAGS = 0,
+  // Object is known to be a non smi.
+  OBJECT_NOT_SMI = 1 << 0,
+  // Don't load NaNs or infinities, branch to the non number case instead.
+  AVOID_NANS_AND_INFINITIES = 1 << 1
+};
+
+
 // MacroAssembler implements a collection of frequently used macros.
 class MacroAssembler: public Assembler {
  public:
@@ -100,6 +111,7 @@ class MacroAssembler: public Assembler {
             Condition cond = al);
   void Sbfx(Register dst, Register src, int lsb, int width,
             Condition cond = al);
+  void Bfc(Register dst, int lsb, int width, Condition cond = al);
 
   void Call(Label* target);
   void Move(Register dst, Handle<Object> value);
@@ -127,13 +139,19 @@ class MacroAssembler: public Assembler {
 
   // For the page containing |object| mark the region covering [object+offset]
   // dirty. The object address must be in the first 8K of an allocated page.
-  void RecordWriteHelper(Register object, Register offset, Register scratch);
+  void RecordWriteHelper(Register object,
+                         Operand offset,
+                         Register scratch0,
+                         Register scratch1);
 
   // For the page containing |object| mark the region covering [object+offset]
   // dirty. The object address must be in the first 8K of an allocated page.
-  // The 'scratch' register is used in the implementation and all 3 registers
+  // The 'scratch' registers are used in the implementation and all 3 registers
   // are clobbered by the operation, as well as the ip register.
-  void RecordWrite(Register object, Register offset, Register scratch);
+  void RecordWrite(Register object,
+                   Operand offset,
+                   Register scratch0,
+                   Register scratch1);
 
   // Push two registers.  Pushes leftmost register first (to highest address).
   void Push(Register src1, Register src2, Condition cond = al) {
@@ -372,7 +390,15 @@ class MacroAssembler: public Assembler {
   void AllocateHeapNumber(Register result,
                           Register scratch1,
                           Register scratch2,
+                          Register heap_number_map,
                           Label* gc_required);
+  void AllocateHeapNumberWithValue(Register result,
+                                   DwVfpRegister value,
+                                   Register scratch1,
+                                   Register scratch2,
+                                   Register heap_number_map,
+                                   Label* gc_required);
+
 
   // ---------------------------------------------------------------------------
   // Support functions.
@@ -461,12 +487,35 @@ class MacroAssembler: public Assembler {
                                          Register outHighReg,
                                          Register outLowReg);
 
+  // Load the value of a number object into a VFP double register. If the object
+  // is not a number a jump to the label not_number is performed and the VFP
+  // double register is unchanged.
+  void ObjectToDoubleVFPRegister(
+      Register object,
+      DwVfpRegister value,
+      Register scratch1,
+      Register scratch2,
+      Register heap_number_map,
+      SwVfpRegister scratch3,
+      Label* not_number,
+      ObjectToDoubleFlags flags = NO_OBJECT_TO_DOUBLE_FLAGS);
+
+  // Load the value of a smi object into a VFP double register. The register
+  // scratch1 can be the same register as smi in which case smi will hold the
+  // untagged value afterwards.
+  void SmiToDoubleVFPRegister(Register smi,
+                              DwVfpRegister value,
+                              Register scratch1,
+                              SwVfpRegister scratch2);
+
   // Count leading zeros in a 32 bit word.  On ARM5 and later it uses the clz
   // instruction.  On pre-ARM5 hardware this routine gives the wrong answer
-  // for 0 (31 instead of 32).
-  void CountLeadingZeros(Register source,
-                         Register scratch,
-                         Register zeros);
+  // for 0 (31 instead of 32).  Source and scratch can be the same in which case
+  // the source is clobbered.  Source and zeros can also be the same in which
+  // case scratch should be a different register.
+  void CountLeadingZeros(Register zeros,
+                         Register source,
+                         Register scratch);
 
   // ---------------------------------------------------------------------------
   // Runtime calls
@@ -551,6 +600,7 @@ class MacroAssembler: public Assembler {
   // Calls Abort(msg) if the condition cc is not satisfied.
   // Use --debug_code to enable.
   void Assert(Condition cc, const char* msg);
+  void AssertRegisterIsRoot(Register reg, Heap::RootListIndex index);
 
   // Like Assert(), but always enabled.
   void Check(Condition cc, const char* msg);

@@ -269,6 +269,33 @@ TEST(Type0) {
   COMPARE(mvn(r6, Operand(-1), LeaveCC, ne),
           "13a06000       movne r6, #0");
 
+  // mov -> movw.
+  if (CpuFeatures::IsSupported(ARMv7)) {
+    COMPARE(mov(r5, Operand(0x01234), LeaveCC, ne),
+            "13015234       movwne r5, #4660");
+    // We only disassemble one instruction so the eor instruction is not here.
+    COMPARE(eor(r5, r4, Operand(0x1234), LeaveCC, ne),
+            "1301c234       movwne ip, #4660");
+    // Movw can't do setcc so we don't get that here.  Mov immediate with setcc
+    // is pretty strange anyway.
+    COMPARE(mov(r5, Operand(0x01234), SetCC, ne),
+            "159fc000       ldrne ip, [pc, #+0]");
+    // We only disassemble one instruction so the eor instruction is not here.
+    // The eor does the setcc so we get a movw here.
+    COMPARE(eor(r5, r4, Operand(0x1234), SetCC, ne),
+            "1301c234       movwne ip, #4660");
+
+    COMPARE(movt(r5, 0x4321, ne),
+            "13445321       movtne r5, #17185");
+    COMPARE(movw(r5, 0xabcd, eq),
+            "030a5bcd       movweq r5, #43981");
+  }
+
+  // Eor doesn't have an eor-negative variant, but we can do an mvn followed by
+  // an eor to get the same effect.
+  COMPARE(eor(r5, r4, Operand(0xffffff34), SetCC, ne),
+          "13e0c0cb       mvnne ip, #203");
+
   // and <-> bic.
   COMPARE(and_(r3, r5, Operand(0xfc03ffff)),
           "e3c537ff       bic r3, r5, #66846720");
@@ -374,3 +401,38 @@ TEST(Type3) {
   VERIFY_RUN();
 }
 
+
+
+TEST(Vfp) {
+  SETUP();
+
+  if (CpuFeatures::IsSupported(VFP3)) {
+    CpuFeatures::Scope scope(VFP3);
+    COMPARE(vadd(d0, d1, d2),
+            "ee310b02       vadd.f64 d0, d1, d2");
+    COMPARE(vadd(d3, d4, d5, mi),
+            "4e343b05       vadd.f64mi d3, d4, d5");
+
+    COMPARE(vsub(d0, d1, d2),
+            "ee310b42       vsub.f64 d0, d1, d2");
+    COMPARE(vsub(d3, d4, d5, ne),
+            "1e343b45       vsub.f64ne d3, d4, d5");
+
+    COMPARE(vmul(d2, d1, d0),
+            "ee212b00       vmul.f64 d2, d1, d0");
+    COMPARE(vmul(d6, d4, d5, cc),
+            "3e246b05       vmul.f64cc d6, d4, d5");
+
+    COMPARE(vdiv(d2, d2, d2),
+            "ee822b02       vdiv.f64 d2, d2, d2");
+    COMPARE(vdiv(d6, d7, d7, hi),
+            "8e876b07       vdiv.f64hi d6, d7, d7");
+
+    COMPARE(vsqrt(d0, d0),
+            "eeb10bc0       vsqrt.f64 d0, d0");
+    COMPARE(vsqrt(d2, d3, ne),
+            "1eb12bc3       vsqrt.f64ne d2, d3");
+  }
+
+  VERIFY_RUN();
+}

@@ -42,13 +42,12 @@
       </p>
 
       <pre>
-var sys = require('sys'),
-   http = require('http');
+var http = require('http');
 http.createServer(function (req, res) {
   res.writeHead(200, {'Content-Type': 'text/plain'});
   res.end('Hello World\n');
 }).listen(8124, "127.0.0.1");
-sys.puts('Server running at http://127.0.0.1:8124/');
+console.log('Server running at http://127.0.0.1:8124/');
 </pre>
 
       <p>
@@ -92,8 +91,8 @@ net.createServer(function (socket) {
         <a href="http://github.com/ry/node/tree/master">git repo</a>
       </p>
       <p>
-        2010.06.21
-        <a href="http://nodejs.org/dist/node-v0.1.99.tar.gz">node-v0.1.99.tar.gz</a>
+        2010.07.03
+        <a href="http://nodejs.org/dist/node-v0.1.100.tar.gz">node-v0.1.100.tar.gz</a>
       </p>
 
       <p>Historical: <a href="http://nodejs.org/dist">versions</a>, <a href="http://nodejs.org/docs">docs</a></p>
@@ -101,13 +100,12 @@ net.createServer(function (socket) {
       <h2 id="build">Build</h2>
 
       <p>
-        Node eventually wants to support all POSIX operating systems
-        (including Windows with MinGW) but at the moment it is only being
-        tested on <b>Linux</b>, <b>Macintosh</b>, and <b>Solaris</b>. The
-        build system requires Python 2.4 or better.  V8, on which Node is
-        built, supports only IA-32 and ARM processors. V8 is included in the
-        Node distribution. To use TLS, OpenSSL is required.
-        There are no other dependencies.
+        Node is tested on <b>Linux</b>, <b>Macintosh</b>, and
+        <b>Solaris</b>. It also runs on <b>Windows/Cygwin</b>,
+        <b>FreeBSD</b>, and <b>OpenBSD</b>. The build system requires Python
+        2.4 or better.  V8, on which Node is built, supports only IA-32,
+        x64, and ARM processors. V8 is included in the Node distribution.
+        To use TLS, OpenSSL is required.  There are no other dependencies.
       </p>
 
       <pre class="sh_none">
@@ -254,6 +252,20 @@ git format-patch HEAD^
 </pre>
 
       <p>
+        Be sure the your patch includes your full name and your valid email
+        address. Git can be configured to do this like so:
+<pre class="sh_none">
+git config --global user.email "ry@tinyclouds.org"
+git config --global user.name "Ryan Dahl"
+</pre>
+      </p>
+
+      <p>
+        Before your code your code can be accepted you have to sign the
+        <a href="http://nodejs.org/cla.html">contributor license agreement</a>.
+      </p>
+
+      <p>
         The best way for your patch to get noticed is to submit it to the
        <a href="http://groups.google.com/group/nodejs">mailing list</a> in form
        of a <a href="http://gist.github.com/">gists</a> or file attachement.
@@ -261,7 +273,7 @@ git format-patch HEAD^
 
       <p>
         You should ask the mailing list if a new feature is wanted before
-        working on a patch. 
+        working on a patch.
       </p>
 
     </div>

@@ -3,6 +3,8 @@
 
 #include <mach/task.h>
 #include <mach/mach_init.h>
+#include <mach-o/dyld.h> /* _NSGetExecutablePath */
+#include <limits.h> /* PATH_MAX */
 
 namespace node {
 
@@ -25,5 +27,23 @@ int OS::GetMemory(size_t *rss, size_t *vsize) {
   return 0;
 }
 
+
+int OS::GetExecutablePath(char* buffer, size_t* size) {
+  uint32_t usize = *size;
+  int result = _NSGetExecutablePath(buffer, &usize);
+  if (result) return result;
+
+  char *path = new char[2*PATH_MAX];
+
+  char *fullpath = realpath(buffer, path);
+  if (fullpath == NULL) {
+    delete [] path;
+    return -1;
+  }
+  strncpy(buffer, fullpath, *size);
+  delete [] fullpath;
+  *size = strlen(buffer);
+  return 0;
+}
 
 }  // namespace node

@@ -9,9 +9,9 @@ try {
   have_openssl=true;
 } catch (e) {
   have_openssl=false;
-  puts("Not compiled with OPENSSL support.");
+  console.log("Not compiled with OPENSSL support.");
   process.exit();
-} 
+}
 
 var caPem = fs.readFileSync(fixturesDir+"/test_ca.pem", 'ascii');
 var certPem = fs.readFileSync(fixturesDir+"/test_cert.pem", 'ascii');

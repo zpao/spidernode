@@ -101,6 +101,7 @@ class Decoder {
   void PrintSRegister(int reg);
   void PrintDRegister(int reg);
   int FormatVFPRegister(Instr* instr, const char* format);
+  void PrintMovwMovt(Instr* instr);
   int FormatVFPinstruction(Instr* instr, const char* format);
   void PrintCondition(Instr* instr);
   void PrintShiftRm(Instr* instr);
@@ -375,6 +376,16 @@ int Decoder::FormatVFPinstruction(Instr* instr, const char* format) {
 }
 
 
+// Print the movw or movt instruction.
+void Decoder::PrintMovwMovt(Instr* instr) {
+  int imm = instr->ImmedMovwMovtField();
+  int rd = instr->RdField();
+  PrintRegister(rd);
+  out_buffer_pos_ += v8i::OS::SNPrintF(out_buffer_ + out_buffer_pos_,
+                                       ", #%d", imm);
+}
+
+
 // FormatOption takes a formatting string and interprets it based on
 // the current instructions. The format string points to the first
 // character of the option string (the option escape has already been
@@ -430,7 +441,12 @@ int Decoder::FormatOption(Instr* instr, const char* format) {
       return 1;
     }
     case 'm': {
-      if (format[1] == 'e') {  // 'memop: load/store instructions
+      if (format[1] == 'w') {
+        // 'mw: movt/movw instructions.
+        PrintMovwMovt(instr);
+        return 2;
+      }
+      if (format[1] == 'e') {  // 'memop: load/store instructions.
         ASSERT(STRING_STARTS_WITH(format, "memop"));
         if (instr->HasL()) {
           Print("ldr");
@@ -776,7 +792,7 @@ void Decoder::DecodeType01(Instr* instr) {
         if (instr->HasS()) {
           Format(instr, "tst'cond 'rn, 'shift_op");
         } else {
-          Unknown(instr);  // not used by V8
+          Format(instr, "movw'cond 'mw");
         }
         break;
       }
@@ -794,7 +810,7 @@ void Decoder::DecodeType01(Instr* instr) {
         if (instr->HasS()) {
           Format(instr, "cmp'cond 'rn, 'shift_op");
         } else {
-          Unknown(instr);  // not used by V8
+          Format(instr, "movt'cond 'mw");
         }
         break;
       }
@@ -1022,7 +1038,8 @@ void Decoder::DecodeUnconditional(Instr* instr) {
 // Dd = vmul(Dn, Dm)
 // Dd = vdiv(Dn, Dm)
 // vcmp(Dd, Dm)
-// VMRS
+// vmrs
+// Dd = vsqrt(Dm)
 void Decoder::DecodeTypeVFP(Instr* instr) {
   ASSERT((instr->TypeField() == 7) && (instr->Bit(24) == 0x0) );
   ASSERT(instr->Bits(11, 9) == 0x5);
@@ -1040,6 +1057,8 @@ void Decoder::DecodeTypeVFP(Instr* instr) {
       } else if (((instr->Opc2Field() == 0x4) || (instr->Opc2Field() == 0x5)) &&
                  (instr->Opc3Field() & 0x1)) {
         DecodeVCMP(instr);
+      } else if (((instr->Opc2Field() == 0x1)) && (instr->Opc3Field() == 0x3)) {
+        Format(instr, "vsqrt.f64'cond 'Dd, 'Dm");
       } else {
         Unknown(instr);  // Not used by V8.
       }

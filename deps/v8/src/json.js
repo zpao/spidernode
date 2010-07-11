@@ -207,7 +207,7 @@ function JSONSerialize(key, holder, replacer, stack, indent, gap) {
     } else if (IS_STRING_WRAPPER(value)) {
       value = $String(value);
     } else if (IS_BOOLEAN_WRAPPER(value)) {
-      value = $Boolean(value);
+      value =  %_ValueOf(value);
     }
   }
   switch (typeof value) {
@@ -241,7 +241,7 @@ function JSONStringify(value, replacer, space) {
   }
   var gap;
   if (IS_NUMBER(space)) {
-    space = $Math.min(space, 10);
+    space = $Math.min(ToInteger(space), 10);
     gap = "";
     for (var i = 0; i < space; i++) {
       gap += " ";

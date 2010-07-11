@@ -1071,7 +1071,7 @@ static Handle<Value> Loop(const Arguments& args) {
   assert(args.Length() == 0);
 
   // TODO Probably don't need to start this each time.
-  // Avoids failing on test/mjsunit/test-eio-race3.js though
+  // Avoids failing on test/simple/test-eio-race3.js though
   ev_idle_start(EV_DEFAULT_UC_ &eio_poller);
 
   ev_loop(EV_DEFAULT_UC_ 0);
@@ -1166,7 +1166,7 @@ static Handle<Value> SetGid(const Arguments& args) {
   }
 
   int gid;
- 
+
   if (args[0]->IsNumber()) {
     gid = args[0]->Int32Value();
   } else if (args[0]->IsString()) {
@@ -1631,6 +1631,7 @@ static Handle<Value> Binding(const Arguments& args) {
       exports = binding_cache->Get(module)->ToObject();
     } else {
       exports = Object::New();
+      node::Context::Initialize(exports);
       node::Script::Initialize(exports);
       binding_cache->Set(module, exports);
     }
@@ -1653,8 +1654,6 @@ static Handle<Value> Binding(const Arguments& args) {
       exports->Set(String::New("fs"),           String::New(native_fs));
       exports->Set(String::New("http"),         String::New(native_http));
       exports->Set(String::New("crypto"),       String::New(native_crypto));
-      exports->Set(String::New("ini"),          String::New(native_ini));
-      exports->Set(String::New("mjsunit"),      String::New(native_mjsunit));
       exports->Set(String::New("net"),          String::New(native_net));
       exports->Set(String::New("posix"),        String::New(native_posix));
       exports->Set(String::New("querystring"),  String::New(native_querystring));
@@ -1687,7 +1686,7 @@ static void Load(int argc, char *argv[]) {
   process = Persistent<Object>::New(process_template->GetFunction()->NewInstance());
 
   // Add a reference to the global object
-  Local<Object> global = Context::GetCurrent()->Global();
+  Local<Object> global = v8::Context::GetCurrent()->Global();
   process->Set(String::NewSymbol("global"), global);
 
   // process.version
@@ -1731,6 +1730,16 @@ static void Load(int argc, char *argv[]) {
   process->Set(String::NewSymbol("env"), env);
 
   process->Set(String::NewSymbol("pid"), Integer::New(getpid()));
+
+  size_t size = 2*PATH_MAX;
+  char execPath[size];
+  if (OS::GetExecutablePath(execPath, &size) != 0) {
+    // as a last ditch effort, fallback on argv[0] ?
+    process->Set(String::NewSymbol("execPath"), String::New(argv[0]));
+  } else {
+    process->Set(String::NewSymbol("execPath"), String::New(execPath));
+  }
+
 
   // define various internal methods
   NODE_SET_METHOD(process, "loop", Loop);
@@ -1910,7 +1919,7 @@ int main(int argc, char *argv[]) {
 #ifdef __sun
   // TODO(Ryan) I'm experiencing abnormally high load using Solaris's
   // EVBACKEND_PORT. Temporarally forcing select() until I debug.
-  ev_default_loop(EVBACKEND_SELECT);
+  ev_default_loop(EVBACKEND_POLL);
 #else
   ev_default_loop(EVFLAG_AUTO);
 #endif
@@ -1943,7 +1952,7 @@ int main(int argc, char *argv[]) {
 
     eio_init(node::EIOWantPoll, node::EIODonePoll);
     // Don't handle more than 10 reqs on each eio_poll(). This is to avoid
-    // race conditions. See test/mjsunit/test-eio-race.js
+    // race conditions. See test/simple/test-eio-race.js
     eio_set_max_poll_reqs(10);
   }
 
@@ -1979,8 +1988,8 @@ int main(int argc, char *argv[]) {
   }
 
   // Create the one and only Context.
-  Persistent<Context> context = Context::New();
-  Context::Scope context_scope(context);
+  Persistent<v8::Context> context = v8::Context::New();
+  v8::Context::Scope context_scope(context);
 
   atexit(node::AtExit);
 

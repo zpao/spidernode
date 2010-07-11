@@ -11,7 +11,7 @@ debug("load fixtures/b/c.js");
 var string = "C";
 
 exports.SomeClass = function() {
- 
+
 };
 
 exports.C = function () {
@@ -24,5 +24,5 @@ exports.D = function () {
 
 process.addListener("exit", function () {
   string = "C done";
-  puts("b/c.js exit");
+  console.log("b/c.js exit");
 });

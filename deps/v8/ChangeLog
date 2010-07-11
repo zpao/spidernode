@@ -1,3 +1,46 @@
+2010-06-30: Version 2.2.21
+
+        Fix bug in externalizing some ASCII strings (Chromium issue 47824).
+
+        Update JSON.stringify to floor the space parameter (issue 753).
+
+        Update the Mozilla test expectations to the newest version.
+
+        Update the ES5 Conformance Test expectations to the latest version.
+
+        Update the V8 benchmark suite.
+
+        Provide actual breakpoints locations in response to setBreakpoint
+        and listBreakpoints requests.
+
+2010-06-28: Version 2.2.20
+        Fix bug with for-in on x64 platform (issue 748).
+
+        Fix crash bug on x64 platform (issue 756).
+        
+        Fix bug in Object.getOwnPropertyNames. (chromium issue 41243).
+
+        Fix a bug on ARM  that caused the result of 1 << x to be 
+        miscalculated for some inputs.
+
+        Performance improvements on all platforms.
+
+2010-06-23: Version 2.2.19
+
+        Fix bug that causes the build to break when profillingsupport=off
+        (issue 738).
+
+        Added expose-externalize-string flag for testing extensions.
+
+        Resolve linker issues with using V8 as a DLL causing a number of
+        problems with unresolved symbols.
+
+        Fix build failure for cctests when ENABLE_DEBUGGER_SUPPORT is not
+        defined.
+
+        Performance improvements on all platforms.
+
+
 2010-06-16: Version 2.2.18
 
         Added API functions to retrieve information on indexed properties

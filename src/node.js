@@ -29,10 +29,12 @@ process.assert = function (x, msg) {
   if (!x) throw new Error(msg || "assertion error");
 };
 
+var writeError = process.binding('stdio').writeError;
+
 var evalcxMsg;
 process.evalcx = function () {
   if (!evalcxMsg) {
-    process.binding('stdio').writeError(evalcxMsg =
+    writeError(evalcxMsg =
       "process.evalcx is deprecated. Use Script.runInNewContext instead.\n");
   }
   return process.binding('evals').Script
@@ -189,6 +191,38 @@ process.openStdin = function () {
 };
 
 
+// console object
+
+function format (f) {
+  var i = 1;
+  var args = arguments;
+  if (!(f instanceof String)) f = String(f);
+  return f.replace(/%([sdf])/g, function (x) {
+    switch (x) {
+      case '%s': return args[i++];
+      case '%d': return args[i++].toString();
+      case '%f': return JSON.stringify(args[i++]);
+      default:
+        return x;
+    }
+  });
+}
+
+global.console = {};
+
+global.console.log = function () {
+  process.stdout.write(format.apply(this, arguments) + '\n');
+};
+
+global.console.info = global.console.log;
+
+global.console.warn = function () {
+  writeError(format.apply(this, arguments) + '\n');
+};
+
+global.console.error = global.console.warn;
+
+
 process.exit = function (code) {
   process.emit("exit");
   process.reallyExit(code);
@@ -211,7 +245,7 @@ if (process.argv[1]) {
 } else {
   // No arguments, run the repl
   var repl = module.requireNative('repl');
-  process.stdout.write("Type '.help' for options.\n");
+  console.log("Type '.help' for options.");
   repl.start();
 }
 
