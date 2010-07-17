@@ -305,6 +305,11 @@ Handle<Value> Buffer::Copy(const Arguments &args) {
             "sourceEnd < sourceStart")));
   }
 
+  // Copy 0 bytes; we're done
+  if (source_end == source_start) {
+    return scope.Close(Integer::New(0));
+  }
+
   if (target_start < 0 || target_start >= target->length()) {
     return ThrowException(Exception::Error(String::New(
             "targetStart out of bounds")));
@@ -352,7 +357,7 @@ Handle<Value> Buffer::Utf8Write(const Arguments &args) {
 
   size_t offset = args[1]->Int32Value();
 
-  if (offset >= buffer->length_) {
+  if (s->Utf8Length() > 0 && offset >= buffer->length_) {
     return ThrowException(Exception::TypeError(String::New(
             "Offset is out of bounds")));
   }
@@ -390,7 +395,7 @@ Handle<Value> Buffer::AsciiWrite(const Arguments &args) {
 
   size_t offset = args[1]->Int32Value();
 
-  if (offset >= buffer->length_) {
+  if (s->Length() > 0 && offset >= buffer->length_) {
     return ThrowException(Exception::TypeError(String::New(
             "Offset is out of bounds")));
   }
@@ -418,7 +423,7 @@ Handle<Value> Buffer::BinaryWrite(const Arguments &args) {
 
   size_t offset = args[1]->Int32Value();
 
-  if (offset >= buffer->length_) {
+  if (s->Length() > 0 && offset >= buffer->length_) {
     return ThrowException(Exception::TypeError(String::New(
             "Offset is out of bounds")));
   }
@@ -549,3 +554,5 @@ void Buffer::Initialize(Handle<Object> target) {
 
 
 }  // namespace node
+
+NODE_MODULE(node_buffer, node::Buffer::Initialize);

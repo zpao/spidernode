@@ -72,7 +72,7 @@ Allocates a new buffer of `size` octets.
 
 Allocates a new buffer using an `array` of octets.
 
-### new Buffer(str, encoding = 'utf8')
+### new Buffer(str, encoding='utf8')
 
 Allocates a new buffer containing the given `str`.
 
@@ -93,7 +93,7 @@ Example: write a utf8 string into a buffer, then print it
     // 12 bytes: ½ + ¼ = ¾
     
 
-### buffer.toString(encoding, start, end)
+### buffer.toString(encoding, start=0, end=buffer.length)
 
 Decodes and returns a string from buffer data encoded with `encoding`
 beginning at `start` and ending at `end`.
@@ -122,7 +122,7 @@ Example: copy an ASCII string into a buffer, one byte at a time:
     // node.js
 
 
-### Buffer.byteLength(string, encoding)
+### Buffer.byteLength(string, encoding='utf8')
 
 Gives the actual byte length of a string.  This is not the same as 
 `String.prototype.length` since that returns the number of *characters* in a
@@ -155,7 +155,7 @@ buffer object.  It does not change when the contents of the buffer are changed.
     // 1234
     // 1234
 
-### buffer.copy(targetBuffer, targetStart, sourceStart, sourceEnd)
+### buffer.copy(targetBuffer, targetStart, sourceStart, sourceEnd=buffer.length)
 
 Does a memcpy() between buffers.
 
@@ -231,7 +231,7 @@ they will print a stack trace and exit the program.
 
 `function (event, listener) { }`
 
-This event is made any time someone adds a new listener.
+This event is emitted any time someone adds a new listener.
 
 ### Event: 'error'
 
@@ -241,11 +241,11 @@ If an error was encountered, then this event is emitted. This event is
 special - when there are no listeners to receive the error Node will
 terminate execution and display the exception's stack trace.
 
-### emitter.addListener(event, listener)
+### emitter.on(event, listener)
 
 Adds a listener to the end of the listeners array for the specified event.
 
-    server.addListener('stream', function (stream) {
+    server.on('stream', function (stream) {
       console.log('someone connected!');
     });
 
@@ -254,6 +254,13 @@ Adds a listener to the end of the listeners array for the specified event.
 
 Remove a listener from the listener array for the specified event.
 **Caution**: changes array indices in the listener array behind the listener.
+
+    var callback = function(stream) {
+	  console.log('someone connected!');
+	};
+    server.on('stream', callback);
+	// ...
+	server.removeListener('stream', callback);
 
 
 ### emitter.removeAllListeners(event)
@@ -266,8 +273,14 @@ Removes all listeners from the listener array for the specified event.
 Returns an array of listeners for the specified event. This array can be
 manipulated, e.g. to remove listeners.
 
+    server.on('stream', function (stream) {
+      console.log('someone connected!');
+    });
+	console.log(sys.inspect(server.listeners('stream'));
+	// [ [Function] ]
 
-### emitter.emit(event, arg1, arg2, ...)
+
+### emitter.emit(event, [arg1], [arg2], [...])
 
 Execute each of the listeners in order with the supplied arguments.
 
@@ -319,6 +332,11 @@ will emit this.  (For example, an incoming HTTP request will not emit
 Emitted when a file descriptor is received on the stream. Only UNIX streams
 support this functionality; all others will simply never emit this event.
 
+### stream.readable
+
+A boolean that is `true` by default, but turns `false` after an `'error'`
+occured, the stream came to an `'end'`, or `destroy()` was called.
+
 ### stream.setEncoding(encoding)
 Makes the data event emit a string instead of a `Buffer`. `encoding` can be
 `'utf8'`, `'ascii'`, or `'binary'`.
@@ -360,7 +378,12 @@ Emitted on error with the exception `exception`.
 
 Emitted when the underlying file descriptor has been closed.
 
-### stream.write(string, encoding, [fd])
+### stream.writeable
+
+A boolean that is `true` by default, but turns `false` after an `'error'`
+occurred or `end()` / `destroy()` was called.
+
+### stream.write(string, encoding='utf8', [fd])
 
 Writes `string` with the given `encoding` to the stream.  Returns `true` if
 the string has been flushed to the kernel buffer.  Returns `false` to
@@ -406,8 +429,7 @@ The global namespace object.
 
 ### process
 
-The process object. Most stuff lives in here. See the `'process object'`
-section.
+The process object. See the `'process object'` section.
 
 ### require()
 
@@ -429,15 +451,18 @@ Example: add a new path to the beginning of the search list
 The filename of the script being executed.  This is the absolute path, and not necessarily
 the same filename passed in as a command line argument.
 
+Example: running `node example.js` from `/Users/mjr`
+
+    console.log(__filename);
+    // /Users/mjr/example.js
+
 ### __dirname
 
 The dirname of the script being executed.
 
 Example: running `node example.js` from `/Users/mjr`
 
-    console.log(__filename);
     console.log(__dirname);
-    // /Users/mjr/example.js
     // /Users/mjr
 
 
@@ -465,7 +490,7 @@ timers may not be scheduled.
 
 Example of listening for `exit`:
 
-    process.addListener('exit', function () {
+    process.on('exit', function () {
       process.nextTick(function () {
        console.log('This will not run');
       });
@@ -482,7 +507,7 @@ a stack trace and exit) will not occur.
 
 Example of listening for `uncaughtException`:
 
-    process.addListener('uncaughtException', function (err) {
+    process.on('uncaughtException', function (err) {
       console.log('Caught exception: ' + err);
     });
 
@@ -511,7 +536,7 @@ Example of listening for `SIGINT`:
 
     var stdin = process.openStdin();
 
-    process.addListener('SIGINT', function () {
+    process.on('SIGINT', function () {
       console.log('Got SIGINT.  Press Control-D to exit.');
     });
 
@@ -532,7 +557,7 @@ Example: the definition of `console.log`
 
 ### process.openStdin()
 
-Opens the standard input stream, returns a readable stream.
+Opens the standard input stream, returns a `Readable Stream`.
 
 Example of opening standard input and listening for both events:
 
@@ -540,11 +565,11 @@ Example of opening standard input and listening for both events:
 
     stdin.setEncoding('utf8');
 
-    stdin.addListener('data', function (chunk) {
+    stdin.on('data', function (chunk) {
       process.stdout.write('data: ' + chunk);
     });
 
-    stdin.addListener('end', function () {
+    stdin.on('end', function () {
       process.stdout.write('end');
     });
 
@@ -573,6 +598,10 @@ This will generate:
 ### process.execPath
 
 This is the absolute pathname of the executable that started the process.
+
+Example:
+
+    /usr/local/bin/node
 
 
 ### process.chdir(directory)
@@ -628,7 +657,7 @@ Returns the current working directory of the process.
 An object containing the user environment. See environ(7).
 
 
-### process.exit(code)
+### process.exit(code=0)
 
 Ends the process with the specified `code`.  If omitted, exit uses the 
 'success' code `0`.
@@ -640,9 +669,16 @@ To exit with a 'failure' code:
 The shell that executed node should see the exit code as 1.
 
 
-### process.getgid(), process.setgid(id)
+### process.getgid()
 
-Gets/sets the group identity of the process. (See setgid(2).)  This is the numerical group id, not the group name.
+Gets the group identity of the process. (See getgid(2).)  This is the numerical group id, not the group name.
+
+    console.log('Current gid: ' + process.getgid());
+
+
+### process.setgid(id)
+
+Sets the group identity of the process. (See setgid(2).)  This is the numerical group id, not the group name.
 
     console.log('Current gid: ' + process.getgid());
     try {
@@ -654,9 +690,16 @@ Gets/sets the group identity of the process. (See setgid(2).)  This is the numer
     }
 
 
-### process.getuid(), process.setuid(id)
+### process.getuid()
 
-Gets/sets the user identity of the process. (See setuid(2).)  This is the numerical userid, not the username.
+Gets the user identity of the process. (See getuid(2).)  This is the numerical userid, not the username.
+
+    console.log('Current uid: ' + process.getuid());
+
+
+### process.setuid(id)
+
+Sets the user identity of the process. (See setuid(2).)  This is the numerical userid, not the username.
 
     console.log('Current uid: ' + process.getuid());
     try {
@@ -681,7 +724,7 @@ A compiled-in property that exposes `NODE_PREFIX`.
     console.log('Prefix: ' + process.installPrefix);
 
 
-### process.kill(pid, signal)
+### process.kill(pid, signal='SIGINT')
 
 Send a signal to a process. `pid` is the process id and `signal` is the
 string describing the signal to send.  Signal names are strings like
@@ -694,7 +737,7 @@ may do something other than kill the target process.
 
 Example of sending a signal to yourself:
 
-    process.addListener('SIGHUP', function () {
+    process.on('SIGHUP', function () {
       console.log('Got SIGHUP signal.');
     });
 
@@ -750,9 +793,9 @@ efficient.
     });
 
 
-### process.umask(mask)
+### process.umask([mask])
 
-Sets or read the process's file mode creation mask. Child processes inherit
+Sets or reads the process's file mode creation mask. Child processes inherit
 the mask from the parent process. Returns the old mask if `mask` argument is
 given, otherwise returns the current mask.
 
@@ -792,7 +835,7 @@ Output with timestamp on `stdout`.
     require('sys').log('Timestmaped message.');
 
 
-### sys.inspect(object, showHidden, depth)
+### sys.inspect(object, showHidden=false, depth=2)
 
 Return a string representation of `object`, which is useful for debugging.
 
@@ -824,21 +867,21 @@ called when `writableStream` is closed.
 
 ## Timers
 
-### setTimeout(callback, delay, [arg, ...])
+### setTimeout(callback, delay, [arg], [...])
 
 To schedule execution of `callback` after `delay` milliseconds. Returns a
-`timeoutId` for possible use with `clearTimeout()`.
+`timeoutId` for possible use with `clearTimeout()`. Optionally, you can
+also pass arguments to the callback.
 
 ### clearTimeout(timeoutId)
 
 Prevents a timeout from triggering.
 
-### setInterval(callback, delay, [arg, ...])
+### setInterval(callback, delay, [arg], [...])
 
 To schedule the repeated execution of `callback` every `delay` milliseconds.
-Returns a `intervalId` for possible use with `clearInterval()`.
-
-Optionally, you can also pass arguments to the callback.
+Returns a `intervalId` for possible use with `clearInterval()`. Optionally,
+you can also pass arguments to the callback.
 
 ### clearInterval(intervalId)
 
@@ -874,66 +917,18 @@ longer be made.
 
 See `waitpid(2)`.
 
-### child_process.spawn(command, args, env)
+### child.stdin
 
-Launches a new process with the given `command`, command line arguments, and
-environment variables.  If omitted, `args` defaults to an empty Array, and `env`
-defaults to `process.env`.
+A `writable stream` that represents the child process's `stdin`.
+Closing this stream via `end()` often causes the child process to terminate.
 
-Example of running `ls -lh /usr`, capturing `stdout`, `stderr`, and the exit code:
+### child.stdout
 
-    var sys   = require('sys'),
-        spawn = require('child_process').spawn,
-        ls    = spawn('ls', ['-lh', '/usr']);
+A `Readable Stream` that represents the child process's `stdout`.
 
-    ls.stdout.addListener('data', function (data) {
-      sys.print('stdout: ' + data);
-    });
+### child.stderr
 
-    ls.stderr.addListener('data', function (data) {
-      sys.print('stderr: ' + data);
-    });
-
-    ls.addListener('exit', function (code) {
-      console.log('child process exited with code ' + code);
-    });
-
-
-Example of checking for failed exec:
-
-    var spawn = require('child_process').spawn,
-        child = spawn('bad_command');
-
-    child.stderr.addListener('data', function (data) {
-      if (/^execvp\(\)/.test(data.asciiSlice(0,data.length))) {
-        console.log('Failed to start child process.');
-      }
-    });
-
-
-See also: `child_process.exec()`
-
-
-### child.kill(signal)
-
-Send a signal to the child process. If no argument is given, the process will
-be sent `'SIGTERM'`. See `signal(7)` for a list of available signals.
-
-    var spawn = require('child_process').spawn,
-        grep  = spawn('grep', ['ssh']);
-
-    grep.addListener('exit', function (code, signal) {
-      console.log('child process terminated due to receipt of signal '+signal);
-    });
-
-    // send SIGHUP to process
-    grep.kill('SIGHUP');
-
-Note that while the function is called `kill`, the signal delivered to the child
-process may not actually kill it.  `kill` really just sends a signal to a process.
-
-See `kill(2)`
-
+A `Readable Stream` that represents the child process's `stderr`.
 
 ### child.pid
 
@@ -948,11 +943,30 @@ Example:
     grep.stdin.end();
 
 
-### child.stdin.write(data, encoding)
+### child_process.spawn(command, args=[], env=process.env)
 
-Write data to the child process's `stdin`. The second argument is optional and
-specifies the encoding: possible values are `'utf8'`, `'ascii'`, and
-`'binary'`.
+Launches a new process with the given `command`, command line arguments, and
+environment variables.  If omitted, `args` defaults to an empty Array, and `env`
+defaults to `process.env`.
+
+Example of running `ls -lh /usr`, capturing `stdout`, `stderr`, and the exit code:
+
+    var sys   = require('sys'),
+        spawn = require('child_process').spawn,
+        ls    = spawn('ls', ['-lh', '/usr']);
+
+    ls.stdout.on('data', function (data) {
+      sys.print('stdout: ' + data);
+    });
+
+    ls.stderr.on('data', function (data) {
+      sys.print('stderr: ' + data);
+    });
+
+    ls.on('exit', function (code) {
+      console.log('child process exited with code ' + code);
+    });
+
 
 Example: A very elaborate way to run 'ps ax | grep ssh'
 
@@ -961,53 +975,51 @@ Example: A very elaborate way to run 'ps ax | grep ssh'
         ps    = spawn('ps', ['ax']),
         grep  = spawn('grep', ['ssh']);
 
-    ps.stdout.addListener('data', function (data) {
+    ps.stdout.on('data', function (data) {
       grep.stdin.write(data);
     });
 
-    ps.stderr.addListener('data', function (data) {
+    ps.stderr.on('data', function (data) {
       sys.print('ps stderr: ' + data);
     });
 
-    ps.addListener('exit', function (code) {
+    ps.on('exit', function (code) {
       if (code !== 0) {
         console.log('ps process exited with code ' + code);
       }
       grep.stdin.end();
     });
 
-    grep.stdout.addListener('data', function (data) {
+    grep.stdout.on('data', function (data) {
       sys.print(data);
     });
 
-    grep.stderr.addListener('data', function (data) {
+    grep.stderr.on('data', function (data) {
       sys.print('grep stderr: ' + data);
     });
 
-    grep.addListener('exit', function (code) {
+    grep.on('exit', function (code) {
       if (code !== 0) {
         console.log('grep process exited with code ' + code);
       }
     });
 
 
-### child.stdin.end()
-
-Closes the child process's `stdin` stream.  This often causes the child process to terminate.
-
-Example:
+Example of checking for failed exec:
 
     var spawn = require('child_process').spawn,
-        grep  = spawn('grep', ['ssh']);
+        child = spawn('bad_command');
 
-    grep.addListener('exit', function (code) {
-      console.log('child process exited with code ' + code);
+    child.stderr.on('data', function (data) {
+      if (/^execvp\(\)/.test(data.asciiSlice(0,data.length))) {
+        console.log('Failed to start child process.');
+      }
     });
 
-    grep.stdin.end();
 
+See also: `child_process.exec()`
 
-### child_process.exec(command, [options, ] callback)
+### child_process.exec(command, [options], callback)
 
 High-level way to execute a command as a child process, buffer the
 output, and return it all in a callback.
@@ -1023,7 +1035,7 @@ output, and return it all in a callback.
         if (error !== null) {
           console.log('exec error: ' + error);
         }
-      });
+    });
 
 The callback gets the arguments `(error, stdout, stderr)`. On success, `error`
 will be `null`.  On error, `error` will be an instance of `Error` and `err.code`
@@ -1045,6 +1057,27 @@ amount of data allowed on stdout or stderr - if this value is exceeded then
 the child process is killed.
 
 
+### child.kill(signal='SIGTERM')
+
+Send a signal to the child process. If no argument is given, the process will
+be sent `'SIGTERM'`. See `signal(7)` for a list of available signals.
+
+    var spawn = require('child_process').spawn,
+        grep  = spawn('grep', ['ssh']);
+
+    grep.on('exit', function (code, signal) {
+      console.log('child process terminated due to receipt of signal '+signal);
+    });
+
+    // send SIGHUP to process
+    grep.kill('SIGHUP');
+
+Note that while the function is called `kill`, the signal delivered to the child
+process may not actually kill it.  `kill` really just sends a signal to a process.
+
+See `kill(2)`
+
+
 
 ## Script
 
@@ -1055,7 +1088,7 @@ the child process is killed.
 New JavaScript code can be compiled and run immediately or compiled, saved, and run later.
 
 
-### Script.runInThisContext(code, filename)
+### Script.runInThisContext(code, [filename])
 
 Similar to `process.compile`.  `Script.runInThisContext` compiles `code` as if it were loaded from `filename`,
 runs it and returns the result. Running code does not have access to local scope. `filename` is optional.
@@ -1084,7 +1117,7 @@ In case of syntax error in `code`, `Script.runInThisContext` emits the syntax er
 and throws.an exception.
 
 
-### Script.runInNewContext(code, sandbox, filename)
+### Script.runInNewContext(code, [sandbox], [filename])
 
 `Script.runInNewContext` compiles `code` to run in `sandbox` as if it were loaded from `filename`,
 then runs it and returns the result. Running code does not have access to local scope and
@@ -1115,7 +1148,7 @@ In case of syntax error in `code`, `Script.runInThisContext` emits the syntax er
 and throws an exception.
 
 
-### new Script(code, filename)
+### new Script(code, [filename])
 
 `new Script` compiles `code` as if it were loaded from `filename`,
 but does not run it. Instead, it returns a `Script` object representing this compiled code.
@@ -1152,7 +1185,7 @@ Example of using `script.runInThisContext` to compile code once and run it multi
     // 1000
 
 
-### script.runInNewContext(sandbox)
+### script.runInNewContext([sandbox])
 
 Similar to `Script.runInNewContext` (note capital 'S'), but now being a method of a precompiled Script object.
 `script.runInNewContext` runs the code of `script` with `sandbox` as the global object and returns the result.
@@ -1239,7 +1272,7 @@ In busy processes, the programmer is _strongly encouraged_ to use the
 asynchronous versions of these calls. The synchronous versions will block
 the entire process until they complete--halting all connections.
 
-### fs.rename(path1, path2, callback)
+### fs.rename(path1, path2, [callback])
 
 Asynchronous rename(2). No arguments other than a possible exception are given to the completion callback.
 
@@ -1247,7 +1280,7 @@ Asynchronous rename(2). No arguments other than a possible exception are given t
 
 Synchronous rename(2).
 
-### fs.truncate(fd, len, callback)
+### fs.truncate(fd, len, [callback])
 
 Asynchronous ftruncate(2). No arguments other than a possible exception are given to the completion callback.
 
@@ -1255,7 +1288,7 @@ Asynchronous ftruncate(2). No arguments other than a possible exception are give
 
 Synchronous ftruncate(2).
 
-### fs.chmod(path, mode, callback)
+### fs.chmod(path, mode, [callback])
 
 Asynchronous chmod(2). No arguments other than a possible exception are given to the completion callback.
 
@@ -1263,9 +1296,9 @@ Asynchronous chmod(2). No arguments other than a possible exception are given to
 
 Synchronous chmod(2).
   
-### fs.stat(path, callback), fs.lstat(path, callback), fs.fstat(fd, callback)
+### fs.stat(path, [callback])
 
-Asynchronous stat(2), lstat(2) or fstat(2). The callback gets two arguments `(err, stats)` where `stats` is a `fs.Stats` object. It looks like this:
+Asynchronous stat(2). The callback gets two arguments `(err, stats)` where `stats` is a `fs.Stats` object. It looks like this:
 
     { dev: 2049
     , ino: 305352
@@ -1284,11 +1317,27 @@ Asynchronous stat(2), lstat(2) or fstat(2). The callback gets two arguments `(er
 
 See the `fs.Stats` section below for more information.
 
-### fs.statSync(path), fs.lstatSync(path), fs.fstatSync(fd)
+### fs.lstat(path, [callback])
 
-Synchronous stat(2), lstat(2) or fstat(2). Returns an instance of `fs.Stats`.
+Asynchronous lstat(2). The callback gets two arguments `(err, stats)` where `stats` is a `fs.Stats` object.
 
-### fs.link(srcpath, dstpath, callback)
+### fs.fstat(fd, [callback])
+
+Asynchronous fstat(2). The callback gets two arguments `(err, stats)` where `stats` is a `fs.Stats` object.
+
+### fs.statSync(path)
+
+Synchronous stat(2). Returns an instance of `fs.Stats`.
+
+### fs.lstatSync(path)
+
+Synchronous lstat(2). Returns an instance of `fs.Stats`.
+
+### fs.fstatSync(fd)
+
+Synchronous fstat(2). Returns an instance of `fs.Stats`.
+
+### fs.link(srcpath, dstpath, [callback])
 
 Asynchronous link(2). No arguments other than a possible exception are given to the completion callback.
 
@@ -1296,7 +1345,7 @@ Asynchronous link(2). No arguments other than a possible exception are given to 
 
 Synchronous link(2).
 
-### fs.symlink(linkdata, path, callback)
+### fs.symlink(linkdata, path, [callback])
 
 Asynchronous symlink(2). No arguments other than a possible exception are given to the completion callback.
 
@@ -1304,7 +1353,7 @@ Asynchronous symlink(2). No arguments other than a possible exception are given 
 
 Synchronous symlink(2).
 
-### fs.readlink(path, callback)
+### fs.readlink(path, [callback])
 
 Asynchronous readlink(2). The callback gets two arguments `(err, resolvedPath)`. 
 
@@ -1312,7 +1361,7 @@ Asynchronous readlink(2). The callback gets two arguments `(err, resolvedPath)`.
 
 Synchronous readlink(2). Returns the resolved path.
 
-### fs.realpath(path, callback)
+### fs.realpath(path, [callback])
 
 Asynchronous realpath(2).  The callback gets two arguments `(err, resolvedPath)`.
 
@@ -1320,7 +1369,7 @@ Asynchronous realpath(2).  The callback gets two arguments `(err, resolvedPath)`
 
 Synchronous realpath(2). Returns the resolved path.
 
-### fs.unlink(path, callback)
+### fs.unlink(path, [callback])
 
 Asynchronous unlink(2). No arguments other than a possible exception are given to the completion callback.
 
@@ -1328,7 +1377,7 @@ Asynchronous unlink(2). No arguments other than a possible exception are given t
 
 Synchronous unlink(2).
 
-### fs.rmdir(path, callback)
+### fs.rmdir(path, [callback])
 
 Asynchronous rmdir(2). No arguments other than a possible exception are given to the completion callback.
 
@@ -1336,7 +1385,7 @@ Asynchronous rmdir(2). No arguments other than a possible exception are given to
 
 Synchronous rmdir(2).
 
-### fs.mkdir(path, mode, callback)
+### fs.mkdir(path, mode, [callback])
 
 Asynchronous mkdir(2). No arguments other than a possible exception are given to the completion callback.
 
@@ -1344,7 +1393,7 @@ Asynchronous mkdir(2). No arguments other than a possible exception are given to
 
 Synchronous mkdir(2).
 
-### fs.readdir(path, callback)
+### fs.readdir(path, [callback])
 
 Asynchronous readdir(3).  Reads the contents of a directory.
 The callback gets two arguments `(err, files)` where `files` is an array of
@@ -1355,7 +1404,7 @@ the names of the files in the directory excluding `'.'` and `'..'`.
 Synchronous readdir(3). Returns an array of filenames excluding `'.'` and
 `'..'`.
 
-### fs.close(fd, callback)
+### fs.close(fd, [callback])
 
 Asynchronous close(2).  No arguments other than a possible exception are given to the completion callback.
 
@@ -1363,16 +1412,16 @@ Asynchronous close(2).  No arguments other than a possible exception are given t
 
 Synchronous close(2).
 
-### fs.open(path, flags, mode, callback)
+### fs.open(path, flags, mode=0666, [callback])
 
 Asynchronous file open. See open(2). Flags can be 'r', 'r+', 'w', 'w+', 'a',
 or 'a+'. The callback gets two arguments `(err, fd)`. 
 
-### fs.openSync(path, flags, mode)
+### fs.openSync(path, flags, mode=0666)
 
 Synchronous open(2). 
 
-### fs.write(fd, buffer, offset, length, position, callback)
+### fs.write(fd, buffer, offset, length, position, [callback])
 
 Write `buffer` to the file specified by `fd`.
 
@@ -1386,11 +1435,28 @@ See pwrite(2).
 The callback will be given two arguments `(err, written)` where `written`
 specifies how many _bytes_ were written.
 
-### fs.writeSync(fd, data, position, encoding)
+### fs.write(fd, str, position, encoding='utf8', [callback])
 
-Synchronous version of `fs.write()`. Returns the number of bytes written.
+Write the entire string `str` using the given `encoding` to the file specified
+by `fd`.
 
-### fs.read(fd, buffer, offset, length, position, callback)
+`position` refers to the offset from the beginning of the file where this data
+should be written. If `position` is `null`, the data will be written at the
+current position.
+See pwrite(2).
+
+The callback will be given two arguments `(err, written)` where `written`
+specifies how many _bytes_ were written.
+
+### fs.writeSync(fd, buffer, offset, length, position)
+
+Synchronous version of buffer-based `fs.write()`. Returns the number of bytes written.
+
+### fs.writeSync(fd, str, position, encoding='utf8')
+
+Synchronous version of string-based `fs.write()`. Returns the number of bytes written.
+
+### fs.read(fd, buffer, offset, length, position, [callback])
 
 Read data from the file specified by `fd`.
 
@@ -1405,11 +1471,28 @@ If `position` is `null`, data will be read from the current file position.
 
 The callback is given the two arguments, `(err, bytesRead)`.
 
+### fs.read(fd, length, position, encoding, [callback])
+
+Read data from the file specified by `fd`.
+
+`length` is an integer specifying the number of bytes to read.
+
+`position` is an integer specifying where to begin reading from in the file.
+If `position` is `null`, data will be read from the current file position.
+
+`encoding` is the desired encoding of the string of data read in from `fd`.
+
+The callback is given the three arguments, `(err, str, bytesRead)`.
+
 ### fs.readSync(fd, buffer, offset, length, position)
 
-Synchronous version of `fs.read`. Returns the number of `bytesRead`.
+Synchronous version of buffer-based `fs.read`. Returns the number of `bytesRead`.
 
-### fs.readFile(filename, [encoding,] callback)
+### fs.readSync(fd, length, position, encoding)
+
+Synchronous version of string-based `fs.read`. Returns the number of `bytesRead`.
+
+### fs.readFile(filename, [encoding], [callback])
 
 Asynchronously reads the entire contents of a file. Example:
 
@@ -1424,7 +1507,7 @@ contents of the file.
 If no encoding is specified, then the raw buffer is returned.
 
 
-### fs.readFileSync(filename [, encoding])
+### fs.readFileSync(filename, [encoding])
 
 Synchronous version of `fs.readFile`. Returns the contents of the `filename`.
 
@@ -1432,9 +1515,11 @@ If `encoding` is specified then this function returns a string. Otherwise it
 returns a buffer.
 
 
-### fs.writeFile(filename, data, encoding='utf8', callback)
+### fs.writeFile(filename, data, encoding='utf8', [callback])
 
-Asynchronously writes data to a file. Example:
+Asynchronously writes data to a file. `data` can be a string or a buffer.
+
+Example:
 
     fs.writeFile('message.txt', 'Hello Node', function (err) {
       if (err) throw err;
@@ -1445,7 +1530,7 @@ Asynchronously writes data to a file. Example:
 
 The synchronous version of `fs.writeFile`.
 
-### fs.watchFile(filename, [options,] listener)
+### fs.watchFile(filename, [options], listener)
 
 Watch for changes on `filename`. The callback `listener` will be called each
 time the file changes.
@@ -1487,7 +1572,7 @@ Objects returned from `fs.stat()` and `fs.lstat()` are of this type.
 
 ### fs.createReadStream(path, [options])
 
-Returns a new ReadStream object.
+Returns a new ReadStream object (See `Readable Stream`).
 
 `options` is an object with the following defaults:
 
@@ -1497,24 +1582,6 @@ Returns a new ReadStream object.
     , 'bufferSize': 4 * 1024
     }
 
-### readStream.readable
-
-A boolean that is `true` by default, but turns `false` after an `'error'`
-occured, the stream came to an `'end'`, or `destroy()` was called.
-
-### readStream.pause()
-
-Stops the stream from reading further data. No `'data'` event will be fired
-until the stream is resumed.
-
-### readStream.resume()
-
-Resumes the stream. Together with `pause()` this useful to throttle reading.
-
-### readStream.destroy()
-
-Allows to close the stream before the `'end'` is reached. No more events other
-than `'close'` will be fired after this method has been called.
 
 ## fs.WriteStream
 
@@ -1522,7 +1589,8 @@ than `'close'` will be fired after this method has been called.
 
 ### fs.createWriteStream(path, [options])
 
-Returns a new WriteStream object.
+Returns a new WriteStream object (See `Writable Stream`).
+
 `options` is an object with the following defaults:
 
     { 'flags': 'w'
@@ -1530,26 +1598,6 @@ Returns a new WriteStream object.
     , 'mode': 0666
     }
 
-### writeStream.writeable
-
-A boolean that is `true` by default, but turns `false` after an `'error'`
-occurred or `end()` / `destroy()` was called.
-
-### writeStream.write(data, encoding='utf8')
-
-Returns `true` if the data was flushed to the kernel, and `false` if it was
-queued up for being written later. A `'drain'` will fire after all queued data
-has been written.
-
-The second optional parameter specifies the encoding of for the string.
-
-### writeStream.end()
-
-Closes the stream right after all queued `write()` calls have finished.
-
-### writeStream.destroy()
-
-Allows to close the stream regardless of its current state.
 
 ## HTTP
 
@@ -1603,18 +1651,6 @@ This is an EventEmitter with the following events:
 
  Emitted when the server closes. 
 
-
-### http.createServer(requestListener, [options])
-
-Returns a new web server object.
-
-The `options` argument is optional. The
-`options` argument accepts the same values as the
-options argument for `net.Server`.
-
-The `requestListener` is a function which is automatically
-added to the `'request'` event.
-
 ### Event: 'request'
 
 `function (request, response) {}`
@@ -1644,8 +1680,18 @@ sent to the server on that socket.
 
 If a client connection emits an 'error' event - it will forwarded here.
 
+### http.createServer(requestListener, [options])
 
-### server.listen(port, hostname=null, callback=null)
+Returns a new web server object.
+
+The `options` argument is optional. The
+`options` argument accepts the same values as the
+options argument for `net.Server`.
+
+The `requestListener` is a function which is automatically
+added to the `'request'` event.
+
+### server.listen(port, [hostname], [callback])
 
 Begin accepting connections on the specified port and hostname.  If the
 hostname is omitted, the server will accept connections directed to any
@@ -1657,7 +1703,7 @@ This function is asynchronous. The last parameter `callback` will be called
 when the server has been bound to the port.
 
 
-### server.listen(path, callback=null)
+### server.listen(path, [callback])
 
 Start a UNIX socket server listening for connections on the given `path`.
 
@@ -1773,7 +1819,7 @@ Resumes a paused request.
 
 ### request.connection
 
-The `net.Stream` object assocated with the connection.
+The `net.Stream` object associated with the connection.
 
 With HTTPS support, use request.connection.verifyPeer() and
 request.connection.getPeerCertificate() to obtain the client's
@@ -1786,7 +1832,7 @@ This object is created internally by a HTTP server--not by the user. It is
 passed as the second parameter to the `'request'` event. It is a writable stream.
 
 
-### response.writeHead(statusCode[, reasonPhrase] , headers)
+### response.writeHead(statusCode, [reasonPhrase], [headers])
 
 Sends a response header to the request. The status code is a 3-digit HTTP
 status code, like `404`. The last argument, `headers`, are the response headers.
@@ -1804,15 +1850,15 @@ Example:
 This method must only be called once on a message and it must
 be called before `response.end()` is called.
 
-### response.write(chunk, encoding)
+### response.write(chunk, encoding='ascii')
 
 This method must be called after `writeHead` was
 called. It sends a chunk of the response body. This method may
 be called multiple times to provide successive parts of the body.
 
-If `chunk` is a string, the second parameter
-specifies how to encode it into a byte stream. By default the
-`encoding` is `'ascii'`.
+`chunk` can be a string or a buffer. If `chunk` is a string,
+the second parameter specifies how to encode it into a byte stream.
+By default the `encoding` is `'ascii'`.
 
 **Note**: This is the raw HTTP body and has nothing to do with
 higher-level multi-part body encodings that may be used.
@@ -1824,12 +1870,16 @@ data, and sends that separately. That is, the response is buffered up to the
 first chunk of body.
 
 
-### response.end()
+### response.end([data], [encoding])
 
 This method signals to the server that all of the response headers and body
 has been sent; that server should consider this message complete.
 The method, `response.end()`, MUST be called on each
 response.
+
+If `data` is specified, it is equivalent to calling `response.write(data, encoding)`
+followed by `response.end()`.
+
 
 ## http.Client
 
@@ -1846,11 +1896,11 @@ Example of connecting to `google.com`:
     var request = google.request('GET', '/',
       {'host': 'www.google.com'});
     request.end();
-    request.addListener('response', function (response) {
+    request.on('response', function (response) {
       console.log('STATUS: ' + response.statusCode);
       console.log('HEADERS: ' + JSON.stringify(response.headers));
       response.setEncoding('utf8');
-      response.addListener('data', function (chunk) {
+      response.on('data', function (chunk) {
         console.log('BODY: ' + chunk);
       });
     });
@@ -1866,7 +1916,7 @@ connections closed.
 
 See the description of the `upgrade` event for `http.Server` for further details.
 
-### http.createClient(port, host, secure, credentials)
+### http.createClient(port, host='localhost', secure=false, [credentials])
 
 Constructs a new HTTP client. `port` and
 `host` refer to the server to be connected to. A
@@ -1876,7 +1926,7 @@ stream is not established until a request is issued.
 
 If the connection is secure, but no explicit CA certificates are passed in the credentials, then node.js will default to the publicly trusted list of CA certificates, as given in http://mxr.mozilla.org/mozilla/source/security/nss/lib/ckfw/builtins/certdata.txt
 
-### client.request([method], path, [request_headers])
+### client.request(method='GET', path, [request_headers])
 
 Issues a request; if necessary establishes stream. Returns a `http.ClientRequest` instance.
 
@@ -1924,22 +1974,22 @@ event, the entire body will be caught.
 
 
     // Good
-    request.addListener('response', function (response) {
-      response.addListener('data', function (chunk) {
+    request.on('response', function (response) {
+      response.on('data', function (chunk) {
         console.log('BODY: ' + chunk);
       });
     });
 
     // Bad - misses all or part of the body
-    request.addListener('response', function (response) {
+    request.on('response', function (response) {
       setTimeout(function () {
-        response.addListener('data', function (chunk) {
+        response.on('data', function (chunk) {
           console.log('BODY: ' + chunk);
         });
       }, 10);
     });
 
-This is a writable stream.
+This is a `Writable Stream`.
 
 This is an `EventEmitter` with the following events:
 
@@ -1968,12 +2018,14 @@ argument should be either `'utf8'` or
 `'ascii'`. By default the body uses ASCII encoding,
 as it is faster.
 
-### request.end()
+### request.end([data], [encoding])
 
 Finishes sending the request. If any parts of the body are
 unsent, it will flush them to the stream. If the request is
 chunked, this will send the terminating `'0\r\n\r\n'`.
 
+If `data` is specified, it is equivalent to calling `request.write(data, encoding)`
+followed by `request.end()`.
 
 
 ## http.ClientResponse
@@ -2014,12 +2066,11 @@ Also `response.httpVersionMajor` is the first integer and
 
 ### response.headers
 
-The response headers.
+The response headers object.
 
-### response.setEncoding(encoding)
+### response.setEncoding(encoding='utf8')
 
 Set the encoding for the response body. Either `'utf8'` or `'binary'`.
-Defaults to `'binary'`.
 
 ### response.pause()
 
@@ -2045,13 +2096,13 @@ on port 8124:
     var net = require('net');
     var server = net.createServer(function (stream) {
       stream.setEncoding('utf8');
-      stream.addListener('connect', function () {
+      stream.on('connect', function () {
         stream.write('hello\r\n');
       });
-      stream.addListener('data', function (data) {
+      stream.on('data', function (data) {
         stream.write(data);
       });
-      stream.addListener('end', function () {
+      stream.on('end', function () {
         stream.write('goodbye\r\n');
         stream.end();
       });
@@ -2085,7 +2136,7 @@ Creates a new TCP server. The `connection_listener` argument is
 automatically set as a listener for the `'connection'` event.
 
 
-### server.listen(port, host=null, callback=null)
+### server.listen(port, [host], [callback])
 
 Begin accepting connections on the specified `port` and `host`.  If the
 `host` is omitted, the server will accept connections directed to any
@@ -2095,7 +2146,7 @@ This function is asynchronous. The last parameter `callback` will be called
 when the server has been bound.
 
 
-### server.listen(path, callback=null)
+### server.listen(path, [callback])
 
 Start a UNIX socket server listening for connections on the given `path`.
 
@@ -2115,6 +2166,7 @@ calls invoked on it.
 Stops the server from accepting new connections. This function is
 asynchronous, the server is finally closed when the server emits a `'close'`
 event.
+
 
 ## net.Stream
 
@@ -2146,7 +2198,7 @@ Emitted when a stream connection successfully establishes a HTTPS handshake with
 
 Emitted when data is received.  The argument `data` will be a `Buffer` or
 `String`.  Encoding of data is set by `stream.setEncoding()`.
-(See the section on Readable Streams for more infromation.)
+(See the section on Readable Streams for more information.)
 
 ### Event: 'end'
 
@@ -2181,7 +2233,7 @@ following this event.
 
 ### Event: 'close'
 
-`function () { }`
+`function (had_error) { }`
 
 Emitted once the stream is fully closed. The argument `had_error` is a boolean which says if
 the stream was closed due to a transmission
@@ -2219,12 +2271,12 @@ This member is only present in server-side connections.
 
 Either `'closed'`, `'open'`, `'opening'`, `'readOnly'`, or `'writeOnly'`.
 
-### stream.setEncoding(encoding)
+### stream.setEncoding(encoding='utf8')
 
 Sets the encoding (either `'ascii'`, `'utf8'`, or `'binary'`) for data that is
 received.
 
-### stream.setSecure(credentials)
+### stream.setSecure([credentials])
 
 Enables HTTPS support for the stream, with the crypto module credentials specifying the private key and certificate of the stream, and optionally the CA certificates for use in peer authentication.
 
@@ -2238,7 +2290,6 @@ Returns true or false depending on the validity of the peers's certificate in th
 
 Returns a JSON structure detailing the peer's certificate, containing a dictionary with keys for the certificate 'subject', 'issuer', 'valid\_from' and 'valid\_to'
 
-
 ### stream.write(data, encoding='ascii')
 
 Sends data on the stream. The second parameter specifies the encoding in
@@ -2249,11 +2300,14 @@ Returns `true` if the entire data was flushed successfully to the kernel
 buffer. Returns `false` if all or part of the data was queued in user memory.
 `'drain'` will be emitted when the buffer is again free.
 
-### stream.end()
+### stream.end([data], [encoding])
 
 Half-closes the stream. I.E., it sends a FIN packet. It is possible the
 server will still send some data. After calling this `readyState` will be
 `'readOnly'`.
+
+If `data` is specified, it is equivalent to calling `stream.write(data, encoding)`
+followed by `stream.end()`.
 
 ### stream.destroy()
 
@@ -2286,7 +2340,7 @@ Disables the Nagle algorithm. By default TCP connections use the Nagle
 algorithm, they buffer data before sending it off. Setting `noDelay` will
 immediately fire off data each time `stream.write()` is called.
 
-### stream.setKeepAlive(enable=false, initialDelay)
+### stream.setKeepAlive(enable=false, [initialDelay])
 
 Enable/disable keep-alive functionality, and optionally set the initial
 delay before the first keepalive probe is sent on an idle stream.
@@ -2294,6 +2348,7 @@ Set `initialDelay` (in milliseconds) to set the delay between the last
 data packet received and the first keepalive probe. Setting 0 for
 initialDelay will leave the value unchanged from the default
 (or previous) setting.
+
 
 
 ## Crypto
@@ -2328,7 +2383,7 @@ Creates and returns a hash object, a cryptographic hash with the given algorithm
 
 Updates the hash content with the given `data`. This can be called many times with new data as it is streamed.
 
-### hash.digest(encoding)
+### hash.digest(encoding='binary')
 
 Calculates the digest of all of the passed data to be hashed. The `encoding` can be 'hex', 'binary' or 'base64'.
 
@@ -2344,7 +2399,7 @@ Creates and returns a hmac object, a cryptographic hmac with the given algorithm
 
 Update the hmac content with the given `data`. This can be called many times with new data as it is streamed.
 
-### hmac.digest(encoding)
+### hmac.digest(encoding='binary')
 
 Calculates the digest of all of the passed data to the hmac. The `encoding` can be 'hex', 'binary' or 'base64'.
 
@@ -2355,27 +2410,27 @@ Creates and returns a cipher object, with the given algorithm and key.
 
 `algorithm` is dependent on OpenSSL, examples are aes192, etc. On recent releases, `openssl list-cipher-algorithms` will display the available cipher algorithms.
 
-### cipher.update(data, input_encoding, output_encoding)
+### cipher.update(data, input_encoding='binary', output_encoding='binary')
 
 Updates the cipher with `data`, the encoding of which is given in `input_encoding` and can be 'utf8', 'ascii' or 'binary'. The `output_encoding` specifies the output format of the enciphered data, and can be 'binary', 'base64'  or 'hex'.
 
 Returns the enciphered contents, and can be called many times with new data as it is streamed.
 
-### cipher.final(output_encoding)
+### cipher.final(output_encoding='binary')
 
-Returns any remaining enciphered contents, with `output_encoding` as update above.
+Returns any remaining enciphered contents, with `output_encoding` being one of: 'binary', 'ascii' or 'utf8'.
 
 ### crypto.createDecipher(algorithm, key)
 
 Creates and returns a decipher object, with the given algorithm and key. This is the mirror of the cipher object above.
 
-### decipher.update(data, input_encoding, output_encoding)
+### decipher.update(data, input_encoding='binary', output_encoding='binary')
 
 Updates the decipher with `data`, which is encoded in 'binary', 'base64' or 'hex'. The `output_decoding` specifies in what format to return the deciphered plaintext - either 'binary', 'ascii' or 'utf8'.
 
-### decipher.final(output_encoding)
+### decipher.final(output_encoding='binary')
 
-Returns any remaining plaintext which is deciphered, with `output_encoding' as update above.
+Returns any remaining plaintext which is deciphered, with `output_encoding' being one of: 'binary', 'ascii' or 'utf8'.
 
 
 ### crypto.createSign(algorithm)
@@ -2386,7 +2441,7 @@ Creates and returns a signing object, with the given algorithm. On recent OpenSS
 
 Updates the signer object with data. This can be called many times with new data as it is streamed.
 
-### signer.sign(private_key, output_format)
+### signer.sign(private_key, output_format='binary')
 
 Calculates the signature on all the updated data passed through the signer. `private_key` is a string containing the PEM encoded private key for signing.
 
@@ -2400,7 +2455,7 @@ Creates and returns a verification object, with the given algorithm. This is the
 
 Updates the verifyer object with data. This can be called many times with new data as it is streamed.
 
-### verifier.verify(public_key, signature, signature_format)
+### verifier.verify(public_key, signature, signature_format='binary')
 
 Verifies the signed data by using the `public_key` which is a string containing the PEM encoded public key, and `signature`, which is the previously calculates signature for the data, in the `signature_format` which can be 'binary', 'hex' or 'base64'.
 
@@ -2436,7 +2491,7 @@ resolves the IP addresses which are returned.
       }
     });
 
-### dns.resolve(domain, rrtype = 'A', callback)
+### dns.resolve(domain, rrtype='A', callback)
 
 Resolves a domain (e.g. `'google.com'`) into an array of the record types
 specified by rrtype. Valid rrtypes are `A` (IPV4 addresses), `AAAA` (IPV6
@@ -2502,6 +2557,177 @@ Each DNS query can return an error code.
 - `dns.BADQUERY`: the query is malformed.
 
 
+## dgram
+
+Datagram sockets are available through `require('dgram')`.  Datagrams are most commonly 
+handled as IP/UDP messages, but they can also be used over Unix domain sockets.
+
+### Event: 'message'
+
+`function (msg, rinfo) { }`
+
+Emitted when a new datagram is available on a socket.  `msg` is a `Buffer` and `rinfo` is
+an object with the sender's address information and the number of bytes in the datagram.
+
+### Event: 'listening'
+
+`function () { }`
+
+Emitted when a socket starts listening for datagrams.  This happens as soon as UDP sockets
+are created.  Unix domain sockets do not start listening until calling `bind()` on them.
+
+### Event: 'close'
+
+`function () { }`
+
+Emitted when a socket is closed with `close()`.  No new `message` events will be emitted
+on this socket.
+
+### dgram.createSocket(type [, callback])
+
+Creates a datagram socket of the specified types.  Valid types are:
+`udp4`, `udp6`, and `unix_dgram`.  
+
+Takes an optional callback which is added as a listener for `message` events.
+
+### dgram.send(buf, offset, length, path [, callback])
+
+For Unix domain datagram sockets, the destination address is a pathname in the filesystem.
+An optional callback may be supplied that is invoked after the `sendto` call is completed
+by the OS.  It is not safe to re-use `buf` until the callback is invoked.  Note that 
+unless the socket is bound to a pathname with `bind()` there is no way to receive messages
+on this socket.
+
+Example of sending a message to syslogd on OSX via Unix domain socket `/var/run/syslog`:
+
+    var dgram = require('dgram'),
+      Buffer = require('buffer').Buffer,
+      client, message;
+
+    message = new Buffer("A message to log.");
+    client = dgram.createSocket("unix_dgram");
+    client.send(message, 0, message.length, "/var/run/syslog", 
+      function (err, bytes) {
+        if (err) {
+          throw err;
+        }
+        console.log("Wrote " + bytes + " bytes to socket.");
+    });
+
+### dgram.send(buf, offset, length, port, address [, callback])
+
+For UDP sockets, the destination port and IP address must be specified.  A string
+may be supplied for the `address` parameter, and it will be resolved with DNS.  An 
+optional callback may be specified to detect any DNS errors and when `buf` may be
+re-used.  Note that DNS lookups will delay the time that a send takes place, at
+least until the next tick.  The only way to know for sure that a send has taken place
+is to use the callback.
+
+Example of sending a UDP packet to a random port on `localhost`;
+
+    var dgram = require('dgram'),
+      Buffer = require('buffer').Buffer,
+      client, message;
+
+    message = new Buffer("Some bytes");
+    client = dgram.createSocket("udp4");
+    client.send(message, 0, message.length, 41234, "localhost"); 
+    client.close();
+
+### dgram.bind(path)
+
+For Unix domain datagram sockets, start listening for incoming datagrams on a
+socket specified by `path`. Note that clients may `send()` without `bind()`,
+but no datagrams will be received without a `bind()`.
+
+Example of a Unix domain datagram server that echoes back all messages it receives:
+
+    var Buffer = require("buffer").Buffer,
+        dgram = require("dgram"), server
+        server_path = "/tmp/dgram_server_sock";
+
+    server = dgram.createSocket("unix_dgram");
+    server.on("message", function (msg, rinfo) {
+      console.log("got: " + msg + " from " + rinfo.address);
+      server.send(msg, 0, msg.length, rinfo.address);
+    });
+    server.on("listening", function () {
+      console.log("server listening " + server.address().address);
+    })
+    server.bind(server_path);
+
+Example of a Unix domain datagram client that talks to this server:
+
+    var Buffer = require("buffer").Buffer,
+        dgram = require("dgram"),
+        server_path = "/tmp/dgram_server_sock",
+        client_path = "/tmp/dgram_client_sock", client, message;
+
+    message = new Buffer("A message at " + (new Date()));
+
+    client = dgram.createSocket("unix_dgram");
+    client.on("message", function (msg, rinfo) {
+      console.log("got: " + msg + " from " + rinfo.address);
+    });
+    client.on("listening", function () {
+      console.log("client listening " + client.address().address);
+      client.send(message, 0, message.length, server_path);
+    });
+    client.bind(client_path);
+
+### dgram.bind(port [, address])
+
+For UDP sockets, listen for datagrams on a named `port` and optional `address`.  If
+`address` is not specified, the OS will try to listen on all addresses.
+
+Example of a UDP server listening on port 41234:
+
+    var Buffer = require("buffer").Buffer,
+        dgram = require("dgram"), server,
+        message_to_send = new Buffer("A message to send");
+
+    server = dgram.createSocket("udp4");
+    server.on("message", function (msg, rinfo) {
+      console.log("server got: " + msg + " from " +
+        rinfo.address + ":" + rinfo.port);
+    });
+    server.on("listening", function () {
+      var address = server.address();
+      console.log("server listening " + 
+        address.address + ":" + address.port);
+    });
+    server.bind(41234);
+    // server listening 0.0.0.0:41234
+
+
+### dgram.close()
+
+Close the underlying socket and stop listening for data on it.  UDP sockets 
+automatically listen for messages, even if they did not call `bind()`.
+
+### dgram.address()
+
+Returns an object containing the address information for a socket.  For UDP sockets, 
+this object will contain `address` and `port`.  For Unix domain sockets, it will contain
+only `address`.
+
+### dgram.setBroadcast(flag)
+
+Sets or clears the `SO_BROADCAST` socket option.  When this option is set, UDP packets
+may be sent to a local interface's broadcast address.
+
+### dgram.setTTL(ttl)
+
+Sets the `IP_TTL` socket option.  TTL stands for "Time to Live," but in this context it
+specifies the number of IP hops that a packet is allowed to go through.  Each router or 
+gateway that forwards a packet decrements the TTL.  If the TTL is decremented to 0 by a
+router, it will not be forwarded.  Changing TTL values is typically done for network 
+probes or when multicasting.
+
+The argument to `setTTL()` is a number of hops between 1 and 255.  The default on most
+systems is 64.
+
+
 ## Assert
 
 This module is used for writing unit tests for your applications, you can
@@ -2511,39 +2737,39 @@ access it with `require('assert')`.
 
 Tests if `actual` is equal to `expected` using the operator provided.
 
-### assert.ok(value, message)
+### assert.ok(value, [message])
 
 Tests if value is a `true` value, it is equivalent to `assert.equal(true, value, message);`
 
-### assert.equal(actual, expected, message)
+### assert.equal(actual, expected, [message])
 
 Tests shallow, coercive equality with the equal comparison operator ( `==` ). 
 
-### assert.notEqual(actual, expected, message)
+### assert.notEqual(actual, expected, [message])
 
 Tests shallow, coercive non-equality with the not equal comparison operator ( `!=` ).
 
-### assert.deepEqual(actual, expected, message)
+### assert.deepEqual(actual, expected, [message])
 
 Tests for deep equality.
 
-### assert.notDeepEqual(actual, expected, message)
+### assert.notDeepEqual(actual, expected, [message])
 
 Tests for any deep inequality. 
 
-### assert.strictEqual(actual, expected, message)
+### assert.strictEqual(actual, expected, [message])
 
 Tests strict equality, as determined by the strict equality operator ( `===` ) 
 
-### assert.notStrictEqual(actual, expected, message)
+### assert.notStrictEqual(actual, expected, [message])
 
 Tests strict non-equality, as determined by the strict not equal operator ( `!==` ) 
 
-### assert.throws(block, error, message)
+### assert.throws(block, [error], [message])
 
 Expects `block` to throw an error.
 
-### assert.doesNotThrow(block, error, message)
+### assert.doesNotThrow(block, [error], [message])
 
 Expects `block` not to throw an error.
 
@@ -2556,9 +2782,11 @@ Tests if value is not a false value, throws if it is a true value. Useful when t
 This module contains utilities for dealing with file paths.  Use
 `require('path')` to use it.  It provides the following methods:
 
-### path.join(/* path1, path2, ... */)
+### path.join([path1], [path2], [...])
 
-Join all arguments together and resolve the resulting path.  Example:
+Join all arguments together and resolve the resulting path.
+
+Example:
 
     node> require('path').join(
     ...   '/foo', 'bar', 'baz/asdf', 'quux', '..')
@@ -2566,7 +2794,9 @@ Join all arguments together and resolve the resulting path.  Example:
 
 ### path.normalizeArray(arr)
 
-Normalize an array of path parts, taking care of `'..'` and `'.'` parts.  Example:
+Normalize an array of path parts, taking care of `'..'` and `'.'` parts.
+
+Example:
 
     path.normalizeArray(['', 
       'foo', 'bar', 'baz', 'asdf', 'quux', '..'])
@@ -2575,7 +2805,9 @@ Normalize an array of path parts, taking care of `'..'` and `'.'` parts.  Exampl
 
 ### path.normalize(p)
 
-Normalize a string path, taking care of `'..'` and `'.'` parts.  Example:
+Normalize a string path, taking care of `'..'` and `'.'` parts.
+
+Example:
 
     path.normalize('/foo/bar/baz/asdf/quux/..')
     // returns
@@ -2583,15 +2815,19 @@ Normalize a string path, taking care of `'..'` and `'.'` parts.  Example:
 
 ### path.dirname(p)
 
-Return the directory name of a path.  Similar to the Unix `dirname` command.  Example:
+Return the directory name of a path.  Similar to the Unix `dirname` command.
+
+Example:
 
     path.dirname('/foo/bar/baz/asdf/quux')
     // returns
     '/foo/bar/baz/asdf'
 
-### path.basename(p, ext)
+### path.basename(p, [ext])
 
-Return the last portion of a path.  Similar to the Unix `basename` command.  Example:
+Return the last portion of a path.  Similar to the Unix `basename` command.
+
+Example:
 
     path.basename('/foo/bar/baz/asdf/quux.html')
     // returns
@@ -2615,7 +2851,7 @@ the first character, then it returns an empty string.  Examples:
     // returns
     ''
 
-### path.exists(p, callback)
+### path.exists(p, [callback])
 
 Test whether or not the given path exists.  Then, call the `callback` argument with either true or false.  Example:
 
@@ -2716,13 +2952,13 @@ By default, this function will perform PHP/Rails-style parameter mungeing for ar
 values within `obj`.
 Example:
 
-    querystring.stringify({foo: 'bar', foo: 'baz', foo: 'boz'})
+    querystring.stringify({foo: ['bar', 'baz', 'boz']})
     // returns
-    'foo=boz'
+    'foo%5B%5D=bar&foo%5B%5D=baz&foo%5B%5D=boz'
 
     querystring.stringify({foo: {bar: 'baz'}})
     // returns
-    'foo[bar]=baz'
+    'foo%5Bbar%5D=baz'
 
 If you wish to disable the array mungeing (e.g. when generating parameters for a Java servlet), you
 can set the `munge` argument to `false`.
@@ -2763,7 +2999,7 @@ JavaScript and see the results.  It can be used for debugging, testing, or
 just trying things out.
 
 By executing `node` without any arguments from the command-line you will be
-dropped into the REPL. It has simplistic emacs line-editting.
+dropped into the REPL. It has simplistic emacs line-editing.
 
     mjr:~$ node
     Type '.help' for options.
@@ -2784,7 +3020,7 @@ For example, you could add this to your bashrc file:
     alias node="env NODE_NO_READLINE=1 rlwrap node"
 
 
-### repl.start(prompt, stream)
+### repl.start(prompt='node> ', stream=process.openStdin())
 
 Starts a REPL with `prompt` as the prompt and `stream` for all I/O.  `prompt`
 is optional and defaults to `node> `.  `stream` is optional and defaults to 
@@ -2963,7 +3199,7 @@ To get started we create a file `hello.cc`:
 
     using namespace v8;
 
-    extern 'C' void
+    extern "C" void
     init (Handle<Object> target) 
     {
       HandleScope scope;

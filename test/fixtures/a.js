@@ -1,7 +1,7 @@
 var c = require("./b/c");
 exports.reqc = function() { return require("./b/c"); }
 
-debug("load fixtures/a.js");
+common.debug("load fixtures/a.js");
 
 var string = "A";
 

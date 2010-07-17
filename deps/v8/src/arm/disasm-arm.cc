@@ -412,6 +412,12 @@ int Decoder::FormatOption(Instr* instr, const char* format) {
       PrintCondition(instr);
       return 4;
     }
+    case 'd': {  // 'd: vmov double immediate.
+      double d = instr->DoubleImmedVmov();
+      out_buffer_pos_ += v8i::OS::SNPrintF(out_buffer_ + out_buffer_pos_,
+                                           "#%g", d);
+      return 1;
+    }
     case 'f': {  // 'f: bitfield instructions - v7 and above.
       uint32_t lsbit = instr->Bits(11, 7);
       uint32_t width = instr->Bits(20, 16) + 1;
@@ -1047,7 +1053,14 @@ void Decoder::DecodeTypeVFP(Instr* instr) {
   if (instr->Bit(4) == 0) {
     if (instr->Opc1Field() == 0x7) {
       // Other data processing instructions
-      if ((instr->Opc2Field() == 0x7) && (instr->Opc3Field() == 0x3)) {
+      if ((instr->Opc2Field() == 0x0) && (instr->Opc3Field() == 0x1)) {
+        // vmov register to register.
+        if (instr->SzField() == 0x1) {
+          Format(instr, "vmov.f64'cond 'Dd, 'Dm");
+        } else {
+          Format(instr, "vmov.f32'cond 'Sd, 'Sm");
+        }
+      } else if ((instr->Opc2Field() == 0x7) && (instr->Opc3Field() == 0x3)) {
         DecodeVCVTBetweenDoubleAndSingle(instr);
       } else if ((instr->Opc2Field() == 0x8) && (instr->Opc3Field() & 0x1)) {
         DecodeVCVTBetweenFloatingPointAndInteger(instr);
@@ -1059,6 +1072,12 @@ void Decoder::DecodeTypeVFP(Instr* instr) {
         DecodeVCMP(instr);
       } else if (((instr->Opc2Field() == 0x1)) && (instr->Opc3Field() == 0x3)) {
         Format(instr, "vsqrt.f64'cond 'Dd, 'Dm");
+      } else if (instr->Opc3Field() == 0x0) {
+        if (instr->SzField() == 0x1) {
+          Format(instr, "vmov.f64'cond 'Dd, 'd");
+        } else {
+          Unknown(instr);  // Not used by V8.
+        }
       } else {
         Unknown(instr);  // Not used by V8.
       }

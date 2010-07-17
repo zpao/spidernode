@@ -678,6 +678,12 @@ static Object* Runtime_GetOwnProperty(Arguments args) {
 }
 
 
+static Object* Runtime_PreventExtensions(Arguments args) {
+  ASSERT(args.length() == 1);
+  CONVERT_CHECKED(JSObject, obj, args[0]);
+  return obj->PreventExtensions();
+}
+
 static Object* Runtime_IsExtensible(Arguments args) {
   ASSERT(args.length() == 1);
   CONVERT_CHECKED(JSObject, obj, args[0]);
@@ -1600,9 +1606,10 @@ static Object* Runtime_SetCode(Arguments args) {
     if (!EnsureCompiled(shared, KEEP_EXCEPTION)) {
       return Failure::Exception();
     }
-    // Set the code, formal parameter count, and the length of the target
-    // function.
+    // Set the code, scope info, formal parameter count,
+    // and the length of the target function.
     target->set_code(fun->code());
+    target->shared()->set_scope_info(shared->scope_info());
     target->shared()->set_length(shared->length());
     target->shared()->set_formal_parameter_count(
         shared->formal_parameter_count());
@@ -2279,6 +2286,134 @@ static Object* StringReplaceRegExpWithString(String* subject,
 }
 
 
+template <typename ResultSeqString>
+static Object* StringReplaceRegExpWithEmptyString(String* subject,
+                                                  JSRegExp* regexp,
+                                                  JSArray* last_match_info) {
+  ASSERT(subject->IsFlat());
+
+  HandleScope handles;
+
+  Handle<String> subject_handle(subject);
+  Handle<JSRegExp> regexp_handle(regexp);
+  Handle<JSArray> last_match_info_handle(last_match_info);
+  Handle<Object> match = RegExpImpl::Exec(regexp_handle,
+                                          subject_handle,
+                                          0,
+                                          last_match_info_handle);
+  if (match.is_null()) return Failure::Exception();
+  if (match->IsNull()) return *subject_handle;
+
+  ASSERT(last_match_info_handle->HasFastElements());
+
+  HandleScope loop_scope;
+  int start, end;
+  {
+    AssertNoAllocation match_info_array_is_not_in_a_handle;
+    FixedArray* match_info_array =
+        FixedArray::cast(last_match_info_handle->elements());
+
+    start = RegExpImpl::GetCapture(match_info_array, 0);
+    end = RegExpImpl::GetCapture(match_info_array, 1);
+  }
+
+  int length = subject->length();
+  int new_length = length - (end - start);
+  if (new_length == 0) {
+    return Heap::empty_string();
+  }
+  Handle<ResultSeqString> answer;
+  if (ResultSeqString::kHasAsciiEncoding) {
+    answer =
+        Handle<ResultSeqString>::cast(Factory::NewRawAsciiString(new_length));
+  } else {
+    answer =
+        Handle<ResultSeqString>::cast(Factory::NewRawTwoByteString(new_length));
+  }
+
+  // If the regexp isn't global, only match once.
+  if (!regexp_handle->GetFlags().is_global()) {
+    if (start > 0) {
+      String::WriteToFlat(*subject_handle,
+                          answer->GetChars(),
+                          0,
+                          start);
+    }
+    if (end < length) {
+      String::WriteToFlat(*subject_handle,
+                          answer->GetChars() + start,
+                          end,
+                          length);
+    }
+    return *answer;
+  }
+
+  int prev = 0;  // Index of end of last match.
+  int next = 0;  // Start of next search (prev unless last match was empty).
+  int position = 0;
+
+  do {
+    if (prev < start) {
+      // Add substring subject[prev;start] to answer string.
+      String::WriteToFlat(*subject_handle,
+                          answer->GetChars() + position,
+                          prev,
+                          start);
+      position += start - prev;
+    }
+    prev = end;
+    next = end;
+    // Continue from where the match ended, unless it was an empty match.
+    if (start == end) {
+      next++;
+      if (next > length) break;
+    }
+    match = RegExpImpl::Exec(regexp_handle,
+                             subject_handle,
+                             next,
+                             last_match_info_handle);
+    if (match.is_null()) return Failure::Exception();
+    if (match->IsNull()) break;
+
+    ASSERT(last_match_info_handle->HasFastElements());
+    HandleScope loop_scope;
+    {
+      AssertNoAllocation match_info_array_is_not_in_a_handle;
+      FixedArray* match_info_array =
+          FixedArray::cast(last_match_info_handle->elements());
+      start = RegExpImpl::GetCapture(match_info_array, 0);
+      end = RegExpImpl::GetCapture(match_info_array, 1);
+    }
+  } while (true);
+
+  if (prev < length) {
+    // Add substring subject[prev;length] to answer string.
+    String::WriteToFlat(*subject_handle,
+                        answer->GetChars() + position,
+                        prev,
+                        length);
+    position += length - prev;
+  }
+
+  if (position == 0) {
+    return Heap::empty_string();
+  }
+
+  // Shorten string and fill
+  int string_size = ResultSeqString::SizeFor(position);
+  int allocated_string_size = ResultSeqString::SizeFor(new_length);
+  int delta = allocated_string_size - string_size;
+
+  answer->set_length(position);
+  if (delta == 0) return *answer;
+
+  Address end_of_string = answer->address() + string_size;
+  Heap::CreateFillerObjectAt(end_of_string, delta);
+
+  return *answer;
+}
+
+
 static Object* Runtime_StringReplaceRegExpWithString(Arguments args) {
   ASSERT(args.length() == 4);
 
@@ -2304,6 +2439,16 @@ static Object* Runtime_StringReplaceRegExpWithString(Arguments args) {
   CONVERT_CHECKED(JSArray, last_match_info, args[3]);
 
   ASSERT(last_match_info->HasFastElements());
+
+  if (replacement->length() == 0) {
+    if (subject->HasOnlyAsciiChars()) {
+      return StringReplaceRegExpWithEmptyString<SeqAsciiString>(
+          subject, regexp, last_match_info);
+    } else {
+      return StringReplaceRegExpWithEmptyString<SeqTwoByteString>(
+          subject, regexp, last_match_info);
+    }
+  }
 
   return StringReplaceRegExpWithString(subject,
                                        regexp,
@@ -5362,9 +5507,6 @@ static Object* Runtime_NumberToInteger(Arguments args) {
 }
 
 
-
-
-
 static Object* Runtime_NumberToIntegerMapMinusZero(Arguments args) {
   NoHandleAllocation ha;
   ASSERT(args.length() == 1);
@@ -5434,7 +5576,7 @@ static Object* Runtime_NumberAdd(Arguments args) {
 
   CONVERT_DOUBLE_CHECKED(x, args[0]);
   CONVERT_DOUBLE_CHECKED(y, args[1]);
-  return Heap::AllocateHeapNumber(x + y);
+  return Heap::NumberFromDouble(x + y);
 }
 
 
@@ -5444,7 +5586,7 @@ static Object* Runtime_NumberSub(Arguments args) {
 
   CONVERT_DOUBLE_CHECKED(x, args[0]);
   CONVERT_DOUBLE_CHECKED(y, args[1]);
-  return Heap::AllocateHeapNumber(x - y);
+  return Heap::NumberFromDouble(x - y);
 }
 
 
@@ -5454,7 +5596,7 @@ static Object* Runtime_NumberMul(Arguments args) {
 
   CONVERT_DOUBLE_CHECKED(x, args[0]);
   CONVERT_DOUBLE_CHECKED(y, args[1]);
-  return Heap::AllocateHeapNumber(x * y);
+  return Heap::NumberFromDouble(x * y);
 }
 
 
@@ -5463,7 +5605,15 @@ static Object* Runtime_NumberUnaryMinus(Arguments args) {
   ASSERT(args.length() == 1);
 
   CONVERT_DOUBLE_CHECKED(x, args[0]);
-  return Heap::AllocateHeapNumber(-x);
+  return Heap::NumberFromDouble(-x);
+}
+
+
+static Object* Runtime_NumberAlloc(Arguments args) {
+  NoHandleAllocation ha;
+  ASSERT(args.length() == 0);
+
+  return Heap::NumberFromDouble(9876543210.0);
 }
 
 
@@ -6065,7 +6215,7 @@ static Object* Runtime_Math_pow(Arguments args) {
   // custom powi() function than the generic pow().
   if (args[1]->IsSmi()) {
     int y = Smi::cast(args[1])->value();
-    return Heap::AllocateHeapNumber(powi(x, y));
+    return Heap::NumberFromDouble(powi(x, y));
   }
 
   CONVERT_DOUBLE_CHECKED(y, args[1]);
@@ -6719,7 +6869,7 @@ static Object* Runtime_NewContext(Arguments args) {
   ASSERT(args.length() == 1);
 
   CONVERT_CHECKED(JSFunction, function, args[0]);
-  int length = ScopeInfo<>::NumberOfContextSlots(function->code());
+  int length = function->shared()->scope_info()->NumberOfContextSlots();
   Object* result = Heap::AllocateFunctionContext(length, function);
   if (result->IsFailure()) return result;
 
@@ -8339,9 +8489,10 @@ static Object* Runtime_GetFrameDetails(Arguments args) {
   // Check for constructor frame.
   bool constructor = it.frame()->IsConstructor();
 
-  // Get code and read scope info from it for local variable information.
-  Handle<Code> code(it.frame()->code());
-  ScopeInfo<> info(*code);
+  // Get scope info and read from it for local variable information.
+  Handle<JSFunction> function(JSFunction::cast(it.frame()->function()));
+  Handle<SerializedScopeInfo> scope_info(function->shared()->scope_info());
+  ScopeInfo<> info(*scope_info);
 
   // Get the context.
   Handle<Context> context(Context::cast(it.frame()->context()));
@@ -8369,8 +8520,7 @@ static Object* Runtime_GetFrameDetails(Arguments args) {
       }
       ASSERT(context->is_function_context());
       locals->set(i * 2 + 1,
-                  context->get(ScopeInfo<>::ContextSlotIndex(*code, *name,
-                                                             NULL)));
+                  context->get(scope_info->ContextSlotIndex(*name, NULL)));
     }
   }
 
@@ -8510,18 +8660,17 @@ static Object* Runtime_GetFrameDetails(Arguments args) {
 
 
 // Copy all the context locals into an object used to materialize a scope.
-static void CopyContextLocalsToScopeObject(Handle<Code> code,
-                                           ScopeInfo<>& scope_info,
-                                           Handle<Context> context,
-                                           Handle<JSObject> scope_object) {
+static void CopyContextLocalsToScopeObject(
+    Handle<SerializedScopeInfo> serialized_scope_info,
+    ScopeInfo<>& scope_info,
+    Handle<Context> context,
+    Handle<JSObject> scope_object) {
   // Fill all context locals to the context extension.
   for (int i = Context::MIN_CONTEXT_SLOTS;
        i < scope_info.number_of_context_slots();
        i++) {
-    int context_index =
-        ScopeInfo<>::ContextSlotIndex(*code,
-                                      *scope_info.context_slot_name(i),
-                                      NULL);
+    int context_index = serialized_scope_info->ContextSlotIndex(
+        *scope_info.context_slot_name(i), NULL);
 
     // Don't include the arguments shadow (.arguments) context variable.
     if (*scope_info.context_slot_name(i) != Heap::arguments_shadow_symbol()) {
@@ -8537,8 +8686,9 @@ static void CopyContextLocalsToScopeObject(Handle<Code> code,
 // frame.
 static Handle<JSObject> MaterializeLocalScope(JavaScriptFrame* frame) {
   Handle<JSFunction> function(JSFunction::cast(frame->function()));
-  Handle<Code> code(function->code());
-  ScopeInfo<> scope_info(*code);
+  Handle<SharedFunctionInfo> shared(function->shared());
+  Handle<SerializedScopeInfo> serialized_scope_info(shared->scope_info());
+  ScopeInfo<> scope_info(*serialized_scope_info);
 
   // Allocate and initialize a JSObject with all the arguments, stack locals
   // heap locals and extension properties of the debugged function.
@@ -8561,7 +8711,7 @@ static Handle<JSObject> MaterializeLocalScope(JavaScriptFrame* frame) {
   // Third fill all context locals.
   Handle<Context> frame_context(Context::cast(frame->context()));
   Handle<Context> function_context(frame_context->fcontext());
-  CopyContextLocalsToScopeObject(code, scope_info,
+  CopyContextLocalsToScopeObject(serialized_scope_info, scope_info,
                                  function_context, local_scope);
 
   // Finally copy any properties from the function context extension. This will
@@ -8588,8 +8738,9 @@ static Handle<JSObject> MaterializeLocalScope(JavaScriptFrame* frame) {
 static Handle<JSObject> MaterializeClosure(Handle<Context> context) {
   ASSERT(context->is_function_context());
 
-  Handle<Code> code(context->closure()->code());
-  ScopeInfo<> scope_info(*code);
+  Handle<SharedFunctionInfo> shared(context->closure()->shared());
+  Handle<SerializedScopeInfo> serialized_scope_info(shared->scope_info());
+  ScopeInfo<> scope_info(*serialized_scope_info);
 
   // Allocate and initialize a JSObject with all the content of theis function
   // closure.
@@ -8597,9 +8748,8 @@ static Handle<JSObject> MaterializeClosure(Handle<Context> context) {
 
   // Check whether the arguments shadow object exists.
   int arguments_shadow_index =
-      ScopeInfo<>::ContextSlotIndex(*code,
-                                    Heap::arguments_shadow_symbol(),
-                                    NULL);
+      shared->scope_info()->ContextSlotIndex(Heap::arguments_shadow_symbol(),
+                                             NULL);
   if (arguments_shadow_index >= 0) {
     // In this case all the arguments are available in the arguments shadow
     // object.
@@ -8613,7 +8763,8 @@ static Handle<JSObject> MaterializeClosure(Handle<Context> context) {
   }
 
   // Fill all context locals to the context extension.
-  CopyContextLocalsToScopeObject(code, scope_info, context, closure_scope);
+  CopyContextLocalsToScopeObject(serialized_scope_info, scope_info,
+                                 context, closure_scope);
 
   // Finally copy any properties from the function context extension. This will
   // be variables introduced by eval.
@@ -8662,8 +8813,8 @@ class ScopeIterator {
       // created for evaluating top level code and it is not a real local scope.
       // Checking for the existence of .result seems fragile, but the scope info
       // saved with the code object does not otherwise have that information.
-      Handle<Code> code(function_->code());
-      int index = ScopeInfo<>::StackSlotIndex(*code, Heap::result_symbol());
+      int index = function_->shared()->scope_info()->
+          StackSlotIndex(Heap::result_symbol());
       at_local_ = index < 0;
     } else if (context_->is_function_context()) {
       at_local_ = true;
@@ -8777,8 +8928,7 @@ class ScopeIterator {
 
       case ScopeIterator::ScopeTypeLocal: {
         PrintF("Local:\n");
-        Handle<Code> code(function_->code());
-        ScopeInfo<> scope_info(*code);
+        ScopeInfo<> scope_info(function_->shared()->scope_info());
         scope_info.Print();
         if (!CurrentContext().is_null()) {
           CurrentContext()->Print();
@@ -9302,7 +9452,7 @@ static Handle<Context> CopyWithContextChain(Handle<Context> context_chain,
 // Runtime_DebugEvaluate.
 static Handle<Object> GetArgumentsObject(JavaScriptFrame* frame,
                                          Handle<JSFunction> function,
-                                         Handle<Code> code,
+                                         Handle<SerializedScopeInfo> scope_info,
                                          const ScopeInfo<>* sinfo,
                                          Handle<Context> function_context) {
   // Try to find the value of 'arguments' to pass as parameter. If it is not
@@ -9310,15 +9460,14 @@ static Handle<Object> GetArgumentsObject(JavaScriptFrame* frame,
   // does not support eval) then create an 'arguments' object.
   int index;
   if (sinfo->number_of_stack_slots() > 0) {
-    index = ScopeInfo<>::StackSlotIndex(*code, Heap::arguments_symbol());
+    index = scope_info->StackSlotIndex(Heap::arguments_symbol());
     if (index != -1) {
       return Handle<Object>(frame->GetExpression(index));
     }
   }
 
   if (sinfo->number_of_context_slots() > Context::MIN_CONTEXT_SLOTS) {
-    index = ScopeInfo<>::ContextSlotIndex(*code, Heap::arguments_symbol(),
-                                          NULL);
+    index = scope_info->ContextSlotIndex(Heap::arguments_symbol(), NULL);
     if (index != -1) {
       return Handle<Object>(function_context->get(index));
     }
@@ -9369,8 +9518,8 @@ static Object* Runtime_DebugEvaluate(Arguments args) {
   JavaScriptFrameIterator it(id);
   JavaScriptFrame* frame = it.frame();
   Handle<JSFunction> function(JSFunction::cast(frame->function()));
-  Handle<Code> code(function->code());
-  ScopeInfo<> sinfo(*code);
+  Handle<SerializedScopeInfo> scope_info(function->shared()->scope_info());
+  ScopeInfo<> sinfo(*scope_info);
 
   // Traverse the saved contexts chain to find the active context for the
   // selected frame.
@@ -9392,7 +9541,7 @@ static Object* Runtime_DebugEvaluate(Arguments args) {
       Factory::NewFunction(Factory::empty_string(), Factory::undefined_value());
   go_between->set_context(function->context());
 #ifdef DEBUG
-  ScopeInfo<> go_between_sinfo(go_between->shared()->code());
+  ScopeInfo<> go_between_sinfo(go_between->shared()->scope_info());
   ASSERT(go_between_sinfo.number_of_parameters() == 0);
   ASSERT(go_between_sinfo.number_of_context_slots() == 0);
 #endif
@@ -9438,8 +9587,8 @@ static Object* Runtime_DebugEvaluate(Arguments args) {
                       &has_pending_exception);
   if (has_pending_exception) return Failure::Exception();
 
-  Handle<Object> arguments = GetArgumentsObject(frame, function, code, &sinfo,
-                                                function_context);
+  Handle<Object> arguments = GetArgumentsObject(frame, function, scope_info,
+                                                &sinfo, function_context);
 
   // Invoke the evaluation function and return the result.
   const int argc = 2;

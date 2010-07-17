@@ -1,4 +1,7 @@
-require("../common");
+common = require("../common");
+assert = common.assert
+
+assert = require('assert');
 
 var WINDOW = 200; // why is does this need to be so big?
 

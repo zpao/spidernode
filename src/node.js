@@ -197,11 +197,11 @@ function format (f) {
   var i = 1;
   var args = arguments;
   if (!(f instanceof String)) f = String(f);
-  return f.replace(/%([sdf])/g, function (x) {
+  return f.replace(/%([sdj])/g, function (x) {
     switch (x) {
       case '%s': return args[i++];
       case '%d': return args[i++].toString();
-      case '%f': return JSON.stringify(args[i++]);
+      case '%j': return JSON.stringify(args[i++]);
       default:
         return x;
     }
@@ -222,6 +222,17 @@ global.console.warn = function () {
 
 global.console.error = global.console.warn;
 
+global.console.dir = function(object){
+  var sys = module.requireNative('sys');
+  process.stdout.write(sys.inspect(object) + '\n');
+}
+
+global.console.assert = function(expression){
+  if(!expression){
+    var arr = Array.prototype.slice.call(arguments, 1);
+    process.assert(false, format.apply(this, arr));
+  }
+}
 
 process.exit = function (code) {
   process.emit("exit");

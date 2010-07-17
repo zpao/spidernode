@@ -2,6 +2,7 @@
 #include <node.h>
 #include <node_file.h>
 #include <node_buffer.h>
+#include <node_stat_watcher.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -19,6 +20,8 @@
 #define PATH_MAX 4096
 #endif
 
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof(*(a)))
+
 namespace node {
 
 using namespace v8;
@@ -28,6 +31,10 @@ using namespace v8;
   ThrowException(Exception::TypeError(String::New("Bad argument")))
 static Persistent<String> encoding_symbol;
 static Persistent<String> errno_symbol;
+
+// Buffer for readlink()  and other misc callers; keep this scoped at
+// file-level rather than method-level to avoid excess stack usage.
+static char getbuf[PATH_MAX + 1];
 
 static int After(eio_req *req) {
   HandleScope scope;
@@ -182,6 +189,87 @@ static Handle<Value> Close(const Arguments& args) {
   }
 }
 
+
+static Persistent<FunctionTemplate> stats_constructor_template;
+
+static Persistent<String> dev_symbol;
+static Persistent<String> ino_symbol;
+static Persistent<String> mode_symbol;
+static Persistent<String> nlink_symbol;
+static Persistent<String> uid_symbol;
+static Persistent<String> gid_symbol;
+static Persistent<String> rdev_symbol;
+static Persistent<String> size_symbol;
+static Persistent<String> blksize_symbol;
+static Persistent<String> blocks_symbol;
+static Persistent<String> atime_symbol;
+static Persistent<String> mtime_symbol;
+static Persistent<String> ctime_symbol;
+
+Local<Object> BuildStatsObject(struct stat * s) {
+  HandleScope scope;
+
+  if (dev_symbol.IsEmpty()) {
+    dev_symbol = NODE_PSYMBOL("dev");
+    ino_symbol = NODE_PSYMBOL("ino");
+    mode_symbol = NODE_PSYMBOL("mode");
+    nlink_symbol = NODE_PSYMBOL("nlink");
+    uid_symbol = NODE_PSYMBOL("uid");
+    gid_symbol = NODE_PSYMBOL("gid");
+    rdev_symbol = NODE_PSYMBOL("rdev");
+    size_symbol = NODE_PSYMBOL("size");
+    blksize_symbol = NODE_PSYMBOL("blksize");
+    blocks_symbol = NODE_PSYMBOL("blocks");
+    atime_symbol = NODE_PSYMBOL("atime");
+    mtime_symbol = NODE_PSYMBOL("mtime");
+    ctime_symbol = NODE_PSYMBOL("ctime");
+  }
+
+  Local<Object> stats =
+    stats_constructor_template->GetFunction()->NewInstance();
+
+  /* ID of device containing file */
+  stats->Set(dev_symbol, Integer::New(s->st_dev));
+
+  /* inode number */
+  stats->Set(ino_symbol, Integer::New(s->st_ino));
+
+  /* protection */
+  stats->Set(mode_symbol, Integer::New(s->st_mode));
+
+  /* number of hard links */
+  stats->Set(nlink_symbol, Integer::New(s->st_nlink));
+
+  /* user ID of owner */
+  stats->Set(uid_symbol, Integer::New(s->st_uid));
+
+  /* group ID of owner */
+  stats->Set(gid_symbol, Integer::New(s->st_gid));
+
+  /* device ID (if special file) */
+  stats->Set(rdev_symbol, Integer::New(s->st_rdev));
+
+  /* total size, in bytes */
+  stats->Set(size_symbol, Number::New(s->st_size));
+
+  /* blocksize for filesystem I/O */
+  stats->Set(blksize_symbol, Integer::New(s->st_blksize));
+
+  /* number of blocks allocated */
+  stats->Set(blocks_symbol, Integer::New(s->st_blocks));
+
+  /* time of last access */
+  stats->Set(atime_symbol, NODE_UNIXTIME_V8(s->st_atime));
+
+  /* time of last modification */
+  stats->Set(mtime_symbol, NODE_UNIXTIME_V8(s->st_mtime));
+
+  /* time of last status change */
+  stats->Set(ctime_symbol, NODE_UNIXTIME_V8(s->st_ctime));
+
+  return scope.Close(stats);
+}
+
 static Handle<Value> Stat(const Arguments& args) {
   HandleScope scope;
 
@@ -289,10 +377,10 @@ static Handle<Value> ReadLink(const Arguments& args) {
   if (args[1]->IsFunction()) {
     ASYNC_CALL(readlink, args[1], *path)
   } else {
-    char buf[PATH_MAX];
-    ssize_t bz = readlink(*path, buf, PATH_MAX);
+    ssize_t bz = readlink(*path, getbuf, ARRAY_SIZE(getbuf) - 1);
     if (bz == -1) return ThrowException(ErrnoException(errno, NULL, "", *path));
-    return scope.Close(String::New(buf, bz));
+    getbuf[ARRAY_SIZE(getbuf) - 1] = '\0';
+    return scope.Close(String::New(getbuf, bz));
   }
 }
 
@@ -433,16 +521,17 @@ static Handle<Value> SendFile(const Arguments& args) {
   HandleScope scope;
 
   if (args.Length() < 4 ||
-      !args[0]->IsInt32() ||
-      !args[1]->IsInt32() ||
-      !args[3]->IsNumber()) {
+      !args[0]->IsUint32() ||
+      !args[1]->IsUint32() ||
+      !args[2]->IsUint32() ||
+      !args[3]->IsUint32()) {
     return THROW_BAD_ARGS;
   }
 
-  int out_fd = args[0]->Int32Value();
-  int in_fd = args[1]->Int32Value();
-  off_t in_offset = args[2]->IsNumber() ? args[2]->IntegerValue() : -1;
-  size_t length = args[3]->IntegerValue();
+  int out_fd = args[0]->Uint32Value();
+  int in_fd = args[1]->Uint32Value();
+  off_t in_offset = args[2]->Uint32Value();
+  size_t length = args[3]->Uint32Value();
 
   if (args[4]->IsFunction()) {
     ASYNC_CALL(sendfile, args[4], out_fd, in_fd, in_offset, length)
@@ -712,4 +801,17 @@ void File::Initialize(Handle<Object> target) {
   encoding_symbol = NODE_PSYMBOL("node:encoding");
 }
 
+void InitFs(Handle<Object> target) {
+  HandleScope scope;
+  // Initialize the stats object
+  Local<FunctionTemplate> stat_templ = FunctionTemplate::New();
+  stats_constructor_template = Persistent<FunctionTemplate>::New(stat_templ);
+  target->Set(String::NewSymbol("Stats"),
+               stats_constructor_template->GetFunction());
+  StatWatcher::Initialize(target);
+  File::Initialize(target);
+}
+
 }  // end namespace node
+
+NODE_MODULE(node_fs, node::InitFs);

@@ -10,6 +10,11 @@
 
 #include <node_object_wrap.h>
 
+#ifndef NODE_STRINGIFY
+#define NODE_STRINGIFY(n) NODE_STRINGIFY_HELPER(n)
+#define NODE_STRINGIFY_HELPER(n) #n
+#endif
+
 namespace node {
 
 #define NODE_PSYMBOL(s) Persistent<String>::New(String::NewSymbol(s))
@@ -82,5 +87,41 @@ v8::Local<v8::Value> ErrnoException(int errorno,
                                     const char *path = NULL);
 
 const char *signo_string(int errorno);
+
+struct node_module_struct {
+  int version;
+  void *dso_handle;
+  const char *filename;
+  void (*register_func) (v8::Handle<v8::Object> target);
+  const char *modname;
+};
+
+node_module_struct* get_builtin_module(const char *name);
+
+/**
+ * When this version number is changed, node.js will refuse
+ * to load older modules.  This should be done whenever
+ * an API is broken in the C++ side, including in v8 or
+ * other dependencies
+ */
+#define NODE_MODULE_VERSION (1)
+
+#define NODE_STANDARD_MODULE_STUFF \
+          NODE_MODULE_VERSION,     \
+          NULL,                    \
+          __FILE__
+
+#define NODE_MODULE(modname, regfunc)   \
+  node::node_module_struct modname ## _module =    \
+  {                                     \
+      NODE_STANDARD_MODULE_STUFF,       \
+      regfunc,                          \
+      NODE_STRINGIFY(modname)           \
+  };
+
+#define NODE_MODULE_DECL(modname) \
+  extern node::node_module_struct modname ## _module;
+
+
 }  // namespace node
 #endif  // SRC_NODE_H_

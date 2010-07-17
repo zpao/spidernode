@@ -400,7 +400,22 @@ class Debug {
   // Called from stub-cache.cc.
   static void GenerateCallICDebugBreak(MacroAssembler* masm);
 
-  static void FramesHaveBeenDropped(StackFrame::Id new_break_frame_id);
+  // Describes how exactly a frame has been dropped from stack.
+  enum FrameDropMode {
+    // No frame has been dropped.
+    FRAMES_UNTOUCHED,
+    // The top JS frame had been calling IC stub. IC stub mustn't be called now.
+    FRAME_DROPPED_IN_IC_CALL,
+    // The top JS frame had been calling debug break slot stub. Patch the
+    // address this stub jumps to in the end.
+    FRAME_DROPPED_IN_DEBUG_SLOT_CALL,
+    // The top JS frame had been calling some C++ function. The return address
+    // gets patched automatically.
+    FRAME_DROPPED_IN_DIRECT_CALL
+  };
+
+  static void FramesHaveBeenDropped(StackFrame::Id new_break_frame_id,
+                                    FrameDropMode mode);
 
   static void SetUpFrameDropperFrame(StackFrame* bottom_js_frame,
                                      Handle<Code> code);
@@ -471,8 +486,9 @@ class Debug {
     // Storage location for jump when exiting debug break calls.
     Address after_break_target_;
 
-    // Indicates that LiveEdit has patched the stack.
-    bool frames_are_dropped_;
+    // Stores the way how LiveEdit has patched the stack. It is used when
+    // debugger returns control back to user script.
+    FrameDropMode frame_drop_mode_;
 
     // Top debugger entry.
     EnterDebugger* debugger_entry_;
@@ -550,18 +566,21 @@ class EventDetailsImpl : public v8::Debug::EventDetails {
   EventDetailsImpl(DebugEvent event,
                    Handle<JSObject> exec_state,
                    Handle<JSObject> event_data,
-                   Handle<Object> callback_data);
+                   Handle<Object> callback_data,
+                   v8::Debug::ClientData* client_data);
   virtual DebugEvent GetEvent() const;
   virtual v8::Handle<v8::Object> GetExecutionState() const;
   virtual v8::Handle<v8::Object> GetEventData() const;
   virtual v8::Handle<v8::Context> GetEventContext() const;
   virtual v8::Handle<v8::Value> GetCallbackData() const;
+  virtual v8::Debug::ClientData* GetClientData() const;
  private:
   DebugEvent event_;  // Debug event causing the break.
-  Handle<JSObject> exec_state_;  // Current execution state.
-  Handle<JSObject> event_data_;  // Data associated with the event.
-  Handle<Object> callback_data_;  // User data passed with the callback when
-                                  // it was registered.
+  Handle<JSObject> exec_state_;         // Current execution state.
+  Handle<JSObject> event_data_;         // Data associated with the event.
+  Handle<Object> callback_data_;        // User data passed with the callback
+                                        // when it was registered.
+  v8::Debug::ClientData* client_data_;  // Data passed to DebugBreakForCommand.
 };
 
 
@@ -690,6 +709,9 @@ class Debugger {
   // Check whether there are commands in the command queue.
   static bool HasCommands();
 
+  // Enqueue a debugger command to the command queue for event listeners.
+  static void EnqueueDebugCommand(v8::Debug::ClientData* client_data = NULL);
+
   static Handle<Object> Call(Handle<JSFunction> fun,
                              Handle<Object> data,
                              bool* pending_exception);
@@ -737,6 +759,17 @@ class Debugger {
   static bool IsDebuggerActive();
 
  private:
+  static void CallEventCallback(v8::DebugEvent event,
+                                Handle<Object> exec_state,
+                                Handle<Object> event_data,
+                                v8::Debug::ClientData* client_data);
+  static void CallCEventCallback(v8::DebugEvent event,
+                                 Handle<Object> exec_state,
+                                 Handle<Object> event_data,
+                                 v8::Debug::ClientData* client_data);
+  static void CallJSEventCallback(v8::DebugEvent event,
+                                  Handle<Object> exec_state,
+                                  Handle<Object> event_data);
   static void ListenersChanged();
 
   static Mutex* debugger_access_;  // Mutex guarding debugger variables.
@@ -758,6 +791,8 @@ class Debugger {
   static const int kQueueInitialSize = 4;
   static LockingCommandMessageQueue command_queue_;
   static Semaphore* command_received_;  // Signaled for each command received.
+
+  static LockingCommandMessageQueue event_command_queue_;
 
   friend class EnterDebugger;
 };
