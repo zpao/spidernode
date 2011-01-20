@@ -26,17 +26,6 @@ namespace node {
 
 using namespace v8;
 
-static Persistent<String> on_message_begin_sym;
-static Persistent<String> on_path_sym;
-static Persistent<String> on_query_string_sym;
-static Persistent<String> on_url_sym;
-static Persistent<String> on_fragment_sym;
-static Persistent<String> on_header_field_sym;
-static Persistent<String> on_header_value_sym;
-static Persistent<String> on_headers_complete_sym;
-static Persistent<String> on_body_sym;
-static Persistent<String> on_message_complete_sym;
-
 static Persistent<String> delete_sym;
 static Persistent<String> get_sym;
 static Persistent<String> head_sym;
@@ -70,55 +59,6 @@ static Persistent<String> version_minor_sym;
 static Persistent<String> should_keep_alive_sym;
 static Persistent<String> upgrade_sym;
 
-static struct http_parser_settings settings;
-
-
-// This is a hack to get the current_buffer to the callbacks with the least
-// amount of overhead. Nothing else will run while http_parser_execute()
-// runs, therefore this pointer can be set and used for the execution.
-static Local<Value>* current_buffer;
-static char* current_buffer_data;
-static size_t current_buffer_len;
-
-
-// Callback prototype for http_cb
-#define DEFINE_HTTP_CB(name)                                             \
-  static int name(http_parser *p) {                                      \
-    Parser *parser = static_cast<Parser*>(p->data);                      \
-    Local<Value> cb_value = parser->handle_->Get(name##_sym);            \
-    if (!cb_value->IsFunction()) return 0;                               \
-    Local<Function> cb = Local<Function>::Cast(cb_value);                \
-    Local<Value> ret = cb->Call(parser->handle_, 0, NULL);               \
-    if (ret.IsEmpty()) {                                                 \
-      parser->got_exception_ = true;                                     \
-      return -1;                                                         \
-    } else {                                                             \
-      return 0;                                                          \
-    }                                                                    \
-  }
-
-// Callback prototype for http_data_cb
-#define DEFINE_HTTP_DATA_CB(name)                                        \
-  static int name(http_parser *p, const char *at, size_t length) {       \
-    Parser *parser = static_cast<Parser*>(p->data);                      \
-    assert(current_buffer);                                              \
-    Local<Value> cb_value = parser->handle_->Get(name##_sym);            \
-    if (!cb_value->IsFunction()) return 0;                               \
-    Local<Function> cb = Local<Function>::Cast(cb_value);                \
-    Local<Value> argv[3] = { *current_buffer                             \
-                           , Integer::New(at - current_buffer_data)      \
-                           , Integer::New(length)                        \
-                           };                                            \
-    Local<Value> ret = cb->Call(parser->handle_, 3, argv);               \
-    assert(current_buffer);                                              \
-    if (ret.IsEmpty()) {                                                 \
-      parser->got_exception_ = true;                                     \
-      return -1;                                                         \
-    } else {                                                             \
-      return 0;                                                          \
-    }                                                                    \
-  }
-
 
 static inline Persistent<String>
 method_to_str(unsigned short m) {
@@ -151,66 +91,20 @@ method_to_str(unsigned short m) {
 }
 
 
+#define ELEMENTS_TOTAL 1000
+static struct http_parser_data elements[ELEMENTS_TOTAL];
+
+
 class Parser : public ObjectWrap {
  public:
   Parser(enum http_parser_type type) : ObjectWrap() {
     Init(type);
   }
 
+
   ~Parser() {
   }
 
-  DEFINE_HTTP_CB(on_message_begin)
-  DEFINE_HTTP_CB(on_message_complete)
-
-  DEFINE_HTTP_DATA_CB(on_path)
-  DEFINE_HTTP_DATA_CB(on_url)
-  DEFINE_HTTP_DATA_CB(on_fragment)
-  DEFINE_HTTP_DATA_CB(on_query_string)
-  DEFINE_HTTP_DATA_CB(on_header_field)
-  DEFINE_HTTP_DATA_CB(on_header_value)
-  DEFINE_HTTP_DATA_CB(on_body)
-
-  static int on_headers_complete(http_parser *p) {
-    Parser *parser = static_cast<Parser*>(p->data);
-
-    Local<Value> cb_value = parser->handle_->Get(on_headers_complete_sym);
-    if (!cb_value->IsFunction()) return 0;
-    Local<Function> cb = Local<Function>::Cast(cb_value);
-
-
-    Local<Object> message_info = Object::New();
-
-    // METHOD
-    if (p->type == HTTP_REQUEST) {
-      message_info->Set(method_sym, method_to_str(p->method));
-    }
-
-    // STATUS
-    if (p->type == HTTP_RESPONSE) {
-      message_info->Set(status_code_sym, Integer::New(p->status_code));
-    }
-
-    // VERSION
-    message_info->Set(version_major_sym, Integer::New(p->http_major));
-    message_info->Set(version_minor_sym, Integer::New(p->http_minor));
-
-    message_info->Set(should_keep_alive_sym,
-        http_should_keep_alive(p) ? True() : False());
-
-    message_info->Set(upgrade_sym, p->upgrade ? True() : False());
-
-    Local<Value> argv[1] = { message_info };
-
-    Local<Value> head_response = cb->Call(parser->handle_, 1, argv);
-
-    if (head_response.IsEmpty()) {
-      parser->got_exception_ = true;
-      return -1;
-    } else {
-      return head_response->IsTrue() ? 1 : 0;
-    }
-  }
 
   static Handle<Value> New(const Arguments& args) {
     HandleScope scope;
@@ -229,7 +123,6 @@ class Parser : public ObjectWrap {
     }
 
     parser->Wrap(args.This());
-    assert(!current_buffer);
 
     return args.This();
   }
@@ -239,14 +132,6 @@ class Parser : public ObjectWrap {
     HandleScope scope;
 
     Parser *parser = ObjectWrap::Unwrap<Parser>(args.This());
-
-    assert(!current_buffer);
-    assert(!current_buffer_data);
-
-    if (current_buffer) {
-      return ThrowException(Exception::TypeError(
-            String::New("Already parsing a buffer")));
-    }
 
     Local<Value> buffer_v = args[0];
 
@@ -271,50 +156,120 @@ class Parser : public ObjectWrap {
             String::New("Length is extends beyond buffer")));
     }
 
-    // Assign 'buffer_' while we parse. The callbacks will access that varible.
-    current_buffer = &buffer_v;
-    current_buffer_data = buffer_data;
-    current_buffer_len = buffer_len;
-    parser->got_exception_ = false;
+    size_t nelements = http_parser_execute2(&parser->parser_,
+                                            buffer_data + off,
+                                            len,
+                                            elements,
+                                            ELEMENTS_TOTAL);
 
-    size_t nparsed =
-      http_parser_execute(&parser->parser_, &settings, buffer_data + off, len);
+    // The result array has three elements for each element returned First
+    // is a description string of the type. The next two depend on the type.
+    Local<Array> result = Array::New(3 * nelements);
 
-    // Unassign the 'buffer_' variable
-    assert(current_buffer);
-    current_buffer = NULL;
-    current_buffer_data = NULL;
+#define JS_OFFSET(el) Integer::New(el.payload.string.p - buffer_data)
+#define JS_LEN(el) Integer::New(el.payload.string.len)
 
-    // If there was an exception in one of the callbacks
-    if (parser->got_exception_) return Local<Value>();
+    for (int i = 0; i < nelements; i++) {
+      switch (elements[i].type) {
+        case HTTP_PARSER_ERROR:
+          result->Set(3*i, String::New("ERROR"));
+          result->Set(3*i + 1, JS_OFFSET(elements[i]));
+          result->Set(3*i + 2, Integer::New(0));
+          break;
 
-    Local<Integer> nparsed_obj = Integer::New(nparsed);
-    // If there was a parse error in one of the callbacks
-    // TODO What if there is an error on EOF?
-    if (!parser->parser_.upgrade && nparsed != len) {
-      Local<Value> e = Exception::Error(String::NewSymbol("Parse Error"));
-      Local<Object> obj = e->ToObject();
-      obj->Set(String::NewSymbol("bytesParsed"), nparsed_obj);
-      return scope.Close(e);
-    } else {
-      return scope.Close(nparsed_obj);
+        case HTTP_NEEDS_INPUT:
+          result->Set(3*i, String::New("NEEDS_INPUT"));
+          result->Set(3*i + 1, JS_OFFSET(elements[i]));
+          result->Set(3*i + 2, Integer::New(0));
+          break;
+
+        case HTTP_NEEDS_DATA_ELEMENTS:
+          result->Set(3*i, String::New("NEEDS_DATA_ELEMENTS"));
+          result->Set(3*i + 1, JS_OFFSET(elements[i]));
+          result->Set(3*i + 2, Integer::New(0));
+          break;
+
+        case HTTP_REQ_MESSAGE_START:
+          result->Set(3*i, String::New("REQ_MESSAGE_START"));
+          result->Set(3*i + 1, method_to_str(elements[i].payload.method));
+          result->Set(3*i + 2, Null());
+          break;
+
+        case HTTP_RES_MESSAGE_START: /* payload.status */
+          result->Set(3*i, String::New("RES_MESSAGE_START"));
+          result->Set(3*i + 1, Integer::New(elements[i].payload.status_code));
+          result->Set(3*i + 2, Null());
+          break;
+
+        case HTTP_VERSION: /* payload.version */
+          result->Set(3*i, String::New("VERSION"));
+          result->Set(3*i + 1, Integer::New(elements[i].payload.version.major));
+          result->Set(3*i + 2, Integer::New(elements[i].payload.version.minor));
+          break;
+
+        case HTTP_PATH: /* payload.string */
+          result->Set(3*i, String::New("PATH"));
+          result->Set(3*i + 1, JS_OFFSET(elements[i]));
+          result->Set(3*i + 2, JS_LEN(elements[i]));
+          break;
+
+        case HTTP_QUERY_STRING: /* payload.string */
+          result->Set(3*i, String::New("QUERY_STRING"));
+          result->Set(3*i + 1, JS_OFFSET(elements[i]));
+          result->Set(3*i + 2, JS_LEN(elements[i]));
+          break;
+
+        case HTTP_FRAGMENT: /* payload.string */
+          result->Set(3*i, String::New("FRAGMENT"));
+          result->Set(3*i + 1, JS_OFFSET(elements[i]));
+          result->Set(3*i + 2, JS_LEN(elements[i]));
+          break;
+
+        case HTTP_URL: /* payload.string */
+          result->Set(3*i, String::New("URL"));
+          result->Set(3*i + 1, JS_OFFSET(elements[i]));
+          result->Set(3*i + 2, JS_LEN(elements[i]));
+          break;
+
+        case HTTP_HEADER_FIELD: /* payload.string */
+          result->Set(3*i, String::New("HEADER_FIELD"));
+          result->Set(3*i + 1, JS_OFFSET(elements[i]));
+          result->Set(3*i + 2, JS_LEN(elements[i]));
+          break;
+
+        case HTTP_HEADER_VALUE: /* payload.string */
+          result->Set(3*i, String::New("HEADER_VALUE"));
+          result->Set(3*i + 1, JS_OFFSET(elements[i]));
+          result->Set(3*i + 2, JS_LEN(elements[i]));
+          break;
+
+        case HTTP_HEADERS_END: /* payload.flags */
+          // need info about upgrades
+          result->Set(3*i, String::New("HEADERS_END"));
+          result->Set(3*i + 1, Null());
+          result->Set(3*i + 2, Null());
+          break;
+
+        case HTTP_BODY: /* payload.string */
+          result->Set(3*i, String::New("BODY"));
+          result->Set(3*i + 1, JS_OFFSET(elements[i]));
+          result->Set(3*i + 2, JS_LEN(elements[i]));
+          break;
+
+        case HTTP_MESSAGE_END: /* payload.string */
+          result->Set(3*i, String::New("MESSAGE_END"));
+          result->Set(3*i + 1, JS_OFFSET(elements[i]));
+          result->Set(3*i + 2, Integer::New(0));
+          break;
+      }
     }
+
+#undef JS_OFFSET
+#undef JS_LEN
+
+    return scope.Close(result);
   }
 
-  static Handle<Value> Finish(const Arguments& args) {
-    HandleScope scope;
-
-    Parser *parser = ObjectWrap::Unwrap<Parser>(args.This());
-
-    assert(!current_buffer);
-    parser->got_exception_ = false;
-
-    http_parser_execute(&(parser->parser_), &settings, NULL, 0);
-
-    if (parser->got_exception_) return Local<Value>();
-
-    return Undefined();
-  }
 
   static Handle<Value> Reinitialize(const Arguments& args) {
     HandleScope scope;
@@ -341,7 +296,6 @@ class Parser : public ObjectWrap {
     parser_.data = this;
   }
 
-  bool got_exception_;
   http_parser parser_;
 };
 
@@ -354,21 +308,9 @@ void InitHttpParser(Handle<Object> target) {
   t->SetClassName(String::NewSymbol("HTTPParser"));
 
   NODE_SET_PROTOTYPE_METHOD(t, "execute", Parser::Execute);
-  NODE_SET_PROTOTYPE_METHOD(t, "finish", Parser::Finish);
   NODE_SET_PROTOTYPE_METHOD(t, "reinitialize", Parser::Reinitialize);
 
   target->Set(String::NewSymbol("HTTPParser"), t->GetFunction());
-
-  on_message_begin_sym    = NODE_PSYMBOL("onMessageBegin");
-  on_path_sym             = NODE_PSYMBOL("onPath");
-  on_query_string_sym     = NODE_PSYMBOL("onQueryString");
-  on_url_sym              = NODE_PSYMBOL("onURL");
-  on_fragment_sym         = NODE_PSYMBOL("onFragment");
-  on_header_field_sym     = NODE_PSYMBOL("onHeaderField");
-  on_header_value_sym     = NODE_PSYMBOL("onHeaderValue");
-  on_headers_complete_sym = NODE_PSYMBOL("onHeadersComplete");
-  on_body_sym             = NODE_PSYMBOL("onBody");
-  on_message_complete_sym = NODE_PSYMBOL("onMessageComplete");
 
   delete_sym = NODE_PSYMBOL("DELETE");
   get_sym = NODE_PSYMBOL("GET");
@@ -402,17 +344,6 @@ void InitHttpParser(Handle<Object> target) {
   version_minor_sym = NODE_PSYMBOL("versionMinor");
   should_keep_alive_sym = NODE_PSYMBOL("shouldKeepAlive");
   upgrade_sym = NODE_PSYMBOL("upgrade");
-
-  settings.on_message_begin    = Parser::on_message_begin;
-  settings.on_path             = Parser::on_path;
-  settings.on_query_string     = Parser::on_query_string;
-  settings.on_url              = Parser::on_url;
-  settings.on_fragment         = Parser::on_fragment;
-  settings.on_header_field     = Parser::on_header_field;
-  settings.on_header_value     = Parser::on_header_value;
-  settings.on_headers_complete = Parser::on_headers_complete;
-  settings.on_body             = Parser::on_body;
-  settings.on_message_complete = Parser::on_message_complete;
 }
 
 }  // namespace node
