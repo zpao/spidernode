@@ -1,3 +1,24 @@
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 #include "node.h"
 #include "platform.h"
 
@@ -15,12 +36,25 @@
 #include <stdlib.h> // free
 #include <string.h> // strdup
 
+/* GetInterfaceAddresses */
+#include <arpa/inet.h>
+#include <sys/types.h>
+#include <ifaddrs.h>
+#include <errno.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
+
+#if HAVE_MONOTONIC_CLOCK
+#include <time.h>
+#endif
+
 namespace node {
 
 using namespace v8;
 
 static char buf[MAXPATHLEN + 1];
 static char *process_title;
+double Platform::prog_start_time = Platform::GetUptime();
 
 
 char** Platform::SetupArgs(int argc, char *argv[]) {
@@ -238,14 +272,22 @@ double Platform::GetTotalMemory() {
   return pages * pagesize;
 }
 
-double Platform::GetUptime() {
+double Platform::GetUptimeImpl() {
+#if HAVE_MONOTONIC_CLOCK
+  struct timespec now;
+  if (0 == clock_gettime(CLOCK_MONOTONIC, &now)) {
+    double uptime = now.tv_sec;
+    uptime += (double)now.tv_nsec / 1000000000.0;
+    return uptime;
+  }
+  return -1;
+#else
   struct sysinfo info;
-
   if (sysinfo(&info) < 0) {
     return -1;
   }
-
   return static_cast<double>(info.uptime);
+#endif
 }
 
 int Platform::GetLoadAvg(Local<Array> *loads) {
@@ -260,5 +302,75 @@ int Platform::GetLoadAvg(Local<Array> *loads) {
 
   return 0;
 }
+
+
+bool IsInternal(struct ifaddrs* addr) {
+  return addr->ifa_flags & IFF_UP &&
+         addr->ifa_flags & IFF_RUNNING &&
+         addr->ifa_flags & IFF_LOOPBACK;
+}
+
+
+Handle<Value> Platform::GetInterfaceAddresses() {
+  HandleScope scope;
+
+  struct ::ifaddrs *addrs;
+
+  int r = getifaddrs(&addrs);
+
+  if (r != 0) {
+    return ThrowException(ErrnoException(errno, "getifaddrs"));
+  }
+
+  struct ::ifaddrs *addr;
+
+  Local<Object> a = Object::New();
+
+  for (addr = addrs;
+       addr;
+       addr = addr->ifa_next) {
+    Local<String> name = String::New(addr->ifa_name);
+    Local<Object> info;
+
+    if (a->Has(name)) {
+      info = a->Get(name)->ToObject();
+    } else {
+      info = Object::New();
+      a->Set(name, info);
+    }
+
+    struct sockaddr *address = addr->ifa_addr;
+    char ip[INET6_ADDRSTRLEN];
+
+    switch (address->sa_family) {
+      case AF_INET6: {
+        struct sockaddr_in6 *a6 = (struct sockaddr_in6*)address;
+        inet_ntop(AF_INET6, &(a6->sin6_addr), ip, INET6_ADDRSTRLEN);
+        info->Set(String::New("ip6"), String::New(ip));
+        if (addr->ifa_flags) {
+          info->Set(String::New("internal"),
+                    IsInternal(addr) ? True() : False());
+        }
+        break;
+      }
+
+      case AF_INET: {
+        struct sockaddr_in *a4 = (struct sockaddr_in*)address;
+        inet_ntop(AF_INET, &(a4->sin_addr), ip, INET6_ADDRSTRLEN);
+        info->Set(String::New("ip"), String::New(ip));
+        if (addr->ifa_flags) {
+          info->Set(String::New("internal"),
+                    IsInternal(addr) ? True() : False());
+        }
+        break;
+      }
+    }
+  }
+
+  freeifaddrs(addrs);
+
+  return scope.Close(a);
+}
+
 
 }  // namespace node

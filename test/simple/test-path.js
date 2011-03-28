@@ -1,3 +1,24 @@
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 var common = require('../common');
 var assert = require('assert');
 
@@ -147,3 +168,39 @@ resolveTests.forEach(function(test) {
   // assert.equal(actual, expected, message);
 });
 assert.equal(failures.length, 0, failures.join(''));
+
+// path.relative tests
+if (isWindows) {
+  // windows
+  var relativeTests =
+   // arguments                     result
+   [['c:/blah\\blah', 'd:/games',   'd:\\games'],
+    ['c:/aaaa/bbbb', 'c:/aaaa',     '..'],
+    ['c:/aaaa/bbbb', 'c:/cccc',     '..\\..\\cccc'],
+    ['c:/aaaa/bbbb', 'c:/aaaa/bbbb',''],
+    ['c:/aaaa/bbbb', 'c:/aaaa/cccc','..\\cccc'],
+    ['c:/aaaa/', 'c:/aaaa/cccc',    'cccc'],
+    ['c:/', 'c:\\aaaa\\bbbb',       'aaaa\\bbbb'],
+    ['c:/aaaa/bbbb', 'd:\\',        'd:\\']];
+} else {
+  // posix
+  var relativeTests =
+    // arguments                    result
+    [['/var/lib', '/var',           '..'],
+     ['/var/lib', '/bin',           '../../bin'],
+     ['/var/lib', '/var/lib',       ''],
+     ['/var/lib', '/var/apache',    '../apache'],
+     ['/var/', '/var/lib',          'lib'],
+     ['/', '/var/lib',              'var/lib']];
+}
+var failures = [];
+relativeTests.forEach(function(test) {
+  var actual = path.relative(test[0], test[1]);
+  var expected = test[2];
+  var message = 'path.relative(' + test.slice(0, 2).map(JSON.stringify).join(',') + ')' +
+                '\n  expect=' + JSON.stringify(expected) +
+                '\n  actual=' + JSON.stringify(actual);
+  if (actual !== expected) failures.push('\n' + message);
+});
+assert.equal(failures.length, 0, failures.join(''));
+

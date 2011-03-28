@@ -1,4 +1,24 @@
-// Copyright 2009 Ryan Dahl <ry@tinyclouds.org>
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 #include <node.h>
 #include <node_file.h>
 #include <node_buffer.h>
@@ -6,6 +26,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -108,6 +129,11 @@ static int After(eio_req *req) {
       case EIO_CHOWN:
         // These, however, don't.
         argc = 1;
+        break;
+
+      case EIO_UTIME:
+      case EIO_FUTIME:
+        argc = 0;
         break;
 
       case EIO_OPEN:
@@ -824,6 +850,83 @@ static Handle<Value> Chown(const Arguments& args) {
 }
 #endif // __POSIX__
 
+
+// Utimes() and Futimes() helper function, converts 123.456 timestamps to timevals
+static inline void ToTimevals(eio_tstamp atime,
+                              eio_tstamp mtime,
+                              timeval times[2]) {
+  times[0].tv_sec  = atime;
+  times[0].tv_usec = 10e5 * (atime - (long) atime);
+  times[1].tv_sec  = mtime;
+  times[1].tv_usec = 10e5 * (mtime - (long) mtime);
+}
+
+
+static Handle<Value> UTimes(const Arguments& args) {
+  HandleScope scope;
+
+  if (args.Length() < 3
+      || !args[0]->IsString()
+      || !args[1]->IsNumber()
+      || !args[2]->IsNumber())
+  {
+    return THROW_BAD_ARGS;
+  }
+
+  const String::Utf8Value path(args[0]->ToString());
+  const eio_tstamp atime = static_cast<eio_tstamp>(args[1]->NumberValue());
+  const eio_tstamp mtime = static_cast<eio_tstamp>(args[2]->NumberValue());
+
+  if (args[3]->IsFunction()) {
+    ASYNC_CALL(utime, args[3], *path, atime, mtime);
+  } else {
+    timeval times[2];
+
+    ToTimevals(atime, mtime, times);
+    if (utimes(*path, times) == -1) {
+      return ThrowException(ErrnoException(errno, "utimes", "", *path));
+    }
+  }
+
+  return Undefined();
+}
+
+
+static Handle<Value> FUTimes(const Arguments& args) {
+  HandleScope scope;
+
+  if (args.Length() < 3
+      || !args[0]->IsInt32()
+      || !args[1]->IsNumber()
+      || !args[2]->IsNumber())
+  {
+    return THROW_BAD_ARGS;
+  }
+
+  const int fd = args[0]->Int32Value();
+  const eio_tstamp atime = static_cast<eio_tstamp>(args[1]->NumberValue());
+  const eio_tstamp mtime = static_cast<eio_tstamp>(args[2]->NumberValue());
+
+  if (args[3]->IsFunction()) {
+    ASYNC_CALL(futime, args[3], fd, atime, mtime);
+  } else {
+#ifndef futimes
+    // Some systems do not have futimes
+    return ThrowException(ErrnoException(ENOSYS, "futimes", "", 0));
+#else
+    timeval times[2];
+
+    ToTimevals(atime, mtime, times);
+    if (futimes(fd, times) == -1) {
+      return ThrowException(ErrnoException(errno, "futimes", "", 0));
+    }
+#endif  // futimes
+  }
+
+  return Undefined();
+}
+
+
 void File::Initialize(Handle<Object> target) {
   HandleScope scope;
 
@@ -855,6 +958,9 @@ void File::Initialize(Handle<Object> target) {
 #ifdef __POSIX__
   NODE_SET_METHOD(target, "chown", Chown);
 #endif // __POSIX__
+
+  NODE_SET_METHOD(target, "utimes", UTimes);
+  NODE_SET_METHOD(target, "futimes", FUTimes);
 
   errno_symbol = NODE_PSYMBOL("errno");
   encoding_symbol = NODE_PSYMBOL("node:encoding");
