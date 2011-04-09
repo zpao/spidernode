@@ -1,0 +1,6 @@
+v8.a
+v8.o
+jsapi/
+
+# Executables made in the examples dir should be ignored
+examples/hello_world

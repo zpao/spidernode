@@ -1,0 +1,23 @@
+DEPTH = ../..
+topsrcdir = @top_srcdir@
+srcdir = @srcdir@
+VPATH = @srcdir@
+
+include $(DEPTH)/config/autoconf.mk
+
+MODULE = test_v8api
+
+CPP_UNIT_TESTS = \
+  test_api.cpp \
+  test_script_run_void.cpp \
+  test_String.cpp \
+  test_objprop.cpp \
+  test_trycatch.cpp \
+  $(NULL)
+
+LIBS = \
+  $(LIBS_DIR) \
+  $(DEPTH)/$(LIB_PREFIX)js_static.$(LIB_SUFFIX) \
+  $(NULL)
+
+include $(topsrcdir)/config/rules.mk
