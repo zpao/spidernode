@@ -286,6 +286,7 @@ CPPSRCS += \
 		v8api/function.cpp \
 		v8api/template.cpp \
 		v8api/objecttemplate.cpp \
+		v8api/functiontemplate.cpp \
 		$(NULL)
 
 LOCAL_INCLUDES += -Iv8api

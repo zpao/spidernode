@@ -878,42 +878,17 @@ typedef bool (*NamedSecurityCallback)(Local<Object> host, Local<Value> key, Acce
 typedef bool (*IndexedSecurityCallback)(Local<Object> host, JSUint32 index, AccessType type, Local<Value> data);
 
 class FunctionTemplate : public Template {
+  FunctionTemplate();
 public:
-  static Local<FunctionTemplate> New(InvocationCallback callback = 0, Handle<Value> data = Handle<Value>(), Handle<Signature> signature = Handle<Signature>()) {
-    UNIMPLEMENTEDAPI(NULL);
-  }
-
-  Local<Function> GetFunction () {
-    UNIMPLEMENTEDAPI(NULL);
-  }
-
-  void SetCallHandler(InvocationCallback callback, Handle<Value> data = Handle<Value>()) {
-    UNIMPLEMENTEDAPI();
-  }
-
-  Local<ObjectTemplate> InstanceTemplate() {
-    UNIMPLEMENTEDAPI(NULL);
-  }
-
-  void Inherit(Handle<FunctionTemplate> parent) {
-    UNIMPLEMENTEDAPI();
-  }
-
-  Local<ObjectTemplate> PrototypeTemplate() {
-    UNIMPLEMENTEDAPI(NULL);
-  }
-
-  void SetClassName(Handle<String> name) {
-    UNIMPLEMENTEDAPI();
-  }
-
-  void SetHiddenPrototype(bool value) {
-    UNIMPLEMENTEDAPI();
-  }
-
-  bool HasInstance(Handle<Value> object) {
-    UNIMPLEMENTEDAPI(false);
-  }
+  static Local<FunctionTemplate> New(InvocationCallback callback = 0, Handle<Value> data = Handle<Value>(), Handle<Signature> signature = Handle<Signature>());
+  Local<Function> GetFunction ();
+  void SetCallHandler(InvocationCallback callback, Handle<Value> data = Handle<Value>());
+  Local<ObjectTemplate> InstanceTemplate();
+  void Inherit(Handle<FunctionTemplate> parent);
+  Local<ObjectTemplate> PrototypeTemplate();
+  void SetClassName(Handle<String> name);
+  void SetHiddenPrototype(bool value);
+  bool HasInstance(Handle<Value> object);
 };
 
 class ObjectTemplate : public Template {

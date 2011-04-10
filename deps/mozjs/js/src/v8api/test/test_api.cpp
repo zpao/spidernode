@@ -150,6 +150,27 @@ static v8::Handle<Value> GetXValue(Local<String> name,
   return name;
 }
 
+static int signature_callback_count;
+
+static v8::Handle<Value> IncrementingSignatureCallback(
+    const v8::Arguments& args) {
+  //ApiTestFuzzer::Fuzz();
+  signature_callback_count++;
+  v8::Handle<v8::Array> result = v8::Array::New(args.Length());
+  for (int i = 0; i < args.Length(); i++)
+    result->Set(v8::Integer::New(i), args[i]);
+  return result;
+}
+
+static v8::Handle<Value> SignatureCallback(const v8::Arguments& args) {
+  //ApiTestFuzzer::Fuzz();
+  v8::Handle<v8::Array> result = v8::Array::New(args.Length());
+  for (int i = 0; i < args.Length(); i++) {
+    result->Set(v8::Integer::New(i), args[i]);
+  }
+  return result;
+}
+
 // A LocalContext holds a reference to a v8::Context.
 class LocalContext {
  public:
