@@ -560,11 +560,10 @@ def configure(conf):
   conf.write_config_header("config.h")
 
 
-def spidermonkey_cmd(bld, variant):
+def spidermonkey_cmd(bld, variant, moz_objdir):
     make = 'make'
     deps_src = join(bld.path.abspath(),"deps")
     mozjs_top = join(deps_src,"mozjs")
-    objdir='%s/objdir' % variant
 
     configure_opts = ['--enable-static', '--disable-shared']
     if variant == 'default':
@@ -575,15 +574,15 @@ def spidermonkey_cmd(bld, variant):
     autoconf_names = 'autoconf213'
     autoconf_cmd = \
         '(cd %s/js/src && %s) && mkdir -p %s' % \
-        (mozjs_top, autoconf_names, objdir)
+        (mozjs_top, autoconf_names, moz_objdir)
 
     js_cmd = \
         '(cd %s && sh -c %s/js/src/configure %s && make)' % \
-        (objdir, mozjs_top, ' '.join(configure_opts))
+        (moz_objdir, mozjs_top, ' '.join(configure_opts))
 
     lib_file = bld.env["staticlib_PATTERN"] % 'js_static'
     copy_lib_cmd = 'cp %s/dist/lib/%s %s' % \
-                   (objdir, lib_file, variant)
+                   (moz_objdir, lib_file, variant)
 
 
     cmd = '%s && %s && %s' % (autoconf_cmd, js_cmd, copy_lib_cmd)
@@ -592,18 +591,20 @@ def spidermonkey_cmd(bld, variant):
 
 def build_spidermonkey(bld):
     variant = 'debug' if bld.env["USE_DEBUG"] else 'default'
-    objdir='%s/objdir' % variant
+    moz_objdir='%s/objdir' % variant
     mozjs = bld.new_task_gen(
         source          = 'deps/mozjs/js/src/configure.in',
         target          = bld.env["staticlib_PATTERN"] % 'js_static',
-        rule            = spidermonkey_cmd(bld, variant),
+        rule            = spidermonkey_cmd(bld, variant, moz_objdir),
         before          = "cxx",
         install_path    = None)
-    bld.env["CPPPATH_V8"] = "%s/include/js/" % objdir
+    bld.env["CPPPATH_V8"] = "%s/include/js/" % moz_objdir
+    t = join(variant, mozjs.target)
+    bld.env_of_name(variant).append_value("LINKFLAGS_V8", t)
 
-    # Probably don't need this
+    # Copy over the header files used to compile node
     bld.install_files('${PREFIX}/include/node/',
-                      '%s/include/js/*.h' % objdir)
+                      '%s/include/js/*.h' % moz_objdir)
 
 
 ### TODO:
