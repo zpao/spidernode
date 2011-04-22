@@ -275,6 +275,16 @@ def configure(conf):
   #if Options.options.debug:
   #  conf.check(lib='profiler', uselib_store='PROFILER')
 
+  valid_js_engines = ('v8', 'mozjs', 'spidermonkey')
+  if o.js_engine not in valid_js_engines:
+      conf.fatal('--js-engine must be one of %s' % ', '.join(valid_js_engines))
+  else:
+      if o.js_engine == 'spidermonkey':
+          js_engine = 'mozjs'
+      else:
+          js_engine = o.js_engine
+      conf.env["JS_ENGINE"] = js_engine
+
   if Options.options.dtrace:
     if not sys.platform.startswith("sunos"):
       conf.fatal('DTrace support only currently available on Solaris')
@@ -591,9 +601,9 @@ def spidermonkey_cmd(bld, variant, moz_objdir):
 
 def build_spidermonkey(bld):
     variant = 'debug' if bld.env["USE_DEBUG"] else 'default'
-    moz_objdir='%s/objdir' % variant
+    moz_objdir='%s/deps/mozjs/objdir' % variant
     mozjs = bld.new_task_gen(
-        source          = 'deps/mozjs/js/src/configure.in',
+        source          = bld.path.ant_glob('deps/mozjs/js/src/*'),
         target          = bld.env["staticlib_PATTERN"] % 'js_static',
         rule            = spidermonkey_cmd(bld, variant, moz_objdir),
         before          = "cxx",
@@ -711,8 +721,12 @@ def build(bld):
 
   bld.add_subdirs('deps/libeio')
 
-  #if not bld.env['USE_SHARED_V8']: build_v8(bld)
-  if not bld.env['USE_SHARED_V8']: build_spidermonkey(bld)
+  if not bld.env['USE_SHARED_V8']:
+    if bld.env['JS_ENGINE'] == 'v8':
+      build_v8(bld)
+    elif bld.env['JS_ENGINE'] == 'mozjs':
+      build_spidermonkey(bld)
+
   if not bld.env['USE_SHARED_LIBEV']: bld.add_subdirs('deps/libev')
   if not bld.env['USE_SHARED_CARES']: bld.add_subdirs('deps/c-ares')
 
@@ -919,7 +933,15 @@ def build(bld):
     deps/http_parser
   """
 
-  if not bld.env["USE_SHARED_V8"]: node.includes += ' deps/v8/include '
+  if not bld.env["USE_SHARED_V8"]:
+      if bld.env["JS_ENGINE"] == 'v8':
+        node.includes += ' deps/v8/include '
+      elif bld.env["JS_ENGINE"] == 'mozjs':
+        # XXX We also figure this out in build_spidermonkey,
+        # but this hack is to get something working now
+        variant = 'debug' if bld.env["USE_DEBUG"] else 'default'
+        moz_objdir = '%s/%s/deps/mozjs/objdir' % (blddir, variant)
+        node.includes += ' %s/dist/include ' % moz_objdir
 
   if not bld.env["USE_SHARED_LIBEV"]:
     node.add_objects += ' ev '
