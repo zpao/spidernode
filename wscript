@@ -575,7 +575,9 @@ def spidermonkey_cmd(bld, variant, moz_objdir):
     deps_src = join(bld.path.abspath(),"deps")
     mozjs_top = join(deps_src,"mozjs")
 
-    configure_opts = ['--enable-static', '--disable-shared']
+    configure_opts = ['--enable-static',
+                      '--disable-shared',
+                      '--disable-tests']
     if variant == 'default':
         configure_opts.append('--enable-optimize')
     else:
@@ -603,18 +605,18 @@ def build_spidermonkey(bld):
     variant = 'debug' if bld.env["USE_DEBUG"] else 'default'
     moz_objdir='%s/deps/mozjs/objdir' % variant
     mozjs = bld.new_task_gen(
-        source          = bld.path.ant_glob('deps/mozjs/js/src/*'),
+        source          = 'deps/mozjs/js/src/configure.in',
         target          = bld.env["staticlib_PATTERN"] % 'js_static',
         rule            = spidermonkey_cmd(bld, variant, moz_objdir),
         before          = "cxx",
         install_path    = None)
-    bld.env["CPPPATH_V8"] = "%s/include/js/" % moz_objdir
+    bld.env["CPPPATH_V8"] = "%s/dist/include/" % moz_objdir
     t = join(variant, mozjs.target)
     bld.env_of_name(variant).append_value("LINKFLAGS_V8", t)
 
     # Copy over the header files used to compile node
     bld.install_files('${PREFIX}/include/node/',
-                      '%s/include/js/*.h' % moz_objdir)
+                      '%s/dist/include/js/8*.h' % moz_objdir)
 
 
 ### TODO:
@@ -940,7 +942,7 @@ def build(bld):
         # XXX We also figure this out in build_spidermonkey,
         # but this hack is to get something working now
         variant = 'debug' if bld.env["USE_DEBUG"] else 'default'
-        node.includes += ' %s/%s/deps/mozjs/objdir/dist/include ' % (blddir, variant)
+        node.includes += ' %s/deps/mozjs/objdir/dist/include ' % variant
 
   if not bld.env["USE_SHARED_LIBEV"]:
     node.add_objects += ' ev '
