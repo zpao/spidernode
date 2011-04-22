@@ -940,8 +940,7 @@ def build(bld):
         # XXX We also figure this out in build_spidermonkey,
         # but this hack is to get something working now
         variant = 'debug' if bld.env["USE_DEBUG"] else 'default'
-        moz_objdir = '%s/%s/deps/mozjs/objdir' % (blddir, variant)
-        node.includes += ' %s/dist/include ' % moz_objdir
+        node.includes += ' %s/%s/deps/mozjs/objdir/dist/include ' % (blddir, variant)
 
   if not bld.env["USE_SHARED_LIBEV"]:
     node.add_objects += ' ev '
