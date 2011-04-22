@@ -28,12 +28,12 @@ void TryCatch::ReportError(JSContext *ctx, const char *message, JSErrorReport *r
     return;
 
   TryCatch *current = gExnChain->catcher;
-  JSExceptionState *state = JS_SaveExceptionState(cx());
   if (current->mCaptureMessage) {
-    v8::Message m(message, report);
-    current->mMessage = Persistent<v8::Message>::New(&m);
+    current->mFilename = report->filename ? strdup(report->filename) : NULL;
+    current->mLineBuffer = report->linebuf ? strdup(report->linebuf) : NULL;
+    current->mLineNo = report->lineno;
+    current->mMessage = strdup(message);
   }
-  JS_RestoreExceptionState(cx(), state);
 }
 
 void TryCatch::CheckForException() {
@@ -59,7 +59,11 @@ void TryCatch::CheckForException() {
 TryCatch::TryCatch() :
   mHasCaught(false),
   mCaptureMessage(true),
-  mRethrown(false)
+  mRethrown(false),
+  mFilename(NULL),
+  mLineBuffer(NULL),
+  mLineNo(0),
+  mMessage(NULL)
 {
   ExceptionHandlerChain *link = new ExceptionHandlerChain;
   link->catcher = this;
@@ -99,12 +103,17 @@ Local<Value> TryCatch::StackTrace() const {
 }
 
 Local<v8::Message> TryCatch::Message() const {
-  return Local<v8::Message>::New(*mMessage);
+  v8::Message msg(mMessage, mFilename, mLineBuffer, mLineNo);
+  return Local<v8::Message>::New(&msg);
 }
 
 void TryCatch::Reset() {
   mException.Dispose();
-  mMessage.Dispose();
+  free(mFilename);
+  free(mLineBuffer);
+  free(mMessage);
+  mFilename = mLineBuffer = mMessage = NULL;
+  mLineNo = 0;
 
   mHasCaught = false;
 }
@@ -123,7 +132,6 @@ void TryCatch::SetCaptureMessage(bool value) {
 namespace internal {
   struct ContextChain {
     Context* ctx;
-    JSCrossCompartmentCall *call;
     ContextChain *next;
   };
   static ContextChain *gContextChain = 0;
@@ -139,30 +147,41 @@ Local<Context> Context::GetEntered() {
 
 Local<Context> Context::GetCurrent() {
   // XXX: This is probably not right
-  return Local<Context>::New(gContextChain->ctx);
+  if (gContextChain) {
+    return Local<Context>::New(gContextChain->ctx);
+  } else {
+    return Local<Context>();
+  }
 }
 
 void Context::Enter() {
   ContextChain *link = new ContextChain;
   link->next = gContextChain;
   link->ctx = this;
-  link->call = JS_EnterCrossCompartmentCall(cx(), InternalObject());
+  JS_SetGlobalObject(cx(), InternalObject());
   gContextChain = link;
 }
 
 void Context::Exit() {
-  JS_LeaveCrossCompartmentCall(gContextChain->call);
   ContextChain *link = gContextChain;
   gContextChain = gContextChain->next;
   delete link;
+  JSObject *global = gContextChain ? gContextChain->ctx->InternalObject() : NULL;
+  JS_SetGlobalObject(cx(), global);
 }
 
-Persistent<Context> Context::New() {
-  JSObject *global = JS_NewCompartmentAndGlobalObject(cx(), &global_class, NULL);
+Persistent<Context> Context::New(
+      ExtensionConfiguration* config,
+      Handle<ObjectTemplate> global_template,
+      Handle<Value> global_object) {
+  if (!global_object.IsEmpty())
+    UNIMPLEMENTEDAPI(Persistent<Context>());
+  JSObject *global = JS_NewGlobalObject(cx(), &global_class);
 
-  JSCrossCompartmentCall *call = JS_EnterCrossCompartmentCall(cx(), global);
   JS_InitStandardClasses(cx(), global);
-  JS_LeaveCrossCompartmentCall(call);
+  if (!global_template.IsEmpty()) {
+    JS_SetPrototype(cx(), global, JSVAL_TO_OBJECT(global_template->native()));
+  }
 
   return Persistent<Context>(new Context(global));
 }
@@ -187,6 +206,8 @@ bool SetResourceConstraints(ResourceConstraints *constraints) {
 //////////////////////////////////////////////////////////////////////////////
 //// Value class
 
+JS_STATIC_ASSERT(sizeof(Value) == sizeof(GCReference));
+
 Local<Boolean> Value::ToBoolean() const {
   JSBool b;
   if (!JS_ValueToBoolean(cx(), mVal, &b))
@@ -208,7 +229,12 @@ Local<String> Value::ToString() const {
 }
 
 Local<Uint32> Value::ToUint32() const {
-  JSUint32 i = this->Uint32Value();
+  if (!IsNumber()) {
+    return Local<Uint32>();
+  }
+
+  JSUint32 i = 0;
+  (void) JS_ValueToECMAUint32(cx(), mVal, &i);
   Uint32 v(i);
   return Local<Uint32>::New(&v);
 }
@@ -219,6 +245,13 @@ Local<Int32> Value::ToInt32() const {
   return Local<Int32>::New(&v);
 }
 
+Local<Integer>
+Value::ToInteger() const
+{
+  JSInt64 i = this->IntegerValue();
+  return Integer::New(i);
+}
+
 Local<Object>
 Value::ToObject() const
 {
@@ -227,7 +260,7 @@ Value::ToObject() const
     return Local<Object>::New(reinterpret_cast<Object*>(val));
   }
 
-  return NULL;
+  return Local<Object>();
 }
 
 bool Value::IsFunction() const {
@@ -279,15 +312,22 @@ Value::NumberValue() const
 JSInt64
 Value::IntegerValue() const
 {
+  // There are no 64 bit integers, so just return the 32bit one
+  if (JSVAL_IS_INT(mVal) == JS_TRUE) {
+    return JSVAL_TO_INT(mVal);
+  }
+
+  // XXX It looks like V8 might throw an exception in this case
   UNIMPLEMENTEDAPI(0);
 }
 
 JSUint32
 Value::Uint32Value() const
 {
-  JSUint32 i = 0;
-  JS_ValueToECMAUint32(cx(), mVal, &i);
-  return i;
+  Local<Uint32> n = ToUint32();
+  if (n.IsEmpty())
+    return 0;
+  return n->Value();
 }
 
 JSInt32
@@ -318,6 +358,8 @@ Value::StrictEquals(Handle<Value> other) const
 //////////////////////////////////////////////////////////////////////////////
 //// Boolean class
 
+JS_STATIC_ASSERT(sizeof(Boolean) == sizeof(GCReference));
+
 Handle<Boolean> Boolean::New(bool value) {
   static Boolean sTrue(true);
   static Boolean sFalse(false);
@@ -326,6 +368,8 @@ Handle<Boolean> Boolean::New(bool value) {
 
 //////////////////////////////////////////////////////////////////////////////
 //// Number class
+
+JS_STATIC_ASSERT(sizeof(Number) == sizeof(GCReference));
 
 Local<Number> Number::New(double d) {
   jsval val;
@@ -345,6 +389,8 @@ double Number::Value() const {
 
 //////////////////////////////////////////////////////////////////////////////
 //// Integer class
+
+JS_STATIC_ASSERT(sizeof(Integer) == sizeof(GCReference));
 
 Local<Integer> Integer::New(JSInt32 value) {
   jsval val = INT_TO_JSVAL(value);
@@ -366,9 +412,19 @@ JSInt64 Integer::Value() const {
   }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+//// Int32 class
+
+JS_STATIC_ASSERT(sizeof(Int32) == sizeof(GCReference));
+
 JSInt32 Int32::Value() {
   return JSVAL_TO_INT(mVal);
 }
+
+////////////////////////////////////////////////////////////////////////////////
+//// Uint32 class
+
+JS_STATIC_ASSERT(sizeof(Uint32) == sizeof(GCReference));
 
 JSUint32 Uint32::Value() {
   if (JSVAL_IS_INT(mVal)) {
@@ -380,6 +436,8 @@ JSUint32 Uint32::Value() {
 
 //////////////////////////////////////////////////////////////////////////////
 //// Date class
+
+JS_STATIC_ASSERT(sizeof(Date) == sizeof(GCReference));
 
 Local<Value> Date::New(double time) {
   // We floor the value since anything after the decimal is not used.
@@ -437,20 +495,133 @@ Handle<Integer> ScriptOrigin::ResourceColumnOffset() const {
 
 //////////////////////////////////////////////////////////////////////////////
 //// ScriptData class
+ScriptData::~ScriptData() {
+  if (mScript)
+    JS_RemoveObjectRoot(cx(), &mScript);
+  if (mXdr)
+    JS_XDRDestroy(mXdr);
+}
+
+void ScriptData::SerializeScriptObject(JSObject *scriptObj) {
+  mXdr = JS_XDRNewMem(cx(), JSXDR_ENCODE);
+  if (!mXdr)
+    return;
+
+  if (!JS_XDRScriptObject(mXdr, &scriptObj)) {
+    JS_XDRDestroy(mXdr);
+    mXdr = NULL;
+    return;
+  }
+
+  uint32 length;
+  void *buf = JS_XDRMemGetData(mXdr, &length);
+  if (!buf) {
+    JS_XDRDestroy(mXdr);
+    mXdr = NULL;
+    return;
+  }
+
+  mData = static_cast<const char*>(buf);
+  mLen = length;
+  mError = false;
+}
 
 ScriptData* ScriptData::PreCompile(const char* input, int length) {
-  UNIMPLEMENTEDAPI(NULL);
-}
-ScriptData* ScriptData::PreCompile(Handle<String> source) {
-  UNIMPLEMENTEDAPI(NULL);
-}
-ScriptData* ScriptData::New(const char* data, int length) {
-  UNIMPLEMENTEDAPI(NULL);
+  JSObject *global = JS_GetGlobalObject(cx());
+  ScriptData *sd = new ScriptData();
+  if (!sd)
+    return NULL;
+
+  JSObject *scriptObj = JS_CompileScript(cx(), global,
+                                         input, length, NULL, 0);
+  if (!scriptObj)
+    return sd;
+
+  if (sd)
+    sd->SerializeScriptObject(scriptObj);
+  return sd;
 }
 
+ScriptData* ScriptData::PreCompile(Handle<String> source) {
+  JS::Anchor<JSString*> anchor(JSVAL_TO_STRING(source->native()));
+  const jschar* chars;
+  size_t len;
+  chars = JS_GetStringCharsAndLength(cx(),
+                                     anchor.get(), &len);
+  JSObject *global = JS_GetGlobalObject(cx());
+  ScriptData *sd = new ScriptData();
+  if (!sd)
+    return NULL;
+
+  JSObject *scriptObj = JS_CompileUCScript(cx(), global,
+                                           chars, len, NULL, 0);
+  if (!scriptObj)
+    return sd;
+
+  if (sd)
+    sd->SerializeScriptObject(scriptObj);
+  return sd;
+}
+
+ScriptData* ScriptData::New(const char* aData, int aLength) {
+  ScriptData *sd = new ScriptData();
+  if (!sd)
+    return NULL;
+
+  sd->mScript = sd->GenerateScriptObject((void *)aData, aLength);
+  sd->mError = !sd->mScript;
+
+  if (!sd->mScript)
+    return sd;
+
+  JS_AddObjectRoot(cx(), &sd->mScript);
+  return sd;
+}
+
+int ScriptData::Length() {
+  if (!mData && mScript)
+    SerializeScriptObject(mScript);
+  return mLen;
+}
+
+const char* ScriptData::Data() {
+  if (!mData && mScript)
+    SerializeScriptObject(mScript);
+  return mData;
+}
+
+bool ScriptData::HasError() {
+  return mError;
+}
+
+JSObject* ScriptData::ScriptObject() {
+  return mScript;
+}
+
+JSObject* ScriptData::GenerateScriptObject(void *aData, int aLen) {
+  mXdr = JS_XDRNewMem(cx(), JSXDR_DECODE);
+  if (!mXdr)
+    return NULL;
+
+  // Caller reports error via HasError if the script fails to deserialize
+  JSErrorReporter older = JS_SetErrorReporter(cx(), NULL);
+  JS_XDRMemSetData(mXdr, aData, aLen);
+
+  JSObject *scriptObj;
+  JS_XDRScriptObject(mXdr, &scriptObj);
+
+  JS_XDRMemSetData(mXdr, NULL, 0);
+  JS_SetErrorReporter(cx(), older);
+  JS_XDRDestroy(mXdr);
+  mXdr = NULL;
+
+  return scriptObj;
+}
 
 //////////////////////////////////////////////////////////////////////////////
 //// Script class
+
+JS_STATIC_ASSERT(sizeof(Script) == sizeof(GCReference));
 
 Script::Script(JSObject *s)
 {
@@ -467,14 +638,22 @@ Handle<Object> Script::InternalObject() {
 }
 
 Local<Script> Script::Create(Handle<String> source, ScriptOrigin *origin, ScriptData *preData, Handle<String> scriptData, bool bindToCurrentContext) {
-  JS::Anchor<JSString*> anchor(JSVAL_TO_STRING(source->native()));
-  const jschar* chars;
-  size_t len;
-  chars = JS_GetStringCharsAndLength(cx(),
-                                     anchor.get(), &len);
+  JSObject* s = NULL;
 
-  JSObject* s = JS_CompileUCScript(cx(), NULL,
-                                   chars, len, NULL, NULL);
+  if (preData)
+    s = preData->ScriptObject();
+
+  if (!s) {
+    JS::Anchor<JSString*> anchor(JSVAL_TO_STRING(source->native()));
+    const jschar* chars;
+    size_t len;
+    chars = JS_GetStringCharsAndLength(cx(),
+                                       anchor.get(), &len);
+
+    s = JS_CompileUCScript(cx(), NULL,
+                           chars, len, NULL, 0);
+  }
+
   Script script(s);
   if (bindToCurrentContext) {
     script.InternalObject()->Set(String::New("global"), Context::GetCurrent()->Global());
@@ -506,11 +685,14 @@ Local<Script> Script::Compile(Handle<String> source, Handle<Value> fileName,
 Local<Value> Script::Run() {
   Handle<Value> boundGlobalValue = InternalObject()->Get(String::New("global"));
   Handle<Object> global;
-  if (boundGlobalValue.IsEmpty()) {
+  JS_ASSERT(!boundGlobalValue.IsEmpty());
+  if (boundGlobalValue->IsUndefined()) {
     global = Context::GetCurrent()->Global();
   } else {
     global = boundGlobalValue.As<Object>();
   }
+  JS_ASSERT(!global.IsEmpty());
+
   jsval js_retval;
   if (!JS_ExecuteScript(cx(), **global,
                         *this, &js_retval)) {
@@ -529,6 +711,8 @@ Local<Value> Script::Id() {
 //////////////////////////////////////////////////////////////////////////////
 //// Message class
 
+JS_STATIC_ASSERT(sizeof(Message) == sizeof(GCReference));
+
 namespace {
   JSClass message_class = {
     "v8::Message", JSCLASS_HAS_PRIVATE,
@@ -538,16 +722,14 @@ namespace {
   };
 }
 
-Message::Message(const char *message, JSErrorReport *report) :
+Message::Message(const char* message, const char* filename, const char* linebuf, int lineno) :
   SecretObject<internal::GCReference>(JS_NewObject(cx(), &message_class, NULL, NULL))
 {
-  const char *filename = report->filename ? report->filename : "";
-  const char *linebuf = report->linebuf ? report->linebuf : "";
   Object &o = InternalObject();
-  o.Set(String::New("message"), String::New(message));
-  o.Set(String::New("filename"), String::New(filename));
-  o.Set(String::New("lineNumber"), Integer::New(report->lineno));
-  o.Set(String::New("line"), String::New(linebuf));
+  o.Set(String::New("message"), String::New(message ? message : ""));
+  o.Set(String::New("filename"), String::New(filename ? filename : ""));
+  o.Set(String::New("lineNumber"), Integer::New(lineno));
+  o.Set(String::New("line"), String::New(linebuf ? linebuf : ""));
 }
 
 Local<String> Message::Get() const {
@@ -596,26 +778,42 @@ void Message::PrintCurrentStackTrace(FILE*) {
 //////////////////////////////////////////////////////////////////////////////
 //// Arguments class
 
-Arguments::Arguments(JSContext* cx, JSObject* thisObj, int nargs, jsval* vp, Handle<Value> data) :
-  mCtx(cx), mValues(vp), mThis(thisObj), mLength(nargs), mData(Local<Value>::New(*data))
+Arguments::Arguments(JSContext* cx,
+                     JSObject* thisObj,
+                     int nargs,
+                     jsval* vp,
+                     Handle<Value> data) :
+  mCtx(cx),
+  mVp(vp),
+  mValues(JS_ARGV(cx, vp)),
+  mThis(thisObj),
+  mLength(nargs),
+  mData(Local<Value>::New(*data))
 {
 }
 
-Local<Value> Arguments::operator[](int i) const {
-  if (i < 0 || i >= mLength)
-    return NULL;
+Local<Value>
+Arguments::operator[](int i) const
+{
+  if (i < 0 || i >= mLength) {
+    return Local<Value>::New(Undefined());
+  }
   Value v(mValues[i]);
   return Local<Value>::New(&v);
 }
 
-Local<Function> Arguments::Callee() const {
-  jsval callee = JS_CALLEE(mCtx, mValues);
+Local<Function>
+Arguments::Callee() const
+{
+  jsval callee = JS_CALLEE(mCtx, mVp);
   Function f(JSVAL_TO_OBJECT(callee));
   return Local<Function>::New(&f);
 }
 
-bool Arguments::IsConstructCall() const {
-  return JS_IsConstructing(mCtx, mValues);
+bool
+Arguments::IsConstructCall() const
+{
+  return JS_IsConstructing(mCtx, mVp);
 }
 
 AccessorInfo::AccessorInfo(Handle<Value> data, JSObject *obj) :

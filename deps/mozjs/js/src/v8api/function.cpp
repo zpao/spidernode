@@ -3,6 +3,8 @@
 namespace v8 {
 using namespace internal;
 
+JS_STATIC_ASSERT(sizeof(Function) == sizeof(GCReference));
+
 Function::operator JSFunction*() const {
   return JS_ValueToFunction(cx(), mVal);
 }

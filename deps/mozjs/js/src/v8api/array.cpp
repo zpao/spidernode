@@ -3,6 +3,8 @@
 namespace v8 {
 using namespace internal;
 
+JS_STATIC_ASSERT(sizeof(Array) == sizeof(GCReference));
+
 JSUint32
 Array::Length() const
 {
@@ -19,7 +21,7 @@ Array::CloneElementAt(JSUint32 index)
 {
   Local<Value> toBeCloned = Get(index);
   if (!toBeCloned->IsObject()) {
-    return NULL;
+    return Local<Object>();
   }
   return toBeCloned->ToObject()->Clone();
 }

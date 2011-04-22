@@ -4,43 +4,113 @@
 namespace v8 {
 using namespace internal;
 
-Local<String> String::New(const char *data,
-                          int length)
+JS_STATIC_ASSERT(sizeof(String) == sizeof(GCReference));
+
+Local<String>
+String::New(const char* data,
+            int length)
 {
+  JSString* str;
   if (length == -1) {
-    length = strlen(data);
+    str = JS_NewStringCopyZ(cx(), data);
   }
-
-  JSString *str = JS_NewStringCopyN(cx(), data, length);
+  else {
+    str = JS_NewStringCopyN(cx(), data, length);
+  }
   String s(str);
   return Local<String>::New(&s);
 }
 
-Local<String> String::FromJSID(jsid id) {
+// static
+Local<String>
+String::New(const JSUint16* data,
+            int length)
+{
+  JSString* str;
+  if (length == -1) {
+    str = JS_NewUCStringCopyZ(cx(), data);
+  }
+  else {
+    str = JS_NewUCStringCopyN(cx(), data, length);
+  }
+  String s(str);
+  return Local<String>::New(&s);
+}
+
+// static
+Local<String>
+String::NewSymbol(const char* data,
+                  int length)
+{
+  JSString* str;
+  if (length == -1) {
+    str = JS_NewStringCopyZ(cx(), data);
+  }
+  else {
+    str = JS_NewStringCopyN(cx(), data, length);
+  }
+  // jsids are atomized, so we create one in a roundabout way.
+  jsid id;
+  (void)JS_ValueToId(cx(), STRING_TO_JSVAL(str), &id);
+  return String::FromJSID(id);
+}
+
+// static
+Local<String>
+String::Concat(Handle<String> left,
+               Handle<String> right)
+{
+  JSString* str = JS_ConcatStrings(cx(), **left, **right);
+  String s(str);
+  return Local<String>::New(&s);
+}
+
+// static
+Local<String>
+String::FromJSID(jsid id)
+{
   jsval v;
-  if (!JS_IdToValue(cx(), id, &v))
-    return NULL;
+  if (!JS_IdToValue(cx(), id, &v)) {
+    return Local<String>();
+  }
   JSString* str = JS_ValueToString(cx(), v);
-  if (!str)
-    return NULL;
+  if (!str) {
+    return Local<String>();
+  }
   String s(str);
   return Local<String>::New(&s);
 }
 
-int String::Length() const {
+// static
+Local<String>
+String::NewExternal(ExternalAsciiStringResource* external)
+{
+
+  // TODO (Issue #58) Do not copy the string here!
+  Local<String> str = String::New(external->data(), external->length());
+  external->Dispose();
+  return Local<String>::New(str);
+}
+
+int
+String::Length() const
+{
   return JS_GetStringLength(*this);
 }
 
-int String::Utf8Length() const {
+int
+String::Utf8Length() const
+{
   size_t encodedLength = JS_GetStringEncodingLength(cx(),
                                                     *this);
   return static_cast<int>(encodedLength);
 }
 
-int String::Write(JSUint16* buffer,
-                  int start,
-                  int length,
-                  WriteHints hints) const
+int
+String::Write(JSUint16* buffer,
+              int start,
+              int length,
+              WriteHints hints) const
 {
   size_t internalLen;
   const jschar* chars =
@@ -57,10 +127,11 @@ int String::Write(JSUint16* buffer,
   return bytes / 2;
 }
 
-int String::WriteAscii(char* buffer,
-                       int start,
-                       int length,
-                       WriteHints hints) const
+int
+String::WriteAscii(char* buffer,
+                   int start,
+                   int length,
+                   WriteHints hints) const
 {
   size_t encodedLength = JS_GetStringEncodingLength(cx(),
                                                     *this);
@@ -90,10 +161,11 @@ int String::WriteAscii(char* buffer,
   return idx;
 }
 
-int String::WriteUtf8(char* buffer,
-                      int length,
-                      int* nchars_ref,
-                      WriteHints hints) const
+int
+String::WriteUtf8(char* buffer,
+                  int length,
+                  int* nchars_ref,
+                  WriteHints hints) const
 {
   // TODO handle -1 for length!
   size_t bytesWritten = JS_EncodeStringToBuffer(*this, buffer, length);
@@ -111,7 +183,15 @@ int String::WriteUtf8(char* buffer,
   return static_cast<int>(bytesWritten);
 }
 
-String::AsciiValue::AsciiValue(Handle<v8::Value> val) {
+// static
+Local<String>
+String::Empty()
+{
+  return String::New("", 0);
+}
+
+String::AsciiValue::AsciiValue(Handle<v8::Value> val)
+{
   // Set some defaults which will be used for empty values/strings
   mStr = NULL;
   mLength = 0;
@@ -129,7 +209,8 @@ String::AsciiValue::AsciiValue(Handle<v8::Value> val) {
     mLength = str->WriteAscii(mStr, 0, len + 1);
   }
 }
-String::AsciiValue::~AsciiValue() {
+String::AsciiValue::~AsciiValue()
+{
   if (mStr)
     delete[] mStr;
 }
@@ -153,9 +234,11 @@ String::Utf8Value::Utf8Value(Handle<v8::Value> val)
     mLength = str->WriteUtf8(mStr, len + 1) - 1;
   }
 }
-String::Utf8Value::~Utf8Value() {
-  if (mStr)
+String::Utf8Value::~Utf8Value()
+{
+  if (mStr) {
     delete[] mStr;
+  }
 }
 
-}
+} // namespace v8

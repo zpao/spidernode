@@ -3,7 +3,11 @@
 namespace v8 {
 using namespace internal;
 
+JS_STATIC_ASSERT(sizeof(ObjectTemplate) == sizeof(GCReference));
+
 namespace {
+
+extern JSClass gNewInstanceClass;
 
 struct PrivateData
 {
@@ -17,7 +21,8 @@ struct PrivateData
     indexedSetter(NULL),
     indexedQuery(NULL),
     indexedDeleter(NULL),
-    indexedEnumerator(NULL)
+    indexedEnumerator(NULL),
+    cls(gNewInstanceClass)
   {
   }
 
@@ -33,6 +38,7 @@ struct PrivateData
   static PrivateData* Get(Handle<ObjectTemplate> ot)
   {
     Object* obj = reinterpret_cast<Object*>(*ot);
+    JS_ASSERT(obj);
     return PrivateData::Get(*obj);
   }
 
@@ -51,13 +57,16 @@ struct PrivateData
   IndexedPropertyDeleter indexedDeleter;
   IndexedPropertyEnumerator indexedEnumerator;
   Persistent<Value> indexedData;
+
+  JSClass cls;
 };
 
 struct ObjectTemplateHandle
 {
-  ObjectTemplateHandle(ObjectTemplate* ot) :
-    objectTemplate(ot)
+  ObjectTemplateHandle(Handle<ObjectTemplate> ot) :
+    objectTemplate(Persistent<ObjectTemplate>::New(ot))
   {
+    JS_ASSERT(!ot.IsEmpty());
   }
   static ObjectTemplateHandle* Get(JSContext* cx,
                                    JSObject* obj)
@@ -68,8 +77,8 @@ struct ObjectTemplateHandle
   static Local<ObjectTemplate> GetHandle(JSContext* cx,
                                          JSObject* obj)
   {
-    ObjectTemplateHandle* h =
-      static_cast<ObjectTemplateHandle*>(JS_GetPrivate(cx, obj));
+    ObjectTemplateHandle* h = ObjectTemplateHandle::Get(cx, obj);
+    JS_ASSERT(h && !h->objectTemplate.IsEmpty());
     return Local<ObjectTemplate>::New(h->objectTemplate);
   }
 
@@ -84,6 +93,7 @@ o_DeleteProperty(JSContext* cx,
 {
   Local<ObjectTemplate> ot = ObjectTemplateHandle::GetHandle(cx, obj);
   PrivateData* pd = PrivateData::Get(ot);
+  JS_ASSERT(pd);
   if (JSID_IS_INT(id) && pd->indexedDeleter) {
     const AccessorInfo info =
       AccessorInfo::MakeAccessorInfo(pd->indexedData, obj);
@@ -114,7 +124,8 @@ o_GetProperty(JSContext* cx,
 {
   Local<ObjectTemplate> ot = ObjectTemplateHandle::GetHandle(cx, obj);
   PrivateData* pd = PrivateData::Get(ot);
-  if (JSID_IS_INT(id) && pd->indexedGetter) {
+  JS_ASSERT(pd);
+  if (JSID_IS_INT(id) && JSID_TO_INT(id) >= 0 && pd->indexedGetter) {
     const AccessorInfo info =
       AccessorInfo::MakeAccessorInfo(pd->indexedData, obj);
     Handle<Value> ret = pd->indexedGetter(JSID_TO_INT(id), info);
@@ -145,6 +156,7 @@ o_SetProperty(JSContext* cx,
 {
   Local<ObjectTemplate> ot = ObjectTemplateHandle::GetHandle(cx, obj);
   PrivateData* pd = PrivateData::Get(ot);
+  JS_ASSERT(pd);
   if (JSID_IS_INT(id) && pd->indexedSetter) {
     Value val(*vp);
     const AccessorInfo info =
@@ -180,7 +192,7 @@ o_finalize(JSContext* cx,
 }
 
 JSClass gNewInstanceClass = {
-  NULL, // name
+  "ObjectTemplate-Object", // name
   JSCLASS_HAS_PRIVATE, // flags
   JS_PropertyStub, // addProperty
   o_DeleteProperty, // delProperty
@@ -190,14 +202,13 @@ JSClass gNewInstanceClass = {
   JS_ResolveStub, // resolve
   JS_ConvertStub, // convert
   o_finalize, // finalize
-  NULL, // getObjectOps
+  NULL, // unused
   NULL, // checkAccess
   NULL, // call
   NULL, // construct
   NULL, // xdrObject
   NULL, // hasInstance
-  NULL, // mark
-  NULL, // reservedSlots
+  NULL, // trace
 };
 
 void
@@ -219,14 +230,13 @@ JSClass gObjectTemplateClass = {
   JS_ResolveStub, // resolve
   JS_ConvertStub, // convert
   ot_finalize, // finalize
-  NULL, // getObjectOps
+  NULL, // unused
   NULL, // checkAccess
   NULL, // call
   NULL, // construct
   NULL, // xdrObject
   NULL, // hasInstance
-  NULL, // mark
-  NULL, // reservedSlots
+  NULL, // trace
 };
 
 } // anonymous namespace
@@ -242,24 +252,28 @@ ObjectTemplate::ObjectTemplate() :
 Local<ObjectTemplate>
 ObjectTemplate::New()
 {
-  UNIMPLEMENTEDAPI(NULL);
+  ObjectTemplate d;
+  return Local<ObjectTemplate>::New(&d);
 }
 
 Local<Object>
 ObjectTemplate::NewInstance()
 {
-  // We've set everything we care about on our SecretObject, so we can assign
+  // We've set everything we care about on our InternalObject, so we can assign
   // that to the prototype of our new object.
-  JSObject* obj = JS_NewObject(cx(), &gNewInstanceClass, InternalObject(), NULL);
+  JSObject* proto = InternalObject();
+  JSClass* cls = &PrivateData::Get(proto)->cls;
+  JSObject* obj = JS_NewObject(cx(), cls, proto, NULL);
   if (!obj) {
-    return NULL;
+    // wtf?
+    UNIMPLEMENTEDAPI(Local<Object>());
   }
 
   ObjectTemplateHandle* handle = new ObjectTemplateHandle(this);
   if (!JS_SetPrivate(cx(), obj, handle)) {
     delete handle;
     // TODO handle error better
-    return NULL;
+    UNIMPLEMENTEDAPI(Local<Object>());
   }
 
   Object o(obj);
@@ -275,7 +289,7 @@ ObjectTemplate::SetAccessor(Handle<String> name,
                             PropertyAttribute attribute)
 {
   (void)InternalObject().SetAccessor(name, getter, setter, data, settings,
-                                     attribute);
+                                     attribute, true);
 }
 
 void
@@ -287,12 +301,18 @@ ObjectTemplate::SetNamedPropertyHandler(NamedPropertyGetter getter,
                                         Handle<Value> data)
 {
   PrivateData* pd = PrivateData::Get(InternalObject());
+  JS_ASSERT(pd);
   pd->namedGetter = getter;
   pd->namedSetter = setter;
   pd->namedQuery = query;
   pd->namedDeleter = deleter;
   pd->namedEnumerator = enumerator;
-  pd->namedData = Persistent<Value>::New(data);
+  if (data.IsEmpty()) {
+    pd->namedData = Persistent<Value>::New(Undefined());
+  }
+  else {
+    pd->namedData = Persistent<Value>::New(data);
+  }
 }
 
 void
@@ -304,12 +324,18 @@ ObjectTemplate::SetIndexedPropertyHandler(IndexedPropertyGetter getter,
                                           Handle<Value> data)
 {
   PrivateData* pd = PrivateData::Get(InternalObject());
+  JS_ASSERT(pd);
   pd->indexedGetter = getter;
   pd->indexedSetter = setter;
   pd->indexedQuery = query;
   pd->indexedDeleter = deleter;
   pd->indexedEnumerator = enumerator;
-  pd->indexedData = Persistent<Value>::New(data);
+  if (data.IsEmpty()) {
+    pd->indexedData = Persistent<Value>::New(Undefined());
+  }
+  else {
+    pd->indexedData = Persistent<Value>::New(data);
+  }
 }
 
 void
@@ -337,13 +363,20 @@ ObjectTemplate::SetAccessCheckCallbacks(NamedSecurityCallback named_handler,
 int
 ObjectTemplate::InternalFieldCount()
 {
-  UNIMPLEMENTEDAPI(0);
+  PrivateData* pd = PrivateData::Get(InternalObject());
+  JS_ASSERT(pd);
+  return JSCLASS_RESERVED_SLOTS(&pd->cls);
 }
 
 void
 ObjectTemplate::SetInternalFieldCount(int value)
 {
-  UNIMPLEMENTEDAPI();
+  JS_ASSERT(value >= 0 && value < (1 << JSCLASS_RESERVED_SLOTS_WIDTH));
+  PrivateData* pd = PrivateData::Get(InternalObject());
+  JS_ASSERT(pd);
+  JSClass* clasp = &pd->cls;
+  clasp->flags &= ~(JSCLASS_RESERVED_SLOTS_MASK << JSCLASS_RESERVED_SLOTS_SHIFT);
+  clasp->flags |= JSCLASS_HAS_RESERVED_SLOTS(value);
 }
 
 } // namespace v8
