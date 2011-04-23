@@ -571,10 +571,13 @@ def configure(conf):
 
 
 def spidermonkey_cmd(bld, variant, moz_objdir):
-    make = 'make'
+    make = 'make -j4'
     deps_src = join(bld.path.abspath(),"deps")
     mozjs_top = join(deps_src,"mozjs")
 
+    # Some of these options aren't useful to nspr
+    # but they don't hurt (afaik) the nspr build.
+    # Recycling the option list for brevity
     configure_opts = ['--enable-static',
                       '--disable-shared',
                       '--disable-tests']
@@ -585,19 +588,32 @@ def spidermonkey_cmd(bld, variant, moz_objdir):
 
     autoconf_names = 'autoconf213'
     autoconf_cmd = \
-        '(cd %s/js/src && %s) && mkdir -p %s' % \
-        (mozjs_top, autoconf_names, moz_objdir)
+        '(cd %s/js/src && %s) && mkdir -p %s %s-nspr' % \
+        (mozjs_top, autoconf_names, moz_objdir, moz_objdir)
+
+    nspr_cmd = \
+        '(cd %s-nspr && sh -c %s/nsprpub/configure %s && %s)' % \
+        (moz_objdir, mozjs_top, ' '.join(configure_opts), make)
+
+    nspr_libs = ('plds4', 'plc4', 'nspr4')
+    platform_nspr_libs = []
+    for lib in nspr_libs:
+        platform_nspr_libs.append(bld.env["staticlib_PATTERN"] % lib)
+
+    nspr_config = '../../../../%s/%s-nspr/config/nspr-config' % (blddir, moz_objdir)
+    nspr_opts = ['--with-nspr-cflags=$(%s --cflags)' % nspr_config,
+                 '--with-nspr-libs=$(%s --libs)' % nspr_config]
 
     js_cmd = \
-        '(cd %s && sh -c %s/js/src/configure %s && make)' % \
-        (moz_objdir, mozjs_top, ' '.join(configure_opts))
+        '(cd %s && sh -c %s/js/src/configure %s && %s)' % \
+        (moz_objdir, mozjs_top, ' '.join(configure_opts + nspr_opts), make)
 
     lib_file = bld.env["staticlib_PATTERN"] % 'js_static'
     copy_lib_cmd = 'cp %s/dist/lib/%s %s' % \
                    (moz_objdir, lib_file, variant)
 
 
-    cmd = '%s && %s && %s' % (autoconf_cmd, js_cmd, copy_lib_cmd)
+    cmd = '%s && %s && %s && %s' % (autoconf_cmd, nspr_cmd, js_cmd, copy_lib_cmd)
 
     return ("echo '%s' && " % cmd) + cmd
 
