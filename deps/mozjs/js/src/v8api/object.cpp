@@ -1,26 +1,18 @@
 #include "v8-internal.h"
 #include "jstl.h"
 #include "jshashtable.h"
+#include "mozilla/Util.h"
 #include <limits>
+using namespace mozilla;
 
 namespace v8 {
 using namespace internal;
 
-struct PropertyData {
-  AccessorGetter getter;
-  AccessorSetter setter;
-  Handle<Value> data;
-};
-
-typedef js::HashMap<jsid, PropertyData, JSIDHashPolicy, js::SystemAllocPolicy> AccessorTable;
+JS_STATIC_ASSERT(sizeof(Object) == sizeof(GCReference));
 
 struct Object::PrivateData {
   Persistent<Object> hiddenValues;
-  AccessorTable properties;
-
-  PrivateData() {
-    properties.init(10);
-  }
+  AccessorStorage properties;
 };
 
 typedef js::HashMap<JSObject*,Object::PrivateData*, js::DefaultHasher<JSObject*>, js::SystemAllocPolicy> ObjectPrivateDataMap;
@@ -34,25 +26,64 @@ static ObjectPrivateDataMap& privateDataMap() {
   return *gPrivateDataMap;
 }
 
-JSBool Object::JSAPIPropertyGetter(JSContext* cx, JSObject* obj, jsid id, jsval* vp) {
+JSBool Object::JSAPIPropertyGetter(JSContext* cx, uintN argc, jsval* vp) {
   HandleScope scope;
-  Object o(obj);
-  AccessorTable::Ptr p = o.GetHiddenStore().properties.lookup(id);
-  AccessorInfo info(p->value.data, obj);
-  Handle<Value> result = p->value.getter(String::FromJSID(id), info);
-  *vp = result->native();
+  JSObject* fnObj = JSVAL_TO_OBJECT(JS_CALLEE(cx, vp));
+  jsval accessorOwner;
+  (void) JS_GetReservedSlot(cx, fnObj, 0, &accessorOwner);
+  JS_ASSERT(JSVAL_IS_OBJECT(accessorOwner));
+  Object o(JSVAL_TO_OBJECT(accessorOwner));
+
+  jsval name;
+  (void) JS_GetReservedSlot(cx, fnObj, 1, &name);
+  jsid id;
+  (void) JS_ValueToId(cx, name, &id);
+
+  // We need to make sure that the object we pass to the getter is actually the
+  // object that has set the property.  The "This" property on AccessorInfo is
+  // actually the object in which the properties were set on, not the "this"
+  // object in JavaScript.
+  JSObject* thiz = JS_THIS_OBJECT(cx, vp);
+  JSPropertyDescriptor desc;
+  DebugOnly<JSBool> rc = JS_GetPropertyDescriptorById(cx, thiz, id, 0, &desc);
+  JS_ASSERT(rc);
+  thiz = desc.obj;
+
+  AccessorStorage::PropertyData data = o.GetHiddenStore().properties.get(id);
+  AccessorInfo info(data.data, thiz);
+  Handle<Value> result = data.getter(String::FromJSID(id), info);
+  JS_SET_RVAL(cx, vp, result->native());
   // XXX: this is usually correct
   return JS_TRUE;
 }
 
-JSBool Object::JSAPIPropertySetter(JSContext* , JSObject* obj, jsid id, JSBool, jsval* vp) {
+JSBool Object::JSAPIPropertySetter(JSContext* cx, uintN argc, jsval* vp) {
   HandleScope scope;
-  Object o(obj);
-  AccessorTable::Ptr p = o.GetHiddenStore().properties.lookup(id);
-  AccessorInfo info(p->value.data, obj);
-  Value value(*vp);
-  Handle<Value> result = p->value.setter(String::FromJSID(id), &value, info);
-  *vp = result->native();
+  JSObject* fnObj = JSVAL_TO_OBJECT(JS_CALLEE(cx, vp));
+  jsval accessorOwner;
+  (void) JS_GetReservedSlot(cx, fnObj, 0, &accessorOwner);
+  JS_ASSERT(JSVAL_IS_OBJECT(accessorOwner));
+  Object o(JSVAL_TO_OBJECT(accessorOwner));
+
+  jsval name;
+  (void) JS_GetReservedSlot(cx, fnObj, 1, &name);
+  jsid id;
+  (void) JS_ValueToId(cx, name, &id);
+
+  // We need to make sure that the object we pass to the getter is actually the
+  // object that has set the property.  The "This" property on AccessorInfo is
+  // actually the object in which the properties were set on, not the "this"
+  // object in JavaScript.
+  JSObject* thiz = JS_THIS_OBJECT(cx, vp);
+  JSPropertyDescriptor desc;
+  DebugOnly<JSBool> rc = JS_GetPropertyDescriptorById(cx, thiz, id, 0, &desc);
+  JS_ASSERT(rc);
+  thiz = desc.obj;
+
+  AccessorStorage::PropertyData data = o.GetHiddenStore().properties.get(id);
+  AccessorInfo info(data.data, thiz);
+  Value value(*JS_ARGV(cx, vp));
+  data.setter(String::FromJSID(id), &value, info);
   // XXX: this is usually correct
   return JS_TRUE;
 }
@@ -68,6 +99,10 @@ Object::Set(Handle<Value> key,
   if (!JS_SetProperty(cx(), *this, *k, &v)) {
     return false;
   }
+
+  // Can't set attributes on indexed properties
+  if (!key->ToUint32().IsEmpty())
+    return true;
 
   uintN js_attribs = 0;
   if (attribs & ReadOnly) {
@@ -101,6 +136,7 @@ Object::ForceSet(Handle<Value> key,
                  Handle<Value> value,
                  PropertyAttribute attribute)
 {
+  // TODO implement this with JS_DefineProperty
   UNIMPLEMENTEDAPI(false);
 }
 
@@ -196,7 +232,8 @@ Object::SetAccessor(Handle<String> name,
                     AccessorSetter setter,
                     Handle<Value> data,
                     AccessControl settings,
-                    PropertyAttribute attribs)
+                    PropertyAttribute attribs,
+                    bool isJSAPIShared)
 {
   if (settings != 0) {
     // We only currently support the default settings.
@@ -205,22 +242,33 @@ Object::SetAccessor(Handle<String> name,
 
   jsid propid;
   JS_ValueToId(cx(), name->native(), &propid);
-  PropertyData prop = {
-    getter,
-    setter,
-    data
-  };
-  uintN attributes = 0;
+  JSFunction* getterFn = JS_NewFunction(cx(), JSAPIPropertyGetter, 0, 0, NULL, NULL);
+  if (!getterFn)
+    return false;
+  JSObject *getterObj = JS_GetFunctionObject(getterFn);
+
+  JSFunction* setterFn = JS_NewFunction(cx(), JSAPIPropertySetter, 1, 0, NULL, NULL);
+  if (!setterFn)
+    return false;
+  JSObject *setterObj = JS_GetFunctionObject(setterFn);
+
+  JS_SetReservedSlot(cx(), getterObj, 0, native());
+  JS_SetReservedSlot(cx(), getterObj, 1, name->native());
+  JS_SetReservedSlot(cx(), setterObj, 0, native());
+  JS_SetReservedSlot(cx(), setterObj, 1, name->native());
+
+  uintN attributes = JSPROP_GETTER | JSPROP_SETTER;
+  if (isJSAPIShared)
+    attributes |= JSPROP_SHARED;
   if (!JS_DefinePropertyById(cx(), *this, propid,
         JSVAL_VOID,
-        getter ? JSAPIPropertyGetter : NULL,
-        setter ? JSAPIPropertySetter : NULL,
+        (JSPropertyOp)getterObj,
+        (JSStrictPropertyOp)setterObj,
         attributes)) {
     return false;
   }
   PrivateData &store = GetHiddenStore();
-  AccessorTable::AddPtr slot = store.properties.lookupForAdd(propid);
-  store.properties.add(slot, propid, prop);
+  store.properties.addAccessor(propid, getter, setter, data, attribs);
   return true;
 }
 
@@ -250,21 +298,22 @@ Object::GetPrototype()
   return Local<Value>::New(&v);
 }
 
-void
+bool
 Object::SetPrototype(Handle<Value> prototype)
 {
   Handle<Object> h(prototype.As<Object>());
   if (h.IsEmpty()) {
     // XXX: indicate error? The V8API is unclear here
-    return;
+    // zpao: is false enough? it seems to make sense
+    return false;
   }
-  JS_SetPrototype(cx(), *this, **h);
+  return JS_SetPrototype(cx(), *this, **h) == JS_TRUE;
 }
 
 Local<Object>
 Object::FindInstanceInPrototypeChain(Handle<FunctionTemplate> tmpl)
 {
-  UNIMPLEMENTEDAPI(NULL);
+  UNIMPLEMENTEDAPI(Local<Object>());
 }
 
 Local<String>
@@ -287,33 +336,46 @@ Object::GetConstructorName()
 int
 Object::InternalFieldCount()
 {
-  UNIMPLEMENTEDAPI(0);
+  JSClass *cls = JS_GET_CLASS(cx(), *this);
+  if (!cls)
+    return -1;
+  return JSCLASS_RESERVED_SLOTS(cls);
 }
 
 Local<Value>
 Object::GetInternalField(int index)
 {
-  UNIMPLEMENTEDAPI(NULL);
+  Value v;
+  if (!JS_GetReservedSlot(cx(), *this, index, &v.native())) {
+    return Local<Value>();
+  }
+  return Local<Value>::New(&v);
 }
 
 void
 Object::SetInternalField(int index,
                          Handle<Value> value)
 {
-  UNIMPLEMENTEDAPI();
+  (void) JS_SetReservedSlot(cx(), *this, index, value->native());
 }
 
 void*
 Object::GetPointerFromInternalField(int index)
 {
-  UNIMPLEMENTEDAPI(NULL);
+  jsval v;
+  if (!JS_GetReservedSlot(cx(), *this, index, &v)) {
+    return NULL;
+  }
+  // XXX: this assumes there was a ptr there
+  return JSVAL_TO_PRIVATE(v);
 }
 
 void
 Object::SetPointerInInternalField(int index,
                                   void* value)
 {
-  UNIMPLEMENTEDAPI();
+  jsval v = PRIVATE_TO_JSVAL(value);
+  (void) JS_SetReservedSlot(cx(), *this, index, v);
 }
 
 bool

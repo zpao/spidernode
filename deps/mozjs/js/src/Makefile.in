@@ -287,12 +287,20 @@ CPPSRCS += \
 		v8api/template.cpp \
 		v8api/objecttemplate.cpp \
 		v8api/functiontemplate.cpp \
+		v8api/internal.cpp \
+		$(NULL)
+
+INSTALLED_HEADERS += \
+		v8api/v8.h \
+		v8api/v8-internal.h \
+		v8api/v8-debug.h \
 		$(NULL)
 
 LOCAL_INCLUDES += -Iv8api
 EXPORTS_NAMESPACES += v8
 EXPORTS_v8 = \
   v8api/v8.h \
+  v8api/v8-debug.h \
   $(NULL)
 #ifdef ENABLE_TESTS
 DIRS += v8api/test

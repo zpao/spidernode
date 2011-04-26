@@ -1,9 +1,14 @@
+#ifndef v8_v8_h__
+#define v8_v8_h__
+
 #include "jsapi.h"
+#include "jsxdrapi.h"
 #include "jstl.h"
 #include "jshashtable.h"
 
 namespace v8 {
 // Define some classes first so we can use them before fully defined
+class V8;
 struct HandleScope;
 class Value;
 class Boolean;
@@ -31,9 +36,13 @@ template <class T> class Persistent;
 typedef void (*WeakReferenceCallback)(Persistent<Value> object,
                                       void* parameter);
 
+#ifdef __FUNCDNAME__
+#define __PRETTY_FUNCTION__ __FUNCDNAME__
+#endif
+
 #define UNIMPLEMENTEDAPI(...) \
   JS_BEGIN_MACRO \
-  v8::internal::notImplemented(); \
+  v8::internal::notImplemented(__PRETTY_FUNCTION__); \
   return __VA_ARGS__; \
   JS_END_MACRO
 
@@ -43,7 +52,7 @@ struct GCOps;
 class GCReferenceContainer;
 struct PersistentGCReference;
 
-void notImplemented();
+void notImplemented(const char* functionName);
 
 class GCReference {
   friend struct GCOps;
@@ -96,8 +105,9 @@ private:
   PersistentGCReference *prev, *next;
 
   static PersistentGCReference *weakPtrs;
-  static bool setupWeakRefs;
-  static JSBool GCCallback(JSContext *cx, JSGCStatus status);
+  static void CheckForWeakHandles();
+
+  friend class v8::V8;
 };
 
 template <class Inherits>
@@ -126,11 +136,17 @@ struct JSIDHashPolicy
     return k == l;
   }
 };
+
 } // namespace internal
 
 struct HandleScope {
   HandleScope();
   ~HandleScope();
+
+  template <class T> Local<T> Close(Handle<T> value) {
+    internal::GCReference* ref = InternalClose(*value);
+    return Local<T>(reinterpret_cast<T*>(ref));
+  }
 private:
   friend class internal::GCReference;
   static internal::GCReference *CreateHandle(internal::GCReference r);
@@ -138,10 +154,18 @@ private:
 
   static HandleScope *sCurrent;
   size_t getHandleCount();
+  internal::GCReference* InternalClose(internal::GCReference*);
+  void Destroy();
 
   internal::GCReferenceContainer *mGCReferences;
   HandleScope *mPrevious;
 };
+
+// Shamelessly taken from V8's v8.h
+#define TYPE_CHECK(T, S)                                       \
+  while (false) {                                              \
+    *(static_cast<T* volatile*>(0)) = static_cast<S*>(0);      \
+  }
 
 template <typename T>
 class Handle {
@@ -151,7 +175,11 @@ public:
   Handle(T *val) : mVal(val) {}
 
   template <typename S>
-  Handle(Handle<S> h) : mVal(*h) {}
+  Handle(Handle<S> other) :
+    mVal(reinterpret_cast<T*>(*other))
+  {
+    TYPE_CHECK(T, S);
+  }
 
   bool IsEmpty() const {
     return mVal == 0;
@@ -176,13 +204,29 @@ public:
   inline Handle<S> As() const {
     return Handle<S>::Cast(*this);
   }
+
+  template <class S>
+  inline bool operator==(Handle<S> that) const {
+    if (mVal == 0) return *that == 0;
+    if (*that == 0) return false;
+    return (*this)->native() == that->native();
+  }
 };
 
 template <typename T>
 class Local : public Handle<T> {
 public:
   Local() : Handle<T>() {}
-  Local(T *val) : Handle<T>(val) {}
+
+  template <typename S>
+  Local(S *val) : Handle<T>(val) {}
+
+  template <typename S>
+  Local(Local<S> other) :
+    Handle<T>(reinterpret_cast<T*>(*other))
+  {
+    TYPE_CHECK(T, S);
+  }
 
   static inline Local<T> New(Handle<T> other) {
     if (other.IsEmpty())
@@ -211,6 +255,13 @@ public:
 
   template <class S>
   Persistent(S *val) : Handle<T>(val) {}
+
+  template <typename S>
+  explicit Persistent(Persistent<S> other) :
+    Handle<T>(reinterpret_cast<T*>(*other))
+  {
+    TYPE_CHECK(T, S);
+  }
 
   void Dispose() {
     (*this)->Dispose();
@@ -252,7 +303,7 @@ public:
 class Message : public internal::SecretObject<internal::GCReference> {
   friend class TryCatch;
 
-  Message(const char *message, JSErrorReport *report);
+  Message(const char* message, const char* filename, const char* linebuf, int lineno);
 public:
   Local<String> Get() const;
   Local<String> GetSourceLine() const;
@@ -303,6 +354,8 @@ class Exception {
 
 typedef void (*FatalErrorCallback)(const char* location, const char* message);
 
+Handle<Value> ThrowException(Handle<Value> exception);
+
 
 class V8 {
 public:
@@ -317,13 +370,15 @@ public:
   static int AdjustAmountOfExternalAllocatedMemory(int aChangeInBytes);
   static void AddGCPrologueCallback(GCPrologueCallback aCallback, GCType aGCTypeFilter = kGCTypeAll);
   static void LowMemoryNotification();
-
-  static Handle<Value> ThrowException(Handle<Value> exception);
+private:
+  static JSBool GCCallback(JSContext*, JSGCStatus);
+  static void ReportError(JSContext *ctx, const char *message, JSErrorReport *report);
 };
 
 class TryCatch {
   friend class V8;
   friend class Script;
+  friend class Value;
   static void ReportError(JSContext *ctx, const char *message, JSErrorReport *report);
   static void CheckForException();
 
@@ -331,7 +386,12 @@ class TryCatch {
   bool mCaptureMessage;
   bool mRethrown;
   Persistent<Value> mException;
-  Persistent<v8::Message> mMessage;
+
+  // These fields are used to lazily create the Message
+  char* mFilename;
+  char* mLineBuffer;
+  int mLineNo;
+  char* mMessage;
 public:
   TryCatch();
   ~TryCatch();
@@ -346,7 +406,7 @@ public:
   Handle<Value> ReThrow();
 
   Local<Value> Exception() const {
-    return Local<Value>::New(*mException);
+    return Local<Value>::New(mException);
   }
   Local<Value> StackTrace() const;
 
@@ -356,6 +416,11 @@ public:
   void SetCaptureMessage(bool value);
 };
 
+class ExtensionConfiguration {
+public:
+  ExtensionConfiguration(int nameCount, const char *names[]) {}
+};
+
 class Context : public internal::SecretObject<internal::GCReference> {
   Context(JSObject *global);
 public:
@@ -363,11 +428,17 @@ public:
   void Exit();
 
   inline Local<Object> Global();
+  void DetachGlobal() {
+    UNIMPLEMENTEDAPI();
+  }
 
   static Local<Context> GetEntered();
   static Local<Context> GetCurrent();
 
-  static Persistent<Context> New();
+  static Persistent<Context> New(
+      ExtensionConfiguration* config = NULL,
+      Handle<ObjectTemplate> global_template = Handle<ObjectTemplate>(),
+      Handle<Value> global_object = Handle<Value>());
 
   struct Scope {
     Scope(Handle<Context> ctx) :
@@ -403,7 +474,7 @@ bool SetResourceConstraints(ResourceConstraints *constraints);
 
 class HeapStatistics {
  public:
-  HeapStatistics();
+  HeapStatistics() {}
   size_t total_heap_size() { UNIMPLEMENTEDAPI(0); }
   size_t total_heap_size_executable() { UNIMPLEMENTEDAPI(0); }
   size_t used_heap_size() { UNIMPLEMENTEDAPI(0); }
@@ -435,6 +506,9 @@ public:
   bool IsInt32() const { return JSVAL_IS_INT(mVal); }
   bool IsUint32() const;
   bool IsDate() const;
+  bool IsRegExp() const {
+    UNIMPLEMENTEDAPI(false);
+  }
 
   Local<Boolean> ToBoolean() const;
   Local<Number> ToNumber() const;
@@ -442,7 +516,7 @@ public:
   Local<Object> ToObject() const;
   Local<Uint32> ToUint32() const;
   Local<Int32> ToInt32() const;
-
+  Local<Integer> ToInteger() const;
   bool BooleanValue() const;
   double NumberValue() const;
   JSInt64 IntegerValue() const;
@@ -524,6 +598,30 @@ class Date : public Value {
 };
 
 
+class RegExp : public Value {
+public:
+  enum Flags {
+    kNone = 0,
+    kGlobal = 1,
+    kIgnoreCase = 2,
+    kMultiline = 4
+  };
+
+  static Local<RegExp> New(Handle<String> pattern, Flags flags) {
+    UNIMPLEMENTEDAPI(Local<RegExp>());
+  }
+  Local<String> GetSource() const {
+    UNIMPLEMENTEDAPI(Local<String>());
+  }
+  Flags GetFlags() const {
+    UNIMPLEMENTEDAPI(kNone);
+  }
+  static inline RegExp* Cast(v8::Value* obj) {
+    UNIMPLEMENTEDAPI(NULL);
+  }
+};
+
+
 class String : public Primitive  {
   friend class Value;
   friend class Function;
@@ -552,6 +650,8 @@ public:
                 int* nchars_ref = NULL,
                 WriteHints hints = NO_HINTS) const;
 
+  static Local<String> Empty();
+
   class Utf8Value {
     char* mStr;
     int mLength;
@@ -577,7 +677,51 @@ public:
     int length() const { return mLength; }
   };
 
+  class ExternalStringResourceBase {
+  public:
+    virtual ~ExternalStringResourceBase() {}
+  protected:
+    ExternalStringResourceBase() {}
+    virtual void Dispose() { delete this; }
+    friend class String;
+  };
+
+  class ExternalStringResource : public ExternalStringResourceBase {
+  public:
+    virtual ~ExternalStringResource() {}
+    virtual const JSUint16* data() const = 0;
+    virtual size_t length() const = 0;
+  protected:
+    ExternalStringResource() {}
+  };
+
+  class ExternalAsciiStringResource : public ExternalStringResourceBase {
+  public:
+    virtual ~ExternalAsciiStringResource() {}
+    virtual const char* data() const = 0;
+    virtual size_t length() const = 0;
+  protected:
+    ExternalAsciiStringResource() {}
+  };
+
+  static Local<String> NewExternal(ExternalStringResource* resource) {
+    UNIMPLEMENTEDAPI(Local<String>());
+  }
+  bool MakeExternal(ExternalStringResource* resource) {
+    UNIMPLEMENTEDAPI(false);
+  }
+  static Local<String> NewExternal(ExternalAsciiStringResource* resource);
+  bool MakeExternal(ExternalAsciiStringResource* resource) {
+    UNIMPLEMENTEDAPI(false);
+  }
+  bool CanMakeExternal() {
+    UNIMPLEMENTEDAPI(false);
+  }
+
   static Local<String> New(const char *data, int length = -1);
+  static Local<String> New(const JSUint16* data, int length = -1);
+  static Local<String> NewSymbol(const char* data, int length = -1);
+  static Local<String> Concat(Handle<String> left, Handle<String> right);
   static Local<String> FromJSID(jsid id);
   static inline String* Cast(Value *v) {
     if (v->IsString())
@@ -610,7 +754,7 @@ enum ExternalArrayType {
 };
 
 typedef Handle<Value> (*AccessorGetter)(Local<String> property, const AccessorInfo &info);
-typedef Handle<Value> (*AccessorSetter)(Local<String> property, Local<Value> value, const AccessorInfo &info);
+typedef void (*AccessorSetter)(Local<String> property, Local<Value> value, const AccessorInfo &info);
 
 enum AccessControl {
   DEFAULT = 0,
@@ -628,13 +772,15 @@ private:
   friend class Script;
   friend class Template;
   friend class ObjectTemplate;
+  friend class FunctionTemplate;
   friend class Arguments;
   friend class AccessorInfo;
   friend class Message;
   friend class Function;
+  friend class Value;
 
-  static JSBool JSAPIPropertyGetter(JSContext*, JSObject* obj, jsid id, jsval* vp);
-  static JSBool JSAPIPropertySetter(JSContext*, JSObject* obj, jsid id, JSBool, jsval* vp);
+  static JSBool JSAPIPropertyGetter(JSContext* cx, uintN argc, jsval* vp);
+  static JSBool JSAPIPropertySetter(JSContext* cx, uintN argc, jsval* vp);
 protected:
   Object(JSObject *obj);
 public:
@@ -649,10 +795,10 @@ public:
   bool Delete(Handle<String> key);
   bool Delete(JSUint32 index);
   bool ForceDelete(Handle<String> key);
-  bool SetAccessor(Handle<String> name, AccessorGetter getter, AccessorSetter setter = 0, Handle<Value> data = Handle<Value>(), AccessControl settings = DEFAULT, PropertyAttribute attribs = None);
+  bool SetAccessor(Handle<String> name, AccessorGetter getter, AccessorSetter setter = 0, Handle<Value> data = Handle<Value>(), AccessControl settings = DEFAULT, PropertyAttribute attribs = None, bool isJSAPIShared = false);
   Local<Array> GetPropertyNames();
   Local<Value> GetPrototype();
-  void SetPrototype(Handle<Value> prototype);
+  bool SetPrototype(Handle<Value> prototype);
   Local<Object> FindInstanceInPrototypeChain(Handle<FunctionTemplate> tmpl);
   Local<String> ObjectProtoToString();
   Local<String> GetConstructorName();
@@ -760,14 +906,28 @@ public:
 };
 
 class ScriptData {
+  ScriptData() : mXdr(NULL), mData(NULL), mLen(0), mError(true) {}
+
+  void SerializeScriptObject(JSObject *scriptObj);
+  JSObject* GenerateScriptObject(void *data, int len);
+
+  JSXDRState *mXdr;
+  const char *mData;
+  uint32      mLen;
+  bool        mError;
+  JSObject   *mScript;
 public:
-  virtual ~ScriptData() { }
+  ~ScriptData();
   static ScriptData* PreCompile(const char* input, int length);
   static ScriptData* PreCompile(Handle<String> source);
   static ScriptData* New(const char* data, int length);
-  virtual int Length() = 0;
-  virtual const char* Data() = 0;
-  virtual bool HasError() = 0;
+  int Length();
+  const char* Data();
+  bool HasError();
+protected:
+  JSObject* ScriptObject();
+
+  friend class Script;
 };
 
 class Script : public internal::GCReference {
@@ -794,14 +954,13 @@ public:
 
 class Template : public internal::SecretObject<Data> {
 public:
-  // XXX v8 header says the second argument should be a Handle<Data>
-  void Set(Handle<String> name, Handle<Value> value,
+  void Set(Handle<String> name, Handle<Data> value,
            PropertyAttribute attribs = None);
 
-  // XXX v8 header says the second argument should be a Handle<Data>
-  void Set(const char* name, Handle<Value> value);
+  void Set(const char* name, Handle<Data> value);
 protected:
   Template(JSClass* clasp);
+  Template(JSObject* obj);
 
   friend class FunctionTemplate;
   friend class ObjectTemplate;
@@ -809,9 +968,11 @@ protected:
 
 class Arguments {
   friend class Object;
+  friend class FunctionTemplate;
   Arguments(JSContext* cx, JSObject* thisObj, int nargs, jsval* vals, Handle<Value> data);
 
   JSContext *mCtx;
+  jsval* mVp;
   jsval *mValues;
   JSObject *mThis;
   int mLength;
@@ -828,7 +989,8 @@ public:
     return Local<Object>::New(&o);
   }
   Local<Object> Holder() const {
-    UNIMPLEMENTEDAPI(NULL);
+    // XXX: this is usually right
+    return This();
   }
   bool IsConstructCall() const;
   Local<Value> Data() const {
@@ -849,7 +1011,7 @@ public:
   }
   Local<Object> This() const;
   Local<Object> Holder() const {
-    UNIMPLEMENTEDAPI(NULL);
+    UNIMPLEMENTEDAPI(Local<Object>());
   }
 };
 
@@ -879,6 +1041,9 @@ typedef bool (*IndexedSecurityCallback)(Local<Object> host, JSUint32 index, Acce
 
 class FunctionTemplate : public Template {
   FunctionTemplate();
+
+  static JSClass sFunctionTemplateClass;
+  static JSBool CallCallback(JSContext *cx, uintN argc, jsval *vp);
 public:
   static Local<FunctionTemplate> New(InvocationCallback callback = 0, Handle<Value> data = Handle<Value>(), Handle<Signature> signature = Handle<Signature>());
   Local<Function> GetFunction ();
@@ -906,10 +1071,21 @@ public:
   void SetInternalFieldCount(int value);
 };
 
+class Signature : public Data {
+public:
+  static Local<Signature> New(Handle<FunctionTemplate> receiver = Handle<FunctionTemplate>(), int argc = 0, Handle<FunctionTemplate> argv[] = 0) {
+    UNIMPLEMENTEDAPI(Local<Signature>());
+  }
+};
+
 Local<Object> Context::Global() {
   return Local<Object>::New(&InternalObject());
 }
 
+#undef TYPE_CHECK
+
 } // namespace v8
 
 namespace i = v8::internal;
+
+#endif // v8_v8_h__

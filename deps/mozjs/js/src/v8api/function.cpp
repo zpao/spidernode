@@ -3,6 +3,8 @@
 namespace v8 {
 using namespace internal;
 
+JS_STATIC_ASSERT(sizeof(Function) == sizeof(GCReference));
+
 Function::operator JSFunction*() const {
   return JS_ValueToFunction(cx(), mVal);
 }
@@ -38,8 +40,18 @@ void Function::SetName(Handle<String> name) {
 }
 
 Handle<String> Function::GetName() const {
-  String s(JS_GetFunctionId(*this));
-  return Local<String>::New(&s);
+  // JS_GetFunctionId will return null if the function is anonymous, so we need
+  // to guard against that. We'll return an empty string (not handle) in that case.
+  // Unfortunately SpiderMonkey treats more functions as anonymous than V8 does.
+  // For example: outer.inner in the below code is anonymous in SpiderMonkey, but not V8
+  // var outer = { inner: function() { } };
+  JSString *jss = JS_GetFunctionId(*this);
+  if (jss) {
+    String s(jss);
+    return Local<String>::New(&s);
+  }
+
+  return String::New("");
 }
 
 int Function::GetScriptLineNumber() const {

@@ -53,14 +53,14 @@ static Handle<Value> ReadTestVal(Local<String> propname, const AccessorInfo &inf
   return Integer::New(test_val);
 }
 
-static Handle<Value> WriteTestVal(Local<String> propname, Local<Value> v, const AccessorInfo &info) {
+static void WriteTestVal(Local<String> propname, Local<Value> v, const AccessorInfo &info) {
   do_check_true(!propname.IsEmpty());
   do_check_true(v->IsInt32());
   do_check_true(!info.Data().IsEmpty());
   do_check_true(info.Data()->IsInt32());
   test_val = v->Int32Value();
   int offset = info.Data()->Int32Value();
-  return Integer::New(test_val += offset);
+  test_val += offset;
 }
 
 void

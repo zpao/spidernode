@@ -9,6 +9,9 @@ MODULE = test_v8api
 
 CPP_UNIT_TESTS = \
   test_api.cpp \
+  test_debug.cpp \
+  test_function.cpp \
+  test_handle.cpp \
   test_script_run_void.cpp \
   test_String.cpp \
   test_objprop.cpp \

@@ -57,13 +57,11 @@ main(int aArgc,
     Test &test = gTests[i];
     if (!test.disabled) {
       (void)printf(TEST_INFO_STR "Running %s.\n", TEST_FILE, test.name);
+      TryCatch exceptionHandler;
       test.func();
+      do_check_false(exceptionHandler.HasCaught());
     }
-    else if (test.issue < 0) {
-      (void)printf(TEST_INFO_STR "TODO %s is UNIMPLEMENTED.\n",
-                   TEST_FILE, test.name);
-    }
-    else {
+    else if (test.issue >= 0) {
       do_check_neq(test.issue, 0);
       (void)printf(TEST_INFO_STR "TODO %s is DISABLED.  Tracked in %s%u\n",
                    TEST_FILE, test.name,

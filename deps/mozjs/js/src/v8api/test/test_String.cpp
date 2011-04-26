@@ -139,6 +139,15 @@ test_AsciiValue_operators()
   Persistent<Context> context = Context::New();
   Context::Scope context_scope(context);
 
+  char TEST_STRING[] = "ascii string value";
+  int TEST_LENGTH = strlen(TEST_STRING);
+  Handle<String> str = String::New(TEST_STRING);
+  do_check_eq(str->Length(), TEST_LENGTH);
+  String::AsciiValue asciiString(str);
+  const char* one = *asciiString;
+  char* two = *asciiString;
+  do_check_true(0 == strcmp(TEST_STRING, one));
+  do_check_true(0 == strcmp(TEST_STRING, two));
 }
 
 void
@@ -154,7 +163,6 @@ test_AsciiValue_length()
   do_check_eq(str->Length(), TEST_LENGTH);
   String::AsciiValue k(str);
   do_check_eq(k.length(), TEST_LENGTH);
-  do_check_true(0 == strcmp(TEST_STRING, *k));
 }
 
 void
