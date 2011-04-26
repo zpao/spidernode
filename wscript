@@ -100,6 +100,13 @@ def set_options(opt):
                 , dest='without_ssl'
                 )
 
+  opt.add_option('--js-engine'
+                 , action='store'
+                 #XXX use this when landing , default='v8'
+                 , default='mozjs'
+                 , help='JS Engine to use, v8 or mozjs'
+                 , dest='js_engine'
+                )
 
   opt.add_option('--shared-v8'
                 , action='store_true'
@@ -269,6 +276,16 @@ def configure(conf):
   #if Options.options.debug:
   #  conf.check(lib='profiler', uselib_store='PROFILER')
 
+  valid_js_engines = ('v8', 'mozjs', 'spidermonkey')
+  if o.js_engine not in valid_js_engines:
+      conf.fatal('--js-engine must be one of %s' % ', '.join(valid_js_engines))
+  else:
+      if o.js_engine == 'spidermonkey':
+          js_engine = 'mozjs'
+      else:
+          js_engine = o.js_engine
+      conf.env["JS_ENGINE"] = js_engine
+
   if Options.options.dtrace:
     if not sys.platform.startswith("sunos"):
       conf.fatal('DTrace support only currently available on Solaris')
@@ -299,7 +316,7 @@ def configure(conf):
       if o.openssl_libpath: 
         openssl_libpath = [o.openssl_libpath]
       elif not sys.platform.startswith('win32'):
-        openssl_libpath = ['/usr/lib', '/usr/local/lib', '/opt/local/lib', '/usr/sfw/lib']
+          openssl_libpath = ['/usr/lib', '/usr/local/lib', '/opt/local/lib', '/usr/sfw/lib']
       else:
         openssl_libpath = [normpath(join(cwd, '../openssl'))]
 
@@ -554,6 +571,87 @@ def configure(conf):
   conf.write_config_header("config.h")
 
 
+def spidermonkey_cmd(bld, variant, moz_objdir):
+    make = 'make'
+    deps_src = join(bld.path.abspath(),"deps")
+    mozjs_top = join(deps_src,"mozjs")
+    nspr_objdir='%s-nspr' % moz_objdir
+
+    # Some of these options aren't useful to nspr
+    # but they don't hurt (afaik) the nspr build.
+    configure_opts = ['--enable-static',
+                      #'--disable-shared',
+                      #'--disable-shared-js',
+                      '--disable-tests']
+
+    if variant == 'default':
+        configure_opts.append('--enable-optimize')
+    else:
+        configure_opts.append('--enable-debug')
+
+    autoconf_names = ['autoconf213', 'autoconf-2.13', 'autoconf2.13']
+    autoconf_cmd = \
+        '(cd %s/js/src && %s) && mkdir -p %s %s' % \
+        (mozjs_top, '||'.join(autoconf_names), moz_objdir, nspr_objdir)
+
+    # Note: nspr builds a 32bit version even on a 64bit host
+    # by default.  See mozilla bug 375281
+    nspr_opts = ['--with-mozilla']
+    if '64' in bld.env['DEST_CPU']:
+        nspr_opts.append('--enable-64bit')
+
+    nspr_cmd = \
+        '(cd %s && %s/nsprpub/configure %s && %s)' % \
+        (nspr_objdir,
+         mozjs_top, ' '.join(configure_opts + nspr_opts),
+         make)
+
+    nspr_lib_list = []
+    nspr_cflags = '-I$BLDDIR/%s/dist/include/nspr' % nspr_objdir
+    for lib in ('plds4', 'plc4', 'nspr4'):
+        library_name = bld.env['staticlib_PATTERN'] % lib
+        nspr_lib_path = '$BLDDIR/%s/dist/lib/%s' % (nspr_objdir,
+                                                      library_name)
+        nspr_lib_list.append(nspr_lib_path)
+
+    js_opts = ['--with-nspr-cflags="%s"' % nspr_cflags,
+               '--with-nspr-libs="%s"' % ' '.join(nspr_lib_list),
+              ]
+
+    js_cmd = \
+        '(cd %s && %s/js/src/configure %s && %s)' % \
+        (moz_objdir,
+         mozjs_top,
+         ' '.join(configure_opts + js_opts),
+         make)
+
+    lib_file = bld.env["staticlib_PATTERN"] % 'js_static'
+    copy_lib_cmd = 'cp %s/dist/lib/%s %s' % \
+                   (moz_objdir, lib_file, variant)
+
+    cmd = 'export BLDDIR=$(pwd) ; %s && %s && %s && %s' % (autoconf_cmd, nspr_cmd, js_cmd, copy_lib_cmd)
+
+    return ("echo '%s' && set -x -e && " % cmd) + cmd
+
+def build_spidermonkey(bld):
+    variant = 'debug' if bld.env["USE_DEBUG"] else 'default'
+    moz_objdir='%s/deps/mozjs/objdir' % variant
+    mozjs = bld.new_task_gen(
+        source          = 'deps/mozjs/js/src/configure.in',
+        target          = bld.env["staticlib_PATTERN"] % 'js_static',
+        rule            = spidermonkey_cmd(bld, variant, moz_objdir),
+        before          = "cxx",
+        install_path    = None)
+    bld.env["CPPPATH_V8"] = "%s/dist/include/" % moz_objdir
+    t = join(variant, mozjs.target)
+    bld.env_of_name(variant).append_value("LINKFLAGS_V8", t)
+
+    # Copy over the header files used to compile node
+    bld.install_files('${PREFIX}/include/node/',
+                      '%s/dist/include/js/8*.h' % moz_objdir)
+
+
+### TODO:
 def v8_cmd(bld, variant):
   scons = join(cwd, 'tools/scons/scons.py')
   deps_src = join(bld.path.abspath(),"deps")
@@ -657,7 +755,12 @@ def build(bld):
 
   bld.add_subdirs('deps/libeio')
 
-  if not bld.env['USE_SHARED_V8']: build_v8(bld)
+  if not bld.env['USE_SHARED_V8']:
+    if bld.env['JS_ENGINE'] == 'v8':
+      build_v8(bld)
+    elif bld.env['JS_ENGINE'] == 'mozjs':
+      build_spidermonkey(bld)
+
   if not bld.env['USE_SHARED_LIBEV']: bld.add_subdirs('deps/libev')
   if not bld.env['USE_SHARED_CARES']: bld.add_subdirs('deps/c-ares')
 
@@ -864,7 +967,14 @@ def build(bld):
     deps/http_parser
   """
 
-  if not bld.env["USE_SHARED_V8"]: node.includes += ' deps/v8/include '
+  if not bld.env["USE_SHARED_V8"]:
+      if bld.env["JS_ENGINE"] == 'v8':
+        node.includes += ' deps/v8/include '
+      elif bld.env["JS_ENGINE"] == 'mozjs':
+        # XXX We also figure this out in build_spidermonkey,
+        # but this hack is to get something working now
+        variant = 'debug' if bld.env["USE_DEBUG"] else 'default'
+        node.includes += ' %s/deps/mozjs/objdir/dist/include ' % variant
 
   if not bld.env["USE_SHARED_LIBEV"]:
     node.add_objects += ' ev '
