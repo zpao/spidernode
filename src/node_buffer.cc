@@ -134,8 +134,14 @@ Handle<Object> Buffer::New(Handle<String> string) {
 Buffer* Buffer::New(size_t length) {
   HandleScope scope;
 
+  // get Buffer from global scope.
+  Local<Object> global = v8::Context::GetCurrent()->Global();
+  Local<Value> bv = global->Get(String::NewSymbol("Buffer"));
+  assert(bv->IsFunction());
+  Local<Function> ctor = Local<Function>::Cast(bv);
+
   Local<Value> arg = Integer::NewFromUnsigned(length);
-  Local<Object> b = constructor_template->GetFunction()->NewInstance(1, &arg);
+  Local<Object> b = ctor->NewInstance(1, &arg);
   if (b.IsEmpty()) return NULL;
 
   return ObjectWrap::Unwrap<Buffer>(b);
@@ -145,8 +151,14 @@ Buffer* Buffer::New(size_t length) {
 Buffer* Buffer::New(char* data, size_t length) {
   HandleScope scope;
 
-  Local<Value> arg = Integer::NewFromUnsigned(0);
-  Local<Object> obj = constructor_template->GetFunction()->NewInstance(1, &arg);
+  // get Buffer from global scope.
+  Local<Object> global = v8::Context::GetCurrent()->Global();
+  Local<Value> bv = global->Get(String::NewSymbol("Buffer"));
+  assert(bv->IsFunction());
+  Local<Function> ctor = Local<Function>::Cast(bv);
+
+  Local<Value> arg = Integer::NewFromUnsigned(length);
+  Local<Object> obj = ctor->NewInstance(1, &arg);
 
   Buffer *buffer = ObjectWrap::Unwrap<Buffer>(obj);
   buffer->Replace(data, length, NULL, NULL);
@@ -158,9 +170,15 @@ Buffer* Buffer::New(char* data, size_t length) {
 Buffer* Buffer::New(char *data, size_t length,
                     free_callback callback, void *hint) {
   HandleScope scope;
+  // get Buffer from global scope.
+  Local<Object> global = v8::Context::GetCurrent()->Global();
+  Local<Value> bv = global->Get(String::NewSymbol("Buffer"));
+  assert(bv->IsFunction());
+  Local<Function> ctor = Local<Function>::Cast(bv);
+
 
   Local<Value> arg = Integer::NewFromUnsigned(0);
-  Local<Object> obj = constructor_template->GetFunction()->NewInstance(1, &arg);
+  Local<Object> obj = ctor->NewInstance(1, &arg);
 
   Buffer *buffer = ObjectWrap::Unwrap<Buffer>(obj);
   buffer->Replace(data, length, callback, hint);
@@ -170,9 +188,9 @@ Buffer* Buffer::New(char *data, size_t length,
 
 
 Handle<Value> Buffer::New(const Arguments &args) {
-  if (!args.IsConstructCall()) {
+  /*if (!args.IsConstructCall()) {
     return FromConstructorTemplate(constructor_template, args);
-  }
+  }*/
 
   HandleScope scope;
 
