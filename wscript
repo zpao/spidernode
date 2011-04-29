@@ -572,7 +572,7 @@ def configure(conf):
 
 
 def spidermonkey_cmd(bld, variant, moz_objdir):
-    make = 'make'
+    make = 'make -j8'
     deps_src = join(bld.path.abspath(),"deps")
     mozjs_top = join(deps_src,"mozjs")
     nspr_objdir='%s-nspr' % moz_objdir
@@ -582,12 +582,15 @@ def spidermonkey_cmd(bld, variant, moz_objdir):
     configure_opts = ['--enable-static',
                       #'--disable-shared',
                       #'--disable-shared-js',
+                      '--with-ccache',
                       '--disable-tests']
 
     if variant == 'default':
         configure_opts.append('--enable-optimize')
+        configure_opts.append('--disable-debug')
     else:
         configure_opts.append('--enable-debug')
+        configure_opts.append('--disable-optimize')
 
     autoconf_names = ['autoconf213', 'autoconf-2.13', 'autoconf2.13']
     autoconf_cmd = \
