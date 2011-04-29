@@ -973,8 +973,7 @@ def build(bld):
       elif bld.env["JS_ENGINE"] == 'mozjs':
         # XXX We also figure this out in build_spidermonkey,
         # but this hack is to get something working now
-        variant = 'debug' if bld.env["USE_DEBUG"] else 'default'
-        node.includes += ' %s/deps/mozjs/objdir/dist/include ' % variant
+        node.includes += ' build/default/deps/mozjs/objdir/dist/include '
 
   if not bld.env["USE_SHARED_LIBEV"]:
     node.add_objects += ' ev '
@@ -1011,6 +1010,14 @@ def build(bld):
     node_g = node.clone("debug")
     node_g.target = "node_g"
     node_g.uselib += ' V8_G'
+
+    # XXX This build system is for lack of a better word, dumb. For node_g, the
+    #     path commands are run from changes to build/ and then each include is
+    #     prefixed with "debug/". Includes used before get modified, but we still
+    #     need to make this work for SpiderMonkey since we're doing variant
+    #     specific includes for now.
+    if bld.env["JS_ENGINE"] == 'mozjs':
+      node_g.includes += ' deps/mozjs/objdir/dist/include '
 
     node_conf_g = node_conf.clone("debug")
     node_conf_g.dict = subflags(node_g)
