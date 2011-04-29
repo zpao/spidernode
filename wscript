@@ -643,21 +643,32 @@ def spidermonkey_cmd(bld, variant, moz_objdir):
     return ("echo '%s' && set -x -e && " % cmd) + cmd
 
 def build_spidermonkey(bld):
-    variant = 'debug' if bld.env["USE_DEBUG"] else 'default'
-    moz_objdir='%s/deps/mozjs/objdir' % variant
+    moz_objdir ='default/deps/mozjs/objdir'
+    moz_objdir_g ='debug/deps/mozjs/objdir'
+
     mozjs = bld.new_task_gen(
         source          = 'deps/mozjs/js/src/configure.in',
         target          = bld.env["staticlib_PATTERN"] % 'js_static',
-        rule            = spidermonkey_cmd(bld, variant, moz_objdir),
+        rule            = spidermonkey_cmd(bld, "default", moz_objdir),
         before          = "cxx",
         install_path    = None)
     bld.env["CPPPATH_V8"] = "%s/dist/include/" % moz_objdir
-    t = join(variant, mozjs.target)
-    bld.env_of_name(variant).append_value("LINKFLAGS_V8", t)
+    t = join(bld.srcnode.abspath(bld.env_of_name("default")), mozjs.target)
+    bld.env_of_name("default").append_value("LINKFLAGS_V8", t)
 
     # Copy over the header files used to compile node
     bld.install_files('${PREFIX}/include/node/',
-                      '%s/dist/include/js/8*.h' % moz_objdir)
+                      '%s/dist/include/js/*.h' % moz_objdir)
+
+    if bld.env["USE_DEBUG"]:
+        mozjs_debug = mozjs.clone("debug")
+        mozjs_debug.rule = spidermonkey_cmd(bld, "debug", moz_objdir_g)
+        # XXX Debug is still trying to use libjs_static, so don't do the _g for now
+        # mozjs_debug.target = bld.env["staticlib_PATTERN"] % 'js_static_g'
+        t = join(bld.srcnode.abspath(bld.env_of_name("debug")), mozjs.target)
+        bld.env_of_name("debug").append_value("LINKFLAGS_V8_G", t);
+        bld.env["CPPPATH_V8_G"] = "%s/dist/include/" % moz_objdir_g
+        bld.install_files('%s/dist/include/js/*.h' % moz_objdir_g)
 
 
 ### TODO:
