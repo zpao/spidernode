@@ -629,8 +629,14 @@ def spidermonkey_cmd(bld, variant, moz_objdir):
          make)
 
     lib_file = bld.env["staticlib_PATTERN"] % 'js_static'
-    copy_lib_cmd = 'cp %s/dist/lib/%s %s' % \
-                   (moz_objdir, lib_file, variant)
+
+    # debug builds make libjs_static_g to follow the node convention
+    # which doesn't work for now...
+    dest_lib_name = 'js_static' # + ('_g' if variant == 'debug' else '')
+    dest_lib_file = bld.env["staticlib_PATTERN"] % dest_lib_name
+
+    copy_lib_cmd = 'cp %s/dist/lib/%s %s/%s' % \
+                   (moz_objdir, lib_file, variant, dest_lib_file)
 
     cmd = 'export BLDDIR=$(pwd) ; %s && %s && %s && %s' % (autoconf_cmd, nspr_cmd, js_cmd, copy_lib_cmd)
 
