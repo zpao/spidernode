@@ -69,7 +69,8 @@ def set_options(opt):
 		)
   opt.add_option( '--debug'
                 , action='store_true'
-                , default=False
+                #, default=False
+                , default=True
                 , help='Build debug variant [Default: False]'
                 , dest='debug'
                 )
@@ -214,7 +215,6 @@ def set_options(opt):
                 , help='Build with DTrace (experimental)'
                 , dest='dtrace'
                 )
- 
 
   opt.add_option( '--product-type'
                 , action='store'
@@ -231,8 +231,31 @@ def set_options(opt):
                        ', '.join(supported_archs)
                 , dest='dest_cpu'
                 )
-
-
+  # Mozjs options below
+  opt.add_option( '--moz-jflag'
+                 , action='store'
+                 , type='int'
+                 , default=4
+                 , help='This is the number passed to the -j flag to make '+\
+                        'when building the Mozilla Spidermonkey JS engine'
+                 , dest='moz_jflag'
+                )
+  opt.add_option( '--moz-ccache'
+                 , action='store_true'
+                 , default=False
+                 , help='This option tells the mozilla buildsystem to use '+\
+                        'ccache for builds'
+                 , dest='moz_ccache'
+                )
+  opt.add_option( '--moz-srcdir'
+                 , action='store'
+                 , type='string'
+                 , default='mozjs'
+                 , help='This is a path relative to the node\'s blddir that '+\
+                        'is the root of a Mozilla-style source tree.  It is '+\
+                        'used to find all mozilla source and build system'
+                 , dest='moz_srcdir'
+                )
 
 
 def configure(conf):
@@ -276,15 +299,18 @@ def configure(conf):
   #if Options.options.debug:
   #  conf.check(lib='profiler', uselib_store='PROFILER')
 
-  valid_js_engines = ('v8', 'mozjs', 'spidermonkey')
+  valid_js_engines = ('v8', 'mozjs')
   if o.js_engine not in valid_js_engines:
       conf.fatal('--js-engine must be one of %s' % ', '.join(valid_js_engines))
   else:
-      if o.js_engine == 'spidermonkey':
-          js_engine = 'mozjs'
-      else:
-          js_engine = o.js_engine
-      conf.env["JS_ENGINE"] = js_engine
+      conf.env["JS_ENGINE"] = o.js_engine
+
+  if conf.env["JS_ENGINE"] == 'mozjs':
+    conf.env.append_value("CFLAGS", "-DMOZILLA_JS=1")
+    conf.env.append_value("CPPFLAGS", "-DMOZILLA_JS=1")
+  elif conf.env["JS_ENGINE"] == 'v8':
+    conf.env.append_value("CFLAGS", "-DV8_JS=1")
+    conf.env.append_value("CPPFLAGS", "-DV8_JS=1")
 
   if Options.options.dtrace:
     if not sys.platform.startswith("sunos"):
@@ -313,14 +339,14 @@ def configure(conf):
       Options.options.use_openssl = conf.env["USE_OPENSSL"] = True
       conf.env.append_value("CPPFLAGS", "-DHAVE_OPENSSL=1")
     else:
-      if o.openssl_libpath: 
+      if o.openssl_libpath:
         openssl_libpath = [o.openssl_libpath]
       elif not sys.platform.startswith('win32'):
           openssl_libpath = ['/usr/lib', '/usr/local/lib', '/opt/local/lib', '/usr/sfw/lib']
       else:
         openssl_libpath = [normpath(join(cwd, '../openssl'))]
 
-      if o.openssl_includes: 
+      if o.openssl_includes:
         openssl_includes = [o.openssl_includes]
       elif not sys.platform.startswith('win32'):
         openssl_includes = [];
@@ -368,6 +394,11 @@ def configure(conf):
     conf.env['DEST_CPU'] = canonical_cpu_type(os.environ['DEST_CPU'])
   elif 'DEST_CPU' in conf.env and conf.env['DEST_CPU']:
     conf.env['DEST_CPU'] = canonical_cpu_type(conf.env['DEST_CPU'])
+
+  # Mozilla Options
+  conf.env['MOZ_CCACHE'] = Options.options.moz_ccache
+  conf.env['MOZ_SRCDIR'] = Options.options.moz_srcdir
+  conf.env['MOZ_JFLAG'] = Options.options.moz_jflag
 
   have_librt = conf.check(lib='rt', uselib_store='RT')
 
@@ -572,18 +603,18 @@ def configure(conf):
 
 
 def spidermonkey_cmd(bld, variant, moz_objdir):
-    make = 'make -j8'
     deps_src = join(bld.path.abspath(),"deps")
-    mozjs_top = join(deps_src,"mozjs")
-    nspr_objdir='%s-nspr' % moz_objdir
+    mozjs_top = join(deps_src,bld.env['MOZ_SRCDIR'])
+    nspr_objdir='%s_nspr' % moz_objdir
 
     # Some of these options aren't useful to nspr
     # but they don't hurt (afaik) the nspr build.
     configure_opts = ['--enable-static',
-                      #'--disable-shared',
-                      #'--disable-shared-js',
-                      '--with-ccache',
                       '--disable-tests']
+    if bld.env['MOZ_CCACHE'] :
+        configure_opts.append('--with-ccache')
+
+    make = 'make -j%d' % bld.env['MOZ_JFLAG']
 
     if variant == 'default':
         configure_opts.append('--enable-optimize')
@@ -592,6 +623,7 @@ def spidermonkey_cmd(bld, variant, moz_objdir):
         configure_opts.append('--enable-debug')
         configure_opts.append('--disable-optimize')
 
+    # This should be replaced by an actual lookup by waf
     autoconf_names = ['autoconf213', 'autoconf-2.13', 'autoconf2.13']
     autoconf_cmd = \
         '(cd %s/js/src && %s) && mkdir -p %s %s' % \
@@ -606,20 +638,20 @@ def spidermonkey_cmd(bld, variant, moz_objdir):
     nspr_cmd = \
         '(cd %s && %s/nsprpub/configure %s && %s)' % \
         (nspr_objdir,
-         mozjs_top, ' '.join(configure_opts + nspr_opts),
+         mozjs_top,
+         ' '.join(configure_opts + nspr_opts),
          make)
 
     nspr_lib_list = []
-    nspr_cflags = '-I$BLDDIR/%s/dist/include/nspr' % nspr_objdir
+    nspr_cflags = '-I%s/dist/include/nspr' % nspr_objdir
     for lib in ('plds4', 'plc4', 'nspr4'):
         library_name = bld.env['staticlib_PATTERN'] % lib
-        nspr_lib_path = '$BLDDIR/%s/dist/lib/%s' % (nspr_objdir,
+        nspr_lib_path = '%s/dist/lib/%s' % (nspr_objdir,
                                                       library_name)
         nspr_lib_list.append(nspr_lib_path)
 
     js_opts = ['--with-nspr-cflags="%s"' % nspr_cflags,
-               '--with-nspr-libs="%s"' % ' '.join(nspr_lib_list),
-              ]
+               '--with-nspr-libs="%s"' % ' '.join(nspr_lib_list)]
 
     js_cmd = \
         '(cd %s && %s/js/src/configure %s && %s)' % \
@@ -638,16 +670,33 @@ def spidermonkey_cmd(bld, variant, moz_objdir):
     copy_lib_cmd = 'cp %s/dist/lib/%s %s/%s' % \
                    (moz_objdir, lib_file, variant, dest_lib_file)
 
-    cmd = 'export BLDDIR=$(pwd) ; %s && %s && %s && %s' % (autoconf_cmd, nspr_cmd, js_cmd, copy_lib_cmd)
+    cmd  = 'export CC="%s" ; ' % bld.env['COMPILER_CC']
+    cmd += 'export CXX="%s" ; ' % bld.env['COMPILER_CXX']
+    cmd += '%s && %s && %s && %s' % (autoconf_cmd, nspr_cmd, js_cmd, copy_lib_cmd)
 
     return ("echo '%s' && set -x -e && " % cmd) + cmd
 
 def build_spidermonkey(bld):
-    moz_objdir ='default/deps/mozjs/objdir'
-    moz_objdir_g ='debug/deps/mozjs/objdir'
+    moz_objdir = join(bld.path.abspath(),'default','deps','moz_obj')
+    moz_objdir_g = join(bld.path.abspath(),'debug','deps','moz_obj')
+
+    # This is a list of file names that we use to decide whether spidermonkey
+    # needs to be rebuilt.  We find all c/c++ source and headers as well as 
+    # configure and makefile input scripts.
+    deps_list = []
+    for x in ('js/src', 'js/src/v8api', 'nsprpub', 'mfbt'):
+        for y in ('.c', '.cpp', '.h', '.in'):
+            deps_list.append(
+                bld.path.ant_glob('deps/%s/%s/*%s' % (bld.env['MOZ_SRCDIR'],x,y))
+            )
+    # We don't generate the configure script for nspr because it has checked-in
+    # changes that we don't want to overwrite
+    deps_list.append('deps/%s/nsprpub/configure' % bld.env['MOZ_SRCDIR'])
+    # we want to have spaces between each item and at the beginning and end
+    deps = ' %s ' % ' '.join(deps_list)
 
     mozjs = bld.new_task_gen(
-        source          = 'deps/mozjs/js/src/configure.in',
+        source          = deps,
         target          = bld.env["staticlib_PATTERN"] % 'js_static',
         rule            = spidermonkey_cmd(bld, "default", moz_objdir),
         before          = "cxx",
@@ -655,10 +704,6 @@ def build_spidermonkey(bld):
     bld.env["CPPPATH_V8"] = "%s/dist/include/" % moz_objdir
     t = join(bld.srcnode.abspath(bld.env_of_name("default")), mozjs.target)
     bld.env_of_name("default").append_value("LINKFLAGS_V8", t)
-
-    # Copy over the header files used to compile node
-    bld.install_files('${PREFIX}/include/node/',
-                      '%s/dist/include/js/*.h' % moz_objdir)
 
     if bld.env["USE_DEBUG"]:
         mozjs_debug = mozjs.clone("debug")
@@ -668,7 +713,15 @@ def build_spidermonkey(bld):
         t = join(bld.srcnode.abspath(bld.env_of_name("debug")), mozjs.target)
         bld.env_of_name("debug").append_value("LINKFLAGS_V8_G", t);
         bld.env["CPPPATH_V8_G"] = "%s/dist/include/" % moz_objdir_g
-        bld.install_files('%s/dist/include/js/*.h' % moz_objdir_g)
+
+    # XXX There is an issue here.  Need to make sure that these headers are:
+    #   -installed
+    #   -different for default/debug
+    #   -useful to whatever extension building tool is used
+    # Copy over the js header files used to compile node
+    bld.install_files('${PREFIX}/include/node/',
+                      '%s/dist/include/js/*.h' % moz_objdir)
+
 
 
 ### TODO:
@@ -989,11 +1042,10 @@ def build(bld):
 
   if not bld.env["USE_SHARED_V8"]:
       if bld.env["JS_ENGINE"] == 'v8':
+        # We only want to include the v8 headers if we are building v8.
+        # Because mozilla uses different headers for debug and default,
+        # we don't want to include the mozjs headers quite yet
         node.includes += ' deps/v8/include '
-      elif bld.env["JS_ENGINE"] == 'mozjs':
-        # XXX We also figure this out in build_spidermonkey,
-        # but this hack is to get something working now
-        node.includes += ' build/default/deps/mozjs/objdir/dist/include '
 
   if not bld.env["USE_SHARED_LIBEV"]:
     node.add_objects += ' ev '
@@ -1030,21 +1082,23 @@ def build(bld):
     node_g = node.clone("debug")
     node_g.target = "node_g"
     node_g.uselib += ' V8_G'
-
-    # XXX This build system is for lack of a better word, dumb. For node_g, the
-    #     path commands are run from changes to build/ and then each include is
-    #     prefixed with "debug/". Includes used before get modified, but we still
-    #     need to make this work for SpiderMonkey since we're doing variant
-    #     specific includes for now.
-    if bld.env["JS_ENGINE"] == 'mozjs':
-      node_g.includes += ' deps/mozjs/objdir/dist/include '
-
+    if bld.env['JS_ENGINE'] == 'mozjs':
+        # The v8 case is taken care of above
+        node_g.includes += ' %s ' % join(bld.path.abspath(),'debug','deps','moz_obj','dist','include')
     node_conf_g = node_conf.clone("debug")
     node_conf_g.dict = subflags(node_g)
     node_conf_g.install_path = None
 
   # After creating the debug clone, append the V8 dep
   node.uselib += ' V8'
+
+  # Unlike v8 which is using the same headers for default and debug, we are using
+  # a different set of headers for default and debug builds (should they ever differ).
+  # Adding the include after the node.clone() step to ensure that we only include 
+  # default headers for default builds and debug headers for debug build
+  if bld.env['JS_ENGINE'] == 'mozjs':
+    # For some reason this header gets two -I flags for default builds ?!?!
+    node.includes += ' %s ' % join(bld.path.abspath(),'default','deps','moz_obj','dist','include')
 
   bld.install_files('${PREFIX}/include/node/', """
     config.h
