@@ -36,6 +36,9 @@ static JSCrossCompartmentCall *gCompartmentCall = 0;
 static bool gHasAttemptedInitialization = false;
 static FatalErrorCallback gFatalCallback = 0;
 
+bool disposed() {
+  return gHasAttemptedInitialization && !gRuntime;
+}
 }
 
 using namespace internal;
@@ -77,6 +80,15 @@ bool V8::Initialize() {
 
 // TODO: call this
 bool V8::Dispose() {
+  // Unwind the context scopes
+  Local<Context> ctx;
+  while (!(ctx = Context::GetCurrent()).IsEmpty()) {
+    ctx->Exit();
+  }
+  // Unwind the handle scopes
+  while (HandleScope::sCurrent) {
+    HandleScope::sCurrent->Destroy();
+  }
   JS_LeaveCrossCompartmentCall(gCompartmentCall);
   (void) JS_RemoveObjectRoot(gRootContext, &gCompartment);
   gCompartment = 0;

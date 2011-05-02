@@ -52,6 +52,7 @@
 #include "jscntxt.h"
 #include "jsversion.h"
 #include "jsgc.h"
+#include "jsgcmark.h"
 #include "jsinterp.h"
 #include "jslock.h"
 #include "jsnum.h"
@@ -122,7 +123,8 @@ ArrayBuffer::class_finalize(JSContext *cx, JSObject *obj)
 {
     ArrayBuffer *abuf = ArrayBuffer::fromJSObject(obj);
     if (abuf) {
-        abuf->freeStorage(cx);
+        if (!abuf->isExternal)
+            abuf->freeStorage(cx);
         cx->delete_(abuf);
     }
 }
@@ -186,6 +188,7 @@ ArrayBuffer::allocateStorage(JSContext *cx, uint32 nbytes)
     }
 
     byteLength = nbytes;
+    isExternal = false;
     return true;
 }
 
@@ -437,7 +440,7 @@ struct uint8_clamped {
         return *this;
     }
 
-    inline uint8_clamped& operator= (int32 x) { 
+    inline uint8_clamped& operator= (int32 x) {
         val = (x >= 0)
               ? ((x < 255)
                  ? uint8(x)
@@ -446,7 +449,7 @@ struct uint8_clamped {
         return *this;
     }
 
-    inline uint8_clamped& operator= (const jsdouble x) { 
+    inline uint8_clamped& operator= (const jsdouble x) {
         val = uint8(js_TypedArray_uint8_clamp_double(x));
         return *this;
     }
@@ -843,14 +846,9 @@ class TypedArrayTemplate
         if (!obj)
             return false;
 
-        if (!InstanceOf(cx, obj, ThisTypeArray::fastClass(), vp + 2))
-            return false;
-
         if (obj->getClass() != fastClass()) {
             // someone tried to apply this subarray() to the wrong class
-            JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL,
-                                 JSMSG_INCOMPATIBLE_METHOD,
-                                 fastClass()->name, "subarray", obj->getClass()->name);
+            ReportIncompatibleMethod(cx, vp, fastClass());
             return false;
         }
 
@@ -905,14 +903,9 @@ class TypedArrayTemplate
         if (!obj)
             return false;
 
-        if (!InstanceOf(cx, obj, ThisTypeArray::fastClass(), vp + 2))
-            return false;
-
         if (obj->getClass() != fastClass()) {
             // someone tried to apply this set() to the wrong class
-            JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL,
-                                 JSMSG_INCOMPATIBLE_METHOD,
-                                 fastClass()->name, "set", obj->getClass()->name);
+            ReportIncompatibleMethod(cx, vp, fastClass());
             return false;
         }
 
@@ -1140,7 +1133,7 @@ class TypedArrayTemplate
 
         return NativeType(int32(0));
     }
-    
+
     static bool
     copyFrom(JSContext *cx, JSObject *thisTypedArrayObj,
              JSObject *ar, jsuint len, jsuint offset = 0)
@@ -1335,7 +1328,7 @@ class TypedArrayTemplate
         if (size != 0 && count >= INT32_MAX / size) {
             JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL,
                                  JSMSG_NEED_DIET, "size and count");
-            return false;
+            return NULL;
         }
 
         int32 bytelen = size * count;
@@ -1423,7 +1416,9 @@ TypedArrayTemplate<double>::copyIndexToValue(JSContext *cx, uint32 index, Value 
 
 Class ArrayBuffer::jsclass = {
     "ArrayBuffer",
-    JSCLASS_HAS_PRIVATE | JSCLASS_HAS_CACHED_PROTO(JSProto_ArrayBuffer),
+    JSCLASS_HAS_PRIVATE |
+    JSCLASS_CONCURRENT_FINALIZER |
+    JSCLASS_HAS_CACHED_PROTO(JSProto_ArrayBuffer),
     PropertyStub,         /* addProperty */
     PropertyStub,         /* delProperty */
     PropertyStub,         /* getProperty */
@@ -1668,7 +1663,7 @@ TypedArrayConstruct(JSContext *cx, jsint atype, uintN argc, Value *argv)
 
       default:
         JS_NOT_REACHED("shouldn't have gotten here");
-        return false;
+        return NULL;
     }
 }
 

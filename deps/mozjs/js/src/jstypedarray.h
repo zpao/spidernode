@@ -84,6 +84,7 @@ struct JS_FRIEND_API(ArrayBuffer) {
 
     void *data;
     uint32 byteLength;
+    bool isExternal;
 };
 
 /*

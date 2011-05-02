@@ -148,6 +148,9 @@ HandleScope::HandleScope() :
 }
 
 HandleScope::~HandleScope() {
+  // Sometimes a handle scope can hang around after V8::Dispose is called
+  if (v8::internal::disposed())
+    return;
   Destroy();
 }
 

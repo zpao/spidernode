@@ -51,7 +51,7 @@
 
 namespace js {
 
-static inline JSObject *
+static inline GlobalObject *
 GetGlobalForScopeChain(JSContext *cx)
 {
     /*
@@ -73,7 +73,7 @@ GetGlobalForScopeChain(JSContext *cx)
         return NULL;
     }
     OBJ_TO_INNER_OBJECT(cx, scope);
-    return scope;
+    return scope->asGlobal();
 }
 
 }
@@ -246,8 +246,7 @@ StackSpace::pushInvokeArgs(JSContext *cx, uintN argc, InvokeArgsGuard *ag)
 #endif
 
     ag->cx = cx;
-    ag->argv_ = vp + 2;
-    ag->argc_ = argc;
+    ImplicitCast<CallArgs>(*ag) = CallArgsFromVp(argc, vp);
     return true;
 }
 
@@ -496,6 +495,12 @@ FrameRegsIter::operator++()
     return *this;
 }
 
+inline GSNCache *
+GetGSNCache(JSContext *cx)
+{
+    return &JS_THREAD_DATA(cx)->gsnCache;
+}
+
 class AutoNamespaceArray : protected AutoGCRooter {
   public:
     AutoNamespaceArray(JSContext *cx) : AutoGCRooter(cx, NAMESPACES) {
@@ -735,12 +740,12 @@ CallJSNativeConstructor(JSContext *cx, js::Native native, uintN argc, js::Value 
 }
 
 JS_ALWAYS_INLINE bool
-CallJSPropertyOp(JSContext *cx, js::PropertyOp op, JSObject *obj, jsid id, js::Value *vp)
+CallJSPropertyOp(JSContext *cx, js::PropertyOp op, JSObject *receiver, jsid id, js::Value *vp)
 {
-    assertSameCompartment(cx, obj, id, *vp);
-    JSBool ok = op(cx, obj, id, vp);
+    assertSameCompartment(cx, receiver, id, *vp);
+    JSBool ok = op(cx, receiver, id, vp);
     if (ok)
-        assertSameCompartment(cx, obj, *vp);
+        assertSameCompartment(cx, receiver, *vp);
     return ok;
 }
 

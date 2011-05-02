@@ -377,8 +377,8 @@ struct JS_FRIEND_API(JSCompartment) {
     js::gc::ArenaList            arenas[js::gc::FINALIZE_LIMIT];
     js::gc::FreeLists            freeLists;
 
-    size_t                       gcBytes;
-    size_t                       gcTriggerBytes;
+    uint32                       gcBytes;
+    uint32                       gcTriggerBytes;
     size_t                       gcLastBytes;
 
     bool                         hold;
@@ -438,15 +438,16 @@ struct JS_FRIEND_API(JSCompartment) {
     EmptyShapeSet                emptyShapes;
 
     /*
-     * Initial shape given to RegExp objects, encoding the initial set of
-     * built-in instance properties and the fixed slots where they must be
-     * stored (see JSObject::JSSLOT_REGEXP_*). Later property additions may
-     * cause this shape to not be used by a regular expression (even along the
-     * entire shape parent chain, should the object go into dictionary mode).
-     * But because all the initial properties are non-configurable, they will
-     * always map to fixed slots.
+     * Initial shapes given to RegExp and String objects, encoding the initial
+     * sets of built-in instance properties and the fixed slots where they must
+     * be stored (see JSObject::JSSLOT_(REGEXP|STRING)_*). Later property
+     * additions may cause these shapes to not be used by a RegExp or String
+     * (even along the entire shape parent chain, should the object go into
+     * dictionary mode). But because all the initial properties are
+     * non-configurable, they will always map to fixed slots.
      */
     const js::Shape              *initialRegExpShape;
+    const js::Shape              *initialStringShape;
 
     bool                         debugMode;  // true iff debug mode on
     JSCList                      scripts;    // scripts in this compartment
@@ -478,12 +479,13 @@ struct JS_FRIEND_API(JSCompartment) {
     void sweep(JSContext *cx, uint32 releaseInterval);
     void purge(JSContext *cx);
     void finishArenaLists();
-    void finalizeObjectArenaLists(JSContext *cx);
-    void finalizeShapeArenaLists(JSContext *cx);
-    void finalizeStringArenaLists(JSContext *cx);
+    void finalizeObjectArenaLists(JSContext *cx, JSGCInvocationKind gckind);
+    void finalizeStringArenaLists(JSContext *cx, JSGCInvocationKind gckind);
+    void finalizeShapeArenaLists(JSContext *cx, JSGCInvocationKind gckind);
     bool arenaListsAreEmpty();
 
     void setGCLastBytes(size_t lastBytes);
+    void reduceGCTriggerBytes(uint32 amount);
 
     js::DtoaCache dtoaCache;
 

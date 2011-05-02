@@ -31,11 +31,36 @@ test_script_run_void()
   do_check_true(result.IsEmpty());
 }
 
+void
+test_script_err()
+{
+  // Create a stack-allocated handle scope.
+  HandleScope handle_scope;
+
+  // Create a new context.
+  Persistent<Context> context = Context::New();
+
+  // Enter the created context for compiling.
+  Context::Scope context_scope(context);
+
+  // Create a string containing the JavaScript source code.
+  Handle<String> source = String::New("a b");
+
+  // Compile the source code.
+  Handle<Script> script = Script::Compile(source);
+
+  do_check_true(script.IsEmpty());
+
+  // Dispose the persistent context.
+  context.Dispose();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //// Test Harness
 
 Test gTests[] = {
   TEST(test_script_run_void),
+  TEST(test_script_err),
 };
 
 const char* file = __FILE__;

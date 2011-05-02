@@ -41,6 +41,7 @@
 #include "jscntxt.h"
 #include "jscompartment.h"
 #include "jsgc.h"
+#include "jsgcmark.h"
 #include "jsiter.h"
 #include "jsproxy.h"
 #include "jsscope.h"
@@ -81,6 +82,7 @@ JSCompartment::JSCompartment(JSRuntime *rt)
     emptyEnumeratorShape(NULL),
     emptyWithShape(NULL),
     initialRegExpShape(NULL),
+    initialStringShape(NULL),
     debugMode(rt->debugMode),
 #if ENABLE_YARR_JIT
     regExpAllocator(NULL),
@@ -167,7 +169,7 @@ bool
 JSCompartment::arenaListsAreEmpty()
 {
   for (unsigned i = 0; i < FINALIZE_LIMIT; i++) {
-       if (!arenas[i].isEmpty())
+       if (!arenas[i].isEmpty() || arenas[i].hasToBeFinalized)
            return false;
   }
   return true;
@@ -488,6 +490,8 @@ JSCompartment::sweep(JSContext *cx, uint32 releaseInterval)
 
     if (initialRegExpShape && IsAboutToBeFinalized(cx, initialRegExpShape))
         initialRegExpShape = NULL;
+    if (initialStringShape && IsAboutToBeFinalized(cx, initialStringShape))
+        initialStringShape = NULL;
 
 #ifdef JS_TRACER
     traceMonitor.sweep(cx);

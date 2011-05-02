@@ -59,9 +59,8 @@ ifndef JS_DISABLE_SHELL
 DIRS += shell
 endif
 
-# FIXME: bug 515383 covers getting these working on wince
-# bug 530688 covers Android
-ifneq (,$(filter-out WINCE ANDROID,$(OS_ARCH)))
+# FIXME: bug 530688 covers getting these working on Android
+ifneq ($(OS_ARCH),ANDROID)
 ifdef ENABLE_TESTS
 DIRS += jsapi-tests
 endif
@@ -93,7 +92,6 @@ MODULE_OPTIMIZE_FLAGS = -O2 -ip
 endif
 else # not INTEL_CXX
 
-#FAIL_ON_WARNINGS = 1
 MODULE_OPTIMIZE_FLAGS = -O3 -fstrict-aliasing -fno-stack-protector
 
 # We normally want -fomit-frame-pointer, but we want an explicit
@@ -132,6 +130,7 @@ DIST_INSTALL = 1
 VPATH		= $(srcdir)
 
 CPPSRCS		= \
+		jsalloc.cpp \
 		jsanalyze.cpp \
 		jsapi.cpp \
 		jsarena.cpp \
@@ -150,8 +149,10 @@ CPPSRCS		= \
 		jsfriendapi.cpp \
 		jsfun.cpp \
 		jsgc.cpp \
+		jsgcmark.cpp \
 		jsgcchunk.cpp \
 		jsgcstats.cpp \
+		GlobalObject.cpp \
 		jshash.cpp \
 		jsinterp.cpp \
 		jsinvoke.cpp \
@@ -163,6 +164,7 @@ CPPSRCS		= \
 		jsnum.cpp \
 		jsobj.cpp \
 		json.cpp \
+		jsonparser.cpp \
 		jsopcode.cpp \
 		jsparse.cpp \
 		jsproxy.cpp \
@@ -178,6 +180,7 @@ CPPSRCS		= \
 		jsstr.cpp \
 		jstypedarray.cpp \
 		jsutil.cpp \
+		jsweakmap.cpp \
 		jswrapper.cpp \
 		jsxdrapi.cpp \
 		jsxml.cpp \
@@ -190,6 +193,7 @@ INSTALLED_HEADERS = \
 		jsautocfg.h \
 		$(CURDIR)/jsautokw.h \
 		js.msg \
+		jsalloc.h \
 		jsanalyze.h \
 		jsapi.h \
 		jsarray.h \
@@ -209,10 +213,12 @@ INSTALLED_HEADERS = \
 		jsfun.h \
 		jsfriendapi.h \
 		jsgc.h \
+		jsgcmark.h \
 		jscell.h \
 		jsgcchunk.h \
 		jsgcstats.h \
 		jscompartment.h \
+		GlobalObject.h \
 		jshash.h \
 		jsinterp.h \
 		jsinttypes.h \
@@ -220,9 +226,11 @@ INSTALLED_HEADERS = \
 		jslock.h \
 		jslong.h \
 		jsmath.h \
+		jsnum.h \
 		jsobj.h \
 		jsobjinlines.h \
 		json.h \
+		jsonparser.h \
 		jsopcode.tbl \
 		jsopcode.h \
 		jsopcodeinlines.h \
@@ -255,6 +263,7 @@ INSTALLED_HEADERS = \
 		jstl.h \
 		jshashtable.h \
 		jsversion.h \
+		jsweakmap.h \
 		jswrapper.h \
 		jsxdrapi.h \
 		jsxml.h \
@@ -349,13 +358,6 @@ CPPSRCS += \
 		Writer.cpp     \
 		$(NULL)
 
-ifdef WINCE
-# don't need -c
-AS_DASH_C_FLAG =
-ASFLAGS += -arch 6
-ASFILES += jswince.asm
-endif
-
 endif # ENABLE_TRACEJIT
 ifdef ENABLE_METHODJIT
 
@@ -404,6 +406,9 @@ endif
 ifeq (arm, $(TARGET_CPU))
 #CPPSRCS		+= only_on_arm.cpp
 endif
+ifeq (sparc, $(findstring sparc,$(TARGET_CPU)))
+ASFILES +=	TrampolineSparc.s
+endif
 #
 # END enclude sources for the method JIT
 #############################################
@@ -429,7 +434,7 @@ CPPSRCS += 	checks.cc \
 # END enclude sources for V8 dtoa
 #############################################
 
-ifeq (,$(filter-out powerpc sparc,$(TARGET_CPU)))
+ifeq (,$(filter arm% %86 x86_64,$(TARGET_CPU)))
 
 VPATH +=	$(srcdir)/assembler \
 		$(srcdir)/assembler/wtf \
@@ -536,7 +541,7 @@ else
 CPPSRCS += pm_stub.cpp
 endif
 
-ifeq (,$(filter-out WINNT WINCE,$(OS_ARCH)))
+ifeq ($(OS_ARCH),WINNT)
 INSTALLED_HEADERS += jscpucfg.h
 endif
 
@@ -544,7 +549,7 @@ EXPORTS = $(INSTALLED_HEADERS)
 
 DASH_R		= -r
 
-ifneq (,$(filter OS2 WINCE WINNT,$(OS_ARCH)))
+ifneq (,$(filter OS2 WINNT,$(OS_ARCH)))
 SDK_LIBRARY = $(IMPORT_LIBRARY)
 else
 SDK_LIBRARY = $(SHARED_LIBRARY)
@@ -578,7 +583,7 @@ endif
 default::
 
 ifneq (,$(CROSS_COMPILE)$(filter-out WINNT OS2,$(OS_ARCH)))
-ifneq (,$(filter-out SYMBIAN WINCE,$(OS_ARCH)))
+ifneq ($(OS_ARCH),SYMBIAN)
 # nsinstall doesn't get built until we enter config/ in the exports phase,
 # so we'll have to manually ensure it gets built here if we want to use
 # $(EXPORTS)
@@ -602,7 +607,6 @@ distclean clean::
 		$(call SUBMAKE,$@,ctypes/libffi)
 endif
 
-ifdef MOZ_SYNC_BUILD_FILES
 # Because the SpiderMonkey can be distributed and built independently
 # of the Mozilla source tree, it contains its own copies of many of
 # the files used by the top-level Mozilla build process, from the
@@ -617,32 +621,33 @@ ifdef MOZ_SYNC_BUILD_FILES
 # Some files are reasonable to diverge; for  example,
 # js/config/autoconf.mk.in doesn't need most of the stuff in
 # config/autoconf.mk.in.
-check-sync-dirs = $(PYTHON) $(srcdir)/config/check-sync-dirs.py
-check::
-	$(check-sync-dirs) $(srcdir)/config $(MOZ_SYNC_BUILD_FILES)/config
-	$(check-sync-dirs) $(srcdir)/build $(MOZ_SYNC_BUILD_FILES)/build
+check-sync-dirs-cmd = $(PYTHON) $(srcdir)/config/check-sync-dirs.py
+check-sync-dirs:
+	$(check-sync-dirs-cmd) $(srcdir)/config $(MOZ_SYNC_BUILD_FILES)/config
+	$(check-sync-dirs-cmd) $(srcdir)/build $(MOZ_SYNC_BUILD_FILES)/build
 
-check-valgrind::
-	$(check-sync-dirs) $(srcdir)/config $(MOZ_SYNC_BUILD_FILES)/config
-	$(check-sync-dirs) $(srcdir)/build $(MOZ_SYNC_BUILD_FILES)/build
+ifdef MOZ_SYNC_BUILD_FILES
+check:: check-sync-dirs
 endif
 
 # The "find any vanilla new/new[] calls" script is tailored to Linux, so
 # only run it there.  That should be enough to catch any such calls that
 # creep in.
-ifeq ($(OS_ARCH),Linux)
-check::
+check-vanilla-new:
 	$(srcdir)/config/find_vanilla_new_calls $(LIBRARY)
+
+ifeq ($(OS_ARCH),Linux)
+check:: check-vanilla-new
 endif
 
 # Help ensure that the number of OOM errors in SpiderMonkey doesn't increase.
 # If the number of OOM errors changes, update the number below. We intend this
 # number to go down over time, by fixing OOMs.
-ifdef DEBUG
 check-ooms:
 	$(wildcard $(RUN_TEST_PROGRAM)) $(PYTHON) -u $(srcdir)/config/find_OOM_errors.py --regression 125
 
-check:: check-ooms
+ifeq ($(MOZ_DEBUG),1)
+#check:: check-ooms
 endif
 
 ## Prevent regressing in our deprecation of non-preferred memory management functions.
@@ -650,9 +655,8 @@ endif
 # don't give different results. We skip the contents of objdirs using |find|
 # (it can't be done with %-expansion, because the files we want to skip aren't
 # in the vpath).
-ifneq ($(OS_ARCH),WINNT) # FIXME: this should be made work on Windows too.
 ALL_FILES=$(shell find $(srcdir) \( -name "*.cpp" -o -name "*.h" \) -not -path "*/dist/*")
-check-malloc-function-usage: $(filter-out %jsutil.h %jscntxt.h, $(ALL_FILES))
+check-malloc-function-usage: $(filter-out %jsalloc.h %jscntxt.h %jsutil.h, $(ALL_FILES))
 
 	# js_malloc and friends are only used by other memory managers, and should
 	# never be used elsewhere directly.
@@ -667,24 +671,67 @@ check-malloc-function-usage: $(filter-out %jsutil.h %jscntxt.h, $(ALL_FILES))
 
 	# We desire these numbers to go down, not up. See "User guide to memory
 	# management within SpiderMonkey" in jsutil.h.
-	$(srcdir)/config/check_source_count.py OffTheBooks:: 54 \
+	$(srcdir)/config/check_source_count.py OffTheBooks:: 53 \
 		"in Makefile.in" "{cx,rt}->{new_,new_array,malloc_,calloc_,realloc_}" $^
 	# This should go to zero, if possible.
-	$(srcdir)/config/check_source_count.py UnwantedForeground:: 36 \
+	$(srcdir)/config/check_source_count.py UnwantedForeground:: 34 \
 		"in Makefile.in" "{cx,rt}->{free_,delete_,array_delete}" $^
 
+ifneq ($(OS_ARCH),WINNT) # FIXME: this should be made work on Windows too.
 check:: check-malloc-function-usage
 endif
 
-ifndef WINCE
 JITFLAGS = ,m,j,mj,mjp,am,amj,amjp,amd
-check::
+check-jit-test::
 	$(wildcard $(RUN_TEST_PROGRAM)) $(PYTHON) -u $(srcdir)/jit-test/jit_test.py \
 	        --no-slow --no-progress --tinderbox --jitflags=$(JITFLAGS) $(DIST)/bin/js$(BIN_SUFFIX)
 
-check-valgrind::
+check-jit-test-valgrind::
 	$(wildcard $(RUN_TEST_PROGRAM)) $(PYTHON) -u $(srcdir)/jit-test/jit_test.py \
 	        --valgrind --no-slow --no-progress --tinderbox --jitflags=$(JITFLAGS) $(DIST)/bin/js$(BIN_SUFFIX)
+
+check:: check-jit-test
+check-valgrind:: check-jit-test-valgrind
+
+# jstests doesn't have a --jitflags option, so we need to loop, updating the
+# exit code (RC) after each invocation.
+# FIXME: MethodJIT doesn't work for 1 test case (bug 644393), so
+# --no-extensions is set to skip that test. Remove as soon as possible.
+check-jstests:
+	RC=0; \
+	for f in `echo "$(JITFLAGS)" | tr ',' '\n'`; \
+		do \
+			$(wildcard $(RUN_TEST_PROGRAM)) $(PYTHON) -u $(srcdir)/tests/jstests.py \
+				--tinderbox --no-progress \
+				--no-extensions \
+				--timeout 300 \
+				--args="`echo $$f | sed 's/\(.\)/ -\1/g'`" \
+				$(DIST)/bin/js$(BIN_SUFFIX); \
+			RC=$$(( $$RC || $$?)); \
+		done; \
+	exit $$RC
+
+# FIXME:
+# We want to run check-jstests as part of |make check| on all platforms, on
+# tinderbox. However, some configurations don't work quite right just yet.
+# Rather than risking regressions in major configurations while fixing these
+# secondary configuration, we work around them and fix the bugs later.
+#
+#   Bug 652154: On Windows, SM(!m !t) don't work because of path problems with
+#				their unusual directory layout
+#
+#   Bug 652155: On Mac, SM(d) doesn't work for unknown reasons 
+
+ifeq ($(OS_ARCH),WINNT)
+ifdef ENABLE_METHODJIT
+ifdef ENABLE_TRACEJIT
+#check:: check-jstests
+endif
+endif
+else
+ifndef HAVE_DTRACE
+#check:: check-jstests
+endif
 endif
 
 DIST_GARBAGE = config.cache config.log config.status \
@@ -693,11 +740,11 @@ DIST_GARBAGE = config.cache config.log config.status \
 
 distclean::
 	cat unallmakefiles | $(XARGS) rm -f
-	rm -f $(DIST_GARBAGE)
+	$(RM) $(DIST_GARBAGE)
 
 # our build system doesn't handle subdir srcs very gracefully today
 export::
-	mkdir -p nanojit
+	$(MKDIR) -p nanojit
 
 DEFINES		+= -DEXPORT_JS_API
 
@@ -745,7 +792,7 @@ LIBS +=  C:/Program\ Files/Intel/VTune/Analyzer/Lib/VtuneApi.lib
 endif
 
 # HP-UX does not require the extra linking of "-lm"
-ifeq (,$(filter HP-UX WINNT WINCE OS2,$(OS_ARCH)))
+ifeq (,$(filter HP-UX WINNT OS2,$(OS_ARCH)))
 EXTRA_LIBS	+= -lm
 endif
 
@@ -852,17 +899,12 @@ export:: jsautocfg.h
 
 ifeq (,$(CROSS_COMPILE)$(GNU_CC)$(filter-out WINNT,$(OS_ARCH)))
 jsautocfg.h:
-	touch $@
-else
-ifeq ($(OS_ARCH),WINCE)
-jsautocfg.h:
-	touch $@
+	$(TOUCH) $@
 else
 jsautocfg.h: jscpucfg$(HOST_BIN_SUFFIX)
-	@rm -f $@ jsautocfg.tmp
+	@$(RM) $@ jsautocfg.tmp
 	./jscpucfg > jsautocfg.tmp
 	mv jsautocfg.tmp $@
-endif
 endif
 
 # jscpucfg is a strange target
@@ -888,13 +930,8 @@ jscpucfg: jscpucfg.o
 	$(HOST_CXX) $(HOST_CXXFLAGS) $(JSCPUCFG_DEFINES) $(DEFINES) -o $@ $<
 endif
 else
-ifeq ($(OS_ARCH),WINCE)
-jscpucfg$(HOST_BIN_SUFFIX):
-	echo no need to build jscpucfg $<
-else
 jscpucfg$(HOST_BIN_SUFFIX): jscpucfg.cpp Makefile.in
 	$(HOST_CXX) $(HOST_CXXFLAGS) $(JSCPUCFG_DEFINES) $(DEFINES) $(NSPR_CFLAGS) $(HOST_OUTOPTION)$@ $<
-endif
 endif
 
 # Compute the linker flags that programs linking against SpiderMonkey should
@@ -919,7 +956,7 @@ JS_CONFIG_LIBS=$(EXTRA_DSO_LDOPTS) $(OS_LIBS) $(EXTRA_LIBS)
 # this rule.
 at=@
 js-config: js-config.in Makefile $(DEPTH)/config/autoconf.mk $(topsrcdir)/config/config.mk $(topsrcdir)/config/rules.mk
-	rm -f js-config.tmp
+	$(RM) js-config.tmp
 	sed < $< > js-config.tmp \
 	-e 's|$(at)prefix$(at)|$(prefix)|' \
 	-e 's|$(at)exec_prefix$(at)|$(exec_prefix)|' \
@@ -995,7 +1032,7 @@ NANOJIT_CENTRAL_LOCAL=$(CURDIR)/nanojit-central
 CUR_REPO=$(srcdir)/../..
 
 update-nanojit:
-	rm -Rf $(NANOJIT_CENTRAL_LOCAL) import-splicemap import-revmap
+	$(RM) -r $(NANOJIT_CENTRAL_LOCAL) import-splicemap import-revmap
 	hg clone $(NANOJIT_CENTRAL_REPO) $(NANOJIT_CENTRAL_LOCAL)
 	python $(srcdir)/find-child.py \
 	                   --src=$(NANOJIT_CENTRAL_LOCAL) \

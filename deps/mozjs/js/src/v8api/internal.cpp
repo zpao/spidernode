@@ -5,6 +5,7 @@ namespace internal {
 
 ////////////////////////////////////////////////////////////////////////////////
 //// Accessor Storage
+
 AccessorStorage::AccessorStorage()
 {
   mStore.init(10);
@@ -26,17 +27,59 @@ AccessorStorage::addAccessor(jsid name,
     attribute,
   };
   AccessorTable::AddPtr slot = mStore.lookupForAdd(name);
+  if (slot.found()) {
+    mStore.remove(slot);
+    slot = mStore.lookupForAdd(name);
+  }
   mStore.add(slot, name, container);
 }
 
 AccessorStorage::PropertyData
-AccessorStorage::get(jsid name)
+AccessorStorage::get(jsid name) const
 {
   JS_ASSERT(mStore.initialized());
 
   AccessorTable::Ptr p = mStore.lookup(name);
   JS_ASSERT(p);
   return p->value;
+}
+
+AccessorStorage::Range
+AccessorStorage::all() const
+{
+  JS_ASSERT(mStore.initialized());
+
+  return mStore.all();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//// Attribute Storage
+
+AttributeStorage::AttributeStorage()
+{
+  mStore.init(10);
+}
+
+void
+AttributeStorage::addAttribute(jsid name,
+                               Handle<Value> data)
+{
+  JS_ASSERT(mStore.initialized());
+
+  AttributeTable::AddPtr slot = mStore.lookupForAdd(name);
+  if (slot.found()) {
+    mStore.remove(slot);
+    slot = mStore.lookupForAdd(name);
+  }
+  mStore.add(slot, name, Persistent<Value>::New(data));
+}
+
+AttributeStorage::Range
+AttributeStorage::all() const
+{
+  JS_ASSERT(mStore.initialized());
+
+  return mStore.all();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

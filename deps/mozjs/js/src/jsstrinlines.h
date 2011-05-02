@@ -85,6 +85,7 @@ class StringBuffer
     static inline bool checkLength(JSContext *cx, size_t length);
     inline bool checkLength(size_t length);
     JSContext *context() const { return cb.allocPolicy().context(); }
+    jschar *extractWellSized();
 
   public:
     explicit inline StringBuffer(JSContext *cx);
@@ -188,6 +189,8 @@ inline bool
 StringBuffer::append(JSString *str)
 {
     JSLinearString *linear = str->ensureLinear(context());
+    if (!linear)
+        return false;
     size_t strLen = linear->length();
     if (!checkLength(cb.length() + strLen))
         return false;
@@ -238,6 +241,18 @@ inline bool
 StringBuffer::checkLength(size_t length)
 {
     return CheckStringLength(context(), length);
+}
+
+extern bool
+ValueToStringBufferSlow(JSContext *cx, const Value &v, StringBuffer &sb);
+
+inline bool
+ValueToStringBuffer(JSContext *cx, const Value &v, StringBuffer &sb)
+{
+    if (v.isString())
+        return sb.append(v.toString());
+
+    return ValueToStringBufferSlow(cx, v, sb);
 }
 
 } /* namespace js */
@@ -338,16 +353,54 @@ JSFixedString::morphInternedStringIntoAtom()
     return &asAtom();
 }
 
+JS_ALWAYS_INLINE JSInlineString *
+JSInlineString::new_(JSContext *cx)
+{
+    return (JSInlineString *)js_NewGCString(cx);
+}
+
+JS_ALWAYS_INLINE jschar *
+JSInlineString::init(size_t length)
+{
+    d.lengthAndFlags = buildLengthAndFlags(length, FIXED_FLAGS);
+    d.u1.chars = d.inlineStorage;
+    JS_ASSERT(lengthFits(length) || (isShort() && JSShortString::lengthFits(length)));
+    return d.inlineStorage;
+}
+
 JS_ALWAYS_INLINE void
-JSExternalString::init(const jschar *chars, size_t length, intN type)
+JSInlineString::resetLength(size_t length)
+{
+    d.lengthAndFlags = buildLengthAndFlags(length, FIXED_FLAGS);
+    JS_ASSERT(lengthFits(length) || (isShort() && JSShortString::lengthFits(length)));
+}
+
+JS_ALWAYS_INLINE JSShortString *
+JSShortString::new_(JSContext *cx)
+{
+    return js_NewGCShortString(cx);
+}
+
+JS_ALWAYS_INLINE void
+JSShortString::initAtOffsetInBuffer(const jschar *chars, size_t length)
+{
+    JS_ASSERT(lengthFits(length + (chars - d.inlineStorage)));
+    JS_ASSERT(chars >= d.inlineStorage && chars < d.inlineStorage + MAX_SHORT_LENGTH);
+    d.lengthAndFlags = buildLengthAndFlags(length, FIXED_FLAGS);
+    d.u1.chars = chars;
+}
+
+JS_ALWAYS_INLINE void
+JSExternalString::init(const jschar *chars, size_t length, intN type, void *closure)
 {
     d.lengthAndFlags = buildLengthAndFlags(length, FIXED_FLAGS);
     d.u1.chars = chars;
-    d.s.u2.externalStringType = type;
+    d.s.u2.externalType = type;
+    d.s.u3.externalClosure = closure;
 }
 
 JS_ALWAYS_INLINE JSExternalString *
-JSExternalString::new_(JSContext *cx, const jschar *chars, size_t length, intN type)
+JSExternalString::new_(JSContext *cx, const jschar *chars, size_t length, intN type, void *closure)
 {
     JS_ASSERT(uintN(type) < JSExternalString::TYPE_LIMIT);
     JS_ASSERT(chars[length] == 0);
@@ -355,7 +408,7 @@ JSExternalString::new_(JSContext *cx, const jschar *chars, size_t length, intN t
     JSExternalString *str = (JSExternalString *)js_NewGCExternalString(cx, type);
     if (!str)
         return NULL;
-    str->init(chars, length, type);
+    str->init(chars, length, type, closure);
     cx->runtime->updateMallocCounter((length + 1) * sizeof(jschar));
     return str;
 }
@@ -465,14 +518,26 @@ JSString::finalize(JSContext *cx)
 
     JS_RUNTIME_UNMETER(cx->runtime, liveStrings);
 
-    if (isDependent()) {
+    if (isDependent())
         JS_RUNTIME_UNMETER(cx->runtime, liveDependentStrings);
-    } else if (isFlat()) {
-        cx->runtime->stringMemoryUsed -= length() * 2;
-        cx->free_(const_cast<jschar *>(asFlat().chars()));
-    } else {
+    else if (isFlat())
+        asFlat().finalize(cx->runtime);
+    else
         JS_ASSERT(isRope());
-    }
+}
+
+inline void
+JSFlatString::finalize(JSRuntime *rt)
+{
+    JS_ASSERT(!isShort());
+    rt->stringMemoryUsed -= length() * 2;
+
+    /*
+     * This check depends on the fact that 'chars' is only initialized to the
+     * beginning of inlineStorage. E.g., this is not the case for short strings.
+     */
+    if (chars() != d.inlineStorage)
+        rt->free_(const_cast<jschar *>(chars()));
 }
 
 inline void
@@ -483,17 +548,27 @@ JSShortString::finalize(JSContext *cx)
 }
 
 inline void
+JSAtom::finalize(JSRuntime *rt)
+{
+    JS_ASSERT(isAtom());
+    if (arena()->header()->thingKind == js::gc::FINALIZE_STRING)
+        asFlat().finalize(rt);
+    else
+        JS_ASSERT(arena()->header()->thingKind == js::gc::FINALIZE_SHORT_STRING);
+}
+
+inline void
 JSExternalString::finalize(JSContext *cx)
 {
     JS_RUNTIME_UNMETER(cx->runtime, liveStrings);
-    if (JSStringFinalizeOp finalizer = str_finalizers[externalStringType()])
+    if (JSStringFinalizeOp finalizer = str_finalizers[externalType()])
         finalizer(cx, this);
 }
 
 inline void
 JSExternalString::finalize()
 {
-    JSStringFinalizeOp finalizer = str_finalizers[externalStringType()];
+    JSStringFinalizeOp finalizer = str_finalizers[externalType()];
     if (finalizer) {
         /*
          * Assume that the finalizer for the permanently interned

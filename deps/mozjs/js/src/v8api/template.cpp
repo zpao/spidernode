@@ -10,11 +10,6 @@ Template::Template(JSClass* clasp) :
 {
 }
 
-Template::Template(JSObject* obj) :
-  SecretObject<Data>(obj)
-{
-}
-
 void
 Template::Set(Handle<String> name,
               Handle<Data> data,

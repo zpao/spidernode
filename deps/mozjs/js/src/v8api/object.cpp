@@ -1,6 +1,9 @@
 #include "v8-internal.h"
 #include "jstl.h"
 #include "jshashtable.h"
+#include "jsobj.h"
+#include "jstypedarray.h"
+#include "jsproxy.h"
 #include "mozilla/Util.h"
 #include <limits>
 using namespace mozilla;
@@ -11,6 +14,17 @@ using namespace internal;
 JS_STATIC_ASSERT(sizeof(Object) == sizeof(GCReference));
 
 struct Object::PrivateData {
+  PrivateData() :
+    hiddenValues(Persistent<Object>::New(Object::New()))
+  {
+  }
+
+  ~PrivateData()
+  {
+    JS_ASSERT(!hiddenValues.IsEmpty());
+    hiddenValues.Dispose();
+  }
+
   Persistent<Object> hiddenValues;
   AccessorStorage properties;
 };
@@ -39,18 +53,8 @@ JSBool Object::JSAPIPropertyGetter(JSContext* cx, uintN argc, jsval* vp) {
   jsid id;
   (void) JS_ValueToId(cx, name, &id);
 
-  // We need to make sure that the object we pass to the getter is actually the
-  // object that has set the property.  The "This" property on AccessorInfo is
-  // actually the object in which the properties were set on, not the "this"
-  // object in JavaScript.
-  JSObject* thiz = JS_THIS_OBJECT(cx, vp);
-  JSPropertyDescriptor desc;
-  DebugOnly<JSBool> rc = JS_GetPropertyDescriptorById(cx, thiz, id, 0, &desc);
-  JS_ASSERT(rc);
-  thiz = desc.obj;
-
   AccessorStorage::PropertyData data = o.GetHiddenStore().properties.get(id);
-  AccessorInfo info(data.data, thiz);
+  AccessorInfo info(data.data, JS_THIS_OBJECT(cx, vp));
   Handle<Value> result = data.getter(String::FromJSID(id), info);
   JS_SET_RVAL(cx, vp, result->native());
   // XXX: this is usually correct
@@ -70,18 +74,8 @@ JSBool Object::JSAPIPropertySetter(JSContext* cx, uintN argc, jsval* vp) {
   jsid id;
   (void) JS_ValueToId(cx, name, &id);
 
-  // We need to make sure that the object we pass to the getter is actually the
-  // object that has set the property.  The "This" property on AccessorInfo is
-  // actually the object in which the properties were set on, not the "this"
-  // object in JavaScript.
-  JSObject* thiz = JS_THIS_OBJECT(cx, vp);
-  JSPropertyDescriptor desc;
-  DebugOnly<JSBool> rc = JS_GetPropertyDescriptorById(cx, thiz, id, 0, &desc);
-  JS_ASSERT(rc);
-  thiz = desc.obj;
-
   AccessorStorage::PropertyData data = o.GetHiddenStore().properties.get(id);
-  AccessorInfo info(data.data, thiz);
+  AccessorInfo info(data.data, JS_THIS_OBJECT(cx, vp));
   Value value(*JS_ARGV(cx, vp));
   data.setter(String::FromJSID(id), &value, info);
   // XXX: this is usually correct
@@ -232,8 +226,7 @@ Object::SetAccessor(Handle<String> name,
                     AccessorSetter setter,
                     Handle<Value> data,
                     AccessControl settings,
-                    PropertyAttribute attribs,
-                    bool isJSAPIShared)
+                    PropertyAttribute attribs)
 {
   if (settings != 0) {
     // We only currently support the default settings.
@@ -257,9 +250,7 @@ Object::SetAccessor(Handle<String> name,
   JS_SetReservedSlot(cx(), setterObj, 0, native());
   JS_SetReservedSlot(cx(), setterObj, 1, name->native());
 
-  uintN attributes = JSPROP_GETTER | JSPROP_SETTER;
-  if (isJSAPIShared)
-    attributes |= JSPROP_SHARED;
+  uintN attributes = JSPROP_GETTER | JSPROP_SETTER | JSPROP_SHARED;
   if (!JS_DefinePropertyById(cx(), *this, propid,
         JSVAL_VOID,
         (JSPropertyOp)getterObj,
@@ -471,6 +462,7 @@ Object::SetHiddenValue(Handle<String> key,
                        Handle<Value> value)
 {
   PrivateData& pd = GetHiddenStore();
+  JS_ASSERT(!pd.hiddenValues.IsEmpty());
   return pd.hiddenValues->Set(key, value);
 }
 
@@ -478,6 +470,7 @@ Local<Value>
 Object::GetHiddenValue(Handle<String> key)
 {
   PrivateData& pd = GetHiddenStore();
+  JS_ASSERT(!pd.hiddenValues.IsEmpty());
   return pd.hiddenValues->Get(key);
 }
 
@@ -485,6 +478,7 @@ bool
 Object::DeleteHiddenValue(Handle<String> key)
 {
   PrivateData& pd = GetHiddenStore();
+  JS_ASSERT(!pd.hiddenValues.IsEmpty());
   return pd.hiddenValues->Delete(key);
 }
 
@@ -539,36 +533,68 @@ Object::GetIndexedPropertiesPixelDataLength()
   UNIMPLEMENTEDAPI(0);
 }
 
+static JSObject* grabTypedArray(JSObject* obj) {
+  if (js_IsTypedArray(obj))
+    return obj;
+  if (!obj->isObjectProxy())
+    return NULL;
+  jsid name = INTERNED_STRING_TO_JSID(JS_InternString(cx(), "rawArray"));
+  js::Value v;
+  js::JSProxy::get(cx(), obj, obj, name, &v);
+  if (v.isObjectOrNull())
+    return v.toObjectOrNull();
+  return NULL;
+}
+
 void
 Object::SetIndexedPropertiesToExternalArrayData(void* data,
                                                 ExternalArrayType array_type,
                                                 int number_of_elements)
 {
-  UNIMPLEMENTEDAPI();
+  JS_ASSERT(HasIndexedPropertiesInExternalArrayData());
+  JS_ASSERT (array_type == GetIndexedPropertiesExternalArrayDataType());
+  if (number_of_elements < 0)
+    return;
+  js::TypedArray* arr = js::TypedArray::fromJSObject(grabTypedArray(*this));
+  // Hardcoded for bytes now
+  size_t elemSize = arr->slotWidth();
+  size_t bufferSize = elemSize * number_of_elements;
+  js::ArrayBuffer* buffer = arr->buffer;
+  buffer->freeStorage(cx());
+  buffer->data = data;
+  buffer->byteLength = bufferSize;
+  buffer->isExternal = true;
 }
 
 bool
 Object::HasIndexedPropertiesInExternalArrayData()
 {
-  UNIMPLEMENTEDAPI(false);
+  return grabTypedArray(*this) != NULL;
 }
 
 void*
 Object::GetIndexedPropertiesExternalArrayData()
 {
-  UNIMPLEMENTEDAPI(NULL);
+  JS_ASSERT(HasIndexedPropertiesInExternalArrayData());
+  js::TypedArray* arr = js::TypedArray::fromJSObject(grabTypedArray(*this));
+  // XXX: take arr->byteOffset into account?
+  return arr->data;
+
 }
 
 ExternalArrayType
 Object::GetIndexedPropertiesExternalArrayDataType()
 {
-  UNIMPLEMENTEDAPI(kExternalByteArray);
+  JS_ASSERT(HasIndexedPropertiesInExternalArrayData());
+  return kExternalUnsignedByteArray;
 }
 
 int
 Object::GetIndexedPropertiesExternalArrayDataLength()
 {
-  UNIMPLEMENTEDAPI(0);
+  JS_ASSERT(HasIndexedPropertiesInExternalArrayData());
+  js::TypedArray* arr = js::TypedArray::fromJSObject(grabTypedArray(*this));
+  return arr->byteLength;
 }
 
 Object::Object(JSObject *obj) :

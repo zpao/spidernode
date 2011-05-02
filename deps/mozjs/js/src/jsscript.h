@@ -676,15 +676,6 @@ js_InitRuntimeScriptState(JSRuntime *rt);
 extern void
 js_FreeRuntimeScriptState(JSRuntime *rt);
 
-extern const char *
-js_SaveScriptFilename(JSContext *cx, const char *filename);
-
-extern const char *
-js_SaveScriptFilenameRT(JSRuntime *rt, const char *filename, uint32 flags);
-
-extern uint32
-js_GetScriptFilenameFlags(const char *filename);
-
 extern void
 js_MarkScriptFilename(const char *filename);
 
@@ -757,6 +748,27 @@ js_LineNumberToPC(JSScript *script, uintN lineno);
 
 extern JS_FRIEND_API(uintN)
 js_GetScriptLineExtent(JSScript *script);
+
+namespace js {
+
+/*
+ * This function returns the file and line number of the script currently
+ * executing on cx. If there is no current script executing on cx (e.g., a
+ * native called directly through JSAPI (e.g., by setTimeout)), NULL and 0 are
+ * returned as the file and line. Additionally, this function avoids the full
+ * linear scan to compute line number when the caller guarnatees that the
+ * script compilation occurs at a JSOP_EVAL.
+ */
+
+enum LineOption {
+    CALLED_FROM_JSOP_EVAL,
+    NOT_CALLED_FROM_JSOP_EVAL
+};
+
+inline const char *
+CurrentScriptFileAndLine(JSContext *cx, uintN *linenop, LineOption = NOT_CALLED_FROM_JSOP_EVAL);
+
+}
 
 static JS_INLINE JSOp
 js_GetOpcode(JSContext *cx, JSScript *script, jsbytecode *pc)

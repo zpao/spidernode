@@ -1178,13 +1178,7 @@ stubs::Debugger(VMFrame &f, jsbytecode *pc)
           case JSTRAP_RETURN:
             f.cx->clearPendingException();
             f.cx->fp()->setReturnValue(rval);
-#if (defined(JS_NO_FASTCALL) && defined(JS_CPU_X86)) || defined(_WIN64)
-            *f.returnAddressLocation() = JS_FUNC_TO_DATA_PTR(void *,
-                                         f.cx->jaegerCompartment()->forceReturnFastTrampoline());
-#else
-            *f.returnAddressLocation() = JS_FUNC_TO_DATA_PTR(void *,
-                                         f.cx->jaegerCompartment()->forceReturnTrampoline());
-#endif
+            *f.returnAddressLocation() = f.cx->jaegerCompartment()->forceReturnFromFastCall();
             break;
 
           case JSTRAP_ERROR:
@@ -1238,13 +1232,7 @@ stubs::Trap(VMFrame &f, uint32 trapTypes)
       case JSTRAP_RETURN:
         f.cx->clearPendingException();
         f.cx->fp()->setReturnValue(rval);
-#if (defined(JS_NO_FASTCALL) && defined(JS_CPU_X86)) || defined(_WIN64)
-        *f.returnAddressLocation() = JS_FUNC_TO_DATA_PTR(void *,
-                                     f.cx->jaegerCompartment()->forceReturnFastTrampoline());
-#else
-        *f.returnAddressLocation() = JS_FUNC_TO_DATA_PTR(void *,
-                                     f.cx->jaegerCompartment()->forceReturnTrampoline());
-#endif
+        *f.returnAddressLocation() = f.cx->jaegerCompartment()->forceReturnFromFastCall();
         break;
 
       case JSTRAP_ERROR:
@@ -1259,7 +1247,7 @@ stubs::Trap(VMFrame &f, uint32 trapTypes)
 void JS_FASTCALL
 stubs::This(VMFrame &f)
 {
-    if (!f.fp()->computeThis(f.cx))
+    if (!ComputeThis(f.cx, f.fp()))
         THROW();
     f.regs.sp[-1] = f.fp()->thisValue();
 }
@@ -1520,17 +1508,20 @@ CanIncDecWithoutOverflow(int32_t i)
     return (i > JSVAL_INT_MIN) && (i < JSVAL_INT_MAX);
 }
 
-template <int32 N, bool POST, JSBool strict>
+template <int32 N, bool POST, JSBool strict, bool qualified>
 static inline bool
 ObjIncOp(VMFrame &f, JSObject *obj, jsid id)
 {
     JSContext *cx = f.cx;
-    JSStackFrame *fp = f.fp();
 
     f.regs.sp[0].setNull();
     f.regs.sp++;
     if (!obj->getProperty(cx, id, &f.regs.sp[-1]))
         return false;
+
+    uint32 setPropFlags = qualified
+                          ? JSRESOLVE_ASSIGNING
+                          : JSRESOLVE_ASSIGNING | JSRESOLVE_QUALIFIED;
 
     Value &ref = f.regs.sp[-1];
     int32_t tmp;
@@ -1539,11 +1530,12 @@ ObjIncOp(VMFrame &f, JSObject *obj, jsid id)
             ref.getInt32Ref() = tmp + N;
         else
             ref.getInt32Ref() = tmp += N;
-        fp->setAssigning();
-        JSBool ok = obj->setProperty(cx, id, &ref, strict);
-        fp->clearAssigning();
-        if (!ok)
-            return false;
+
+        {
+            JSAutoResolveFlags rf(cx, setPropFlags);
+            if (!obj->setProperty(cx, id, &ref, strict))
+                return false;
+        }
 
         /*
          * We must set regs.sp[-1] to tmp for both post and pre increments
@@ -1563,11 +1555,12 @@ ObjIncOp(VMFrame &f, JSObject *obj, jsid id)
             ref.setDouble(d);
         }
         v.setDouble(d);
-        fp->setAssigning();
-        JSBool ok = obj->setProperty(cx, id, &v, strict);
-        fp->clearAssigning();
-        if (!ok)
-            return false;
+
+        {
+            JSAutoResolveFlags rf(cx, setPropFlags);
+            if (!obj->setProperty(cx, id, &v, strict))
+                return false;
+        }
     }
 
     return true;
@@ -1608,7 +1601,7 @@ NameIncDec(VMFrame &f, JSObject *obj, JSAtom *origAtom)
         ReportAtomNotDefined(cx, atom);
         return false;
     }
-    return ObjIncOp<N, POST, strict>(f, obj, id);
+    return ObjIncOp<N, POST, strict, false>(f, obj, id);
 }
 
 template<JSBool strict>
@@ -1618,7 +1611,7 @@ stubs::PropInc(VMFrame &f, JSAtom *atom)
     JSObject *obj = ValueToObject(f.cx, &f.regs.sp[-1]);
     if (!obj)
         THROW();
-    if (!ObjIncOp<1, true, strict>(f, obj, ATOM_TO_JSID(atom)))
+    if (!ObjIncOp<1, true, strict, true>(f, obj, ATOM_TO_JSID(atom)))
         THROW();
     f.regs.sp[-2] = f.regs.sp[-1];
 }
@@ -1633,7 +1626,7 @@ stubs::PropDec(VMFrame &f, JSAtom *atom)
     JSObject *obj = ValueToObject(f.cx, &f.regs.sp[-1]);
     if (!obj)
         THROW();
-    if (!ObjIncOp<-1, true, strict>(f, obj, ATOM_TO_JSID(atom)))
+    if (!ObjIncOp<-1, true, strict, true>(f, obj, ATOM_TO_JSID(atom)))
         THROW();
     f.regs.sp[-2] = f.regs.sp[-1];
 }
@@ -1648,7 +1641,7 @@ stubs::IncProp(VMFrame &f, JSAtom *atom)
     JSObject *obj = ValueToObject(f.cx, &f.regs.sp[-1]);
     if (!obj)
         THROW();
-    if (!ObjIncOp<1, false, strict>(f, obj, ATOM_TO_JSID(atom)))
+    if (!ObjIncOp<1, false, strict, true>(f, obj, ATOM_TO_JSID(atom)))
         THROW();
     f.regs.sp[-2] = f.regs.sp[-1];
 }
@@ -1663,7 +1656,7 @@ stubs::DecProp(VMFrame &f, JSAtom *atom)
     JSObject *obj = ValueToObject(f.cx, &f.regs.sp[-1]);
     if (!obj)
         THROW();
-    if (!ObjIncOp<-1, false, strict>(f, obj, ATOM_TO_JSID(atom)))
+    if (!ObjIncOp<-1, false, strict, true>(f, obj, ATOM_TO_JSID(atom)))
         THROW();
     f.regs.sp[-2] = f.regs.sp[-1];
 }
@@ -1681,7 +1674,7 @@ stubs::ElemInc(VMFrame &f)
     jsid id;
     if (!FetchElementId(f, obj, f.regs.sp[-1], id, &f.regs.sp[-1]))
         THROW();
-    if (!ObjIncOp<1, true, strict>(f, obj, id))
+    if (!ObjIncOp<1, true, strict, true>(f, obj, id))
         THROW();
     f.regs.sp[-3] = f.regs.sp[-1];
 }
@@ -1699,7 +1692,7 @@ stubs::ElemDec(VMFrame &f)
     jsid id;
     if (!FetchElementId(f, obj, f.regs.sp[-1], id, &f.regs.sp[-1]))
         THROW();
-    if (!ObjIncOp<-1, true, strict>(f, obj, id))
+    if (!ObjIncOp<-1, true, strict, true>(f, obj, id))
         THROW();
     f.regs.sp[-3] = f.regs.sp[-1];
 }
@@ -1717,7 +1710,7 @@ stubs::IncElem(VMFrame &f)
     jsid id;
     if (!FetchElementId(f, obj, f.regs.sp[-1], id, &f.regs.sp[-1]))
         THROW();
-    if (!ObjIncOp<1, false, strict>(f, obj, id))
+    if (!ObjIncOp<1, false, strict, true>(f, obj, id))
         THROW();
     f.regs.sp[-3] = f.regs.sp[-1];
 }
@@ -1735,7 +1728,7 @@ stubs::DecElem(VMFrame &f)
     jsid id;
     if (!FetchElementId(f, obj, f.regs.sp[-1], id, &f.regs.sp[-1]))
         THROW();
-    if (!ObjIncOp<-1, false, strict>(f, obj, id))
+    if (!ObjIncOp<-1, false, strict, true>(f, obj, id))
         THROW();
     f.regs.sp[-3] = f.regs.sp[-1];
 }

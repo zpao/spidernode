@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <math.h>
 #include "v8-internal.h"
+#include "jstypedarray.h"
 #include "mozilla/Util.h"
 using namespace mozilla;
 
@@ -179,6 +180,9 @@ void Context::Enter() {
 }
 
 void Context::Exit() {
+  // Sometimes a context scope can hang around after V8::Dispose is called
+  if (v8::internal::disposed())
+    return;
   ContextChain *link = gContextChain;
   gContextChain = gContextChain->next;
   delete link;
@@ -195,8 +199,9 @@ Persistent<Context> Context::New(
   JSObject *global = JS_NewGlobalObject(cx(), &global_class);
 
   JS_InitStandardClasses(cx(), global);
+  (void)js_InitTypedArrayClasses(cx(), global);
   if (!global_template.IsEmpty()) {
-    JS_SetPrototype(cx(), global, JSVAL_TO_OBJECT(global_template->native()));
+    JS_SetPrototype(cx(), global, **global_template->NewInstance(global));
   }
 
   return Persistent<Context>(new Context(global));
@@ -713,6 +718,10 @@ Local<Script> Script::Create(Handle<String> source, ScriptOrigin *origin, Script
 
     s = JS_CompileUCScript(cx(), NULL,
                            chars, len, NULL, 0);
+  }
+
+  if (!s) {
+    return Local<Script>();
   }
 
   Script script(s);

@@ -52,6 +52,7 @@
 #include "jsbit.h"
 #include "jscntxt.h"
 #include "jsgc.h"
+#include "jsgcmark.h"
 #include "jslock.h"
 #include "jsnum.h"
 #include "jsparse.h"
@@ -211,7 +212,9 @@ const char *const js_common_atom_names[] = {
     "has",                      /* hasAtom                      */
     "hasOwn",                   /* hasOwnAtom                   */
     "keys",                     /* keysAtom                     */
-    "iterate"                   /* iterateAtom                  */
+    "iterate",                  /* iterateAtom                  */
+
+    "WeakMap"                   /* WeakMapAtom                  */
 };
 
 JS_STATIC_ASSERT(JS_ARRAY_LENGTH(js_common_atom_names) * sizeof(JSAtom *) ==
@@ -363,10 +366,8 @@ js_FinishAtomState(JSRuntime *rt)
         return;
     }
 
-    for (AtomSet::Range r = state->atoms.all(); !r.empty(); r.popFront()) {
-        JSString *str = AtomEntryToKey(r.front());
-        js_FinalizeStringRT(rt, str);
-    }
+    for (AtomSet::Range r = state->atoms.all(); !r.empty(); r.popFront())
+        AtomEntryToKey(r.front())->finalize(rt);
 
 #ifdef JS_THREADSAFE
     js_FinishLock(&state->lock);

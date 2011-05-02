@@ -124,31 +124,15 @@
 
 #include "nsIXPCScriptNotify.h"  // used to notify: ScriptEvaluated
 
-#ifndef XPCONNECT_STANDALONE
-#define XPC_USE_SECURITY_CHECKED_COMPONENT
 #include "nsIScriptObjectPrincipal.h"
 #include "nsIPrincipal.h"
-#endif
-
-#ifdef XPC_USE_SECURITY_CHECKED_COMPONENT
 #include "nsISecurityCheckedComponent.h"
-#endif
 
 #include "nsIThreadInternal.h"
 
 #ifdef XPC_IDISPATCH_SUPPORT
 // This goop was added because of EXCEPINFO in ThrowCOMError
 // This include is here, because it needs to occur before the undefines below
-#ifdef WINCE
-/* atlbase.h on WINCE has a bug, in that it tries to use
- * GetProcAddress with a wide string, when that is explicitly not
- * supported.  So we use C++ to overload that here, and implement
- * something that works.
- */
-#include <windows.h>
-static FARPROC GetProcAddressA(HMODULE hMod, wchar_t *procName);
-#endif /* WINCE */
-
 #include <atlbase.h>
 #include "oaidl.h"
 #endif
@@ -554,7 +538,7 @@ public:
     static JSBool Base64Decode(JSContext *cx, jsval val, jsval *out);
 
     // nsCycleCollectionParticipant
-    NS_IMETHOD RootAndUnlinkJSObjects(void *p);
+    NS_IMETHOD Root(void *p);
     NS_IMETHOD Unlink(void *p);
     NS_IMETHOD Unroot(void *p);
     NS_IMETHOD Traverse(void *p,
@@ -581,12 +565,10 @@ public:
     // This returns the singleton nsCycleCollectionParticipant for JSContexts.
     static nsCycleCollectionParticipant *JSContextParticipant();
 
-#ifndef XPCONNECT_STANDALONE
     virtual nsIPrincipal* GetPrincipal(JSObject* obj,
                                        PRBool allowShortCircuit) const;
 
     void RecordTraversal(void *p, nsISupports *s);
-#endif
     virtual char* DebugPrintJSStack(PRBool showArgs,
                                     PRBool showLocals,
                                     PRBool showThisProps);
@@ -622,10 +604,8 @@ private:
 #endif
     nsAutoPtr<XPCCallContext> mCycleCollectionContext;
 
-#ifndef XPCONNECT_STANDALONE
     typedef nsBaseHashtable<nsVoidPtrHashKey, nsISupports*, nsISupports*> ScopeSet;
     ScopeSet mScopes;
-#endif
     nsCOMPtr<nsIXPCScriptable> mBackstagePass;
 
     static PRUint32 gReportAllJSExceptions;
@@ -1521,12 +1501,10 @@ public:
     JSObject*
     GetPrototypeNoHelper(XPCCallContext& ccx);
 
-#ifndef XPCONNECT_STANDALONE
     nsIPrincipal*
     GetPrincipal() const
     {return mScriptObjectPrincipal ?
          mScriptObjectPrincipal->GetPrincipal() : nsnull;}
-#endif
     
     JSObject*
     GetPrototypeJSFunction() const {return mPrototypeJSFunction;}
@@ -1629,14 +1607,12 @@ private:
 
     XPCContext*                      mContext;
 
-#ifndef XPCONNECT_STANDALONE
     // The script object principal instance corresponding to our current global
     // JS object.
     // XXXbz what happens if someone calls JS_SetPrivate on mGlobalJSObject.
     // How do we deal?  Do we need to?  I suspect this isn't worth worrying
     // about, since all of our scope objects are verified as not doing that.
     nsIScriptObjectPrincipal* mScriptObjectPrincipal;
-#endif
 };
 
 JSObject* xpc_CloneJSFunction(XPCCallContext &ccx, JSObject *funobj,
@@ -2445,25 +2421,23 @@ public:
     // collected then its mFlatJSObject will be cycle collected too and
     // finalization of the mFlatJSObject will unlink the js objects (see
     // XPC_WN_NoHelper_Finalize and FlatJSObjectFinalized).
-    // We also rely on NS_DECL_CYCLE_COLLECTION_CLASS_NO_UNLINK having empty
-    // Root/Unroot methods, to avoid root/unrooting the JS objects from
-    // addrefing/releasing the XPCWrappedNative during unlinking, which would
-    // make the JS objects uncollectable to the JS GC.
+    // We also give XPCWrappedNative empty Root/Unroot methods, to avoid
+    // root/unrooting the JS objects from addrefing/releasing the
+    // XPCWrappedNative during unlinking, which would make the JS objects
+    // uncollectable to the JS GC.
     class NS_CYCLE_COLLECTION_INNERCLASS
      : public nsXPCOMCycleCollectionParticipant
     {
       NS_DECL_CYCLE_COLLECTION_CLASS_BODY_NO_UNLINK(XPCWrappedNative,
                                                     XPCWrappedNative)
-      NS_IMETHOD RootAndUnlinkJSObjects(void *p);
-      NS_IMETHOD Unlink(void *p) { return NS_OK; }
+      NS_IMETHOD Root(void *p) { return NS_OK; }
+      NS_IMETHOD Unlink(void *p);
       NS_IMETHOD Unroot(void *p) { return NS_OK; }
     };
     NS_CYCLE_COLLECTION_PARTICIPANT_INSTANCE
     NS_DECL_CYCLE_COLLECTION_UNMARK_PURPLE_STUB(XPCWrappedNative)
 
-#ifndef XPCONNECT_STANDALONE
     nsIPrincipal* GetObjectPrincipal() const;
-#endif
 
     JSBool
     IsValid() const {return nsnull != mFlatJSObject;}
@@ -2770,6 +2744,7 @@ protected:
                      XPCNativeSet* aSet);
 
     virtual ~XPCWrappedNative();
+    void Destroy();
 
 private:
     enum {
@@ -2963,13 +2938,7 @@ public:
     NS_DECL_NSISUPPORTSWEAKREFERENCE
     NS_DECL_NSIPROPERTYBAG
 
-    class NS_CYCLE_COLLECTION_INNERCLASS
-     : public nsXPCOMCycleCollectionParticipant
-    {
-      NS_IMETHOD RootAndUnlinkJSObjects(void *p);
-      NS_DECL_CYCLE_COLLECTION_CLASS_BODY(nsXPCWrappedJS, nsIXPConnectWrappedJS)
-    };
-    NS_CYCLE_COLLECTION_PARTICIPANT_INSTANCE
+    NS_DECL_CYCLE_COLLECTION_CLASS_AMBIGUOUS(nsXPCWrappedJS, nsIXPConnectWrappedJS)
     NS_DECL_CYCLE_COLLECTION_UNMARK_PURPLE_STUB(nsXPCWrappedJS)
 
     NS_IMETHOD CallMethod(PRUint16 methodIndex,
@@ -3529,10 +3498,9 @@ protected:
 
 // nsJSIID
 
-class nsJSIID : public nsIJSIID, public nsIXPCScriptable
-#ifdef XPC_USE_SECURITY_CHECKED_COMPONENT
-          , public nsISecurityCheckedComponent
-#endif
+class nsJSIID : public nsIJSIID,
+                public nsIXPCScriptable,
+                public nsISecurityCheckedComponent
 {
 public:
     NS_DECL_ISUPPORTS
@@ -3543,9 +3511,7 @@ public:
     // we implement the rest...
     NS_DECL_NSIJSIID
     NS_DECL_NSIXPCSCRIPTABLE
-#ifdef XPC_USE_SECURITY_CHECKED_COMPONENT
     NS_DECL_NSISECURITYCHECKEDCOMPONENT
-#endif
 
     static nsJSIID* NewID(nsIInterfaceInfo* aInfo);
 
@@ -3803,7 +3769,6 @@ private:
 };
 
 /***************************************************************************/
-#ifndef XPCONNECT_STANDALONE
 #include "nsIScriptSecurityManager.h"
 
 class BackstagePass : public nsIScriptObjectPrincipal,
@@ -3829,24 +3794,6 @@ public:
 private:
   nsCOMPtr<nsIPrincipal> mPrincipal;
 };
-
-#else
-
-class BackstagePass : public nsIXPCScriptable, public nsIClassInfo
-{
-public:
-  NS_DECL_ISUPPORTS
-  NS_DECL_NSIXPCSCRIPTABLE
-  NS_DECL_NSICLASSINFO
-
-  BackstagePass()
-  {
-  }
-
-  virtual ~BackstagePass() { }
-};
-
-#endif
 
 class nsJSRuntimeServiceImpl : public nsIJSRuntimeService,
                                public nsSupportsWeakReference
@@ -3876,20 +3823,15 @@ class nsJSRuntimeServiceImpl : public nsIJSRuntimeService,
 
 class nsXPCComponents : public nsIXPCComponents,
                         public nsIXPCScriptable,
-                        public nsIClassInfo
-#ifdef XPC_USE_SECURITY_CHECKED_COMPONENT
-                      , public nsISecurityCheckedComponent
-#endif
+                        public nsIClassInfo,
+                        public nsISecurityCheckedComponent
 {
 public:
     NS_DECL_ISUPPORTS
     NS_DECL_NSIXPCCOMPONENTS
     NS_DECL_NSIXPCSCRIPTABLE
     NS_DECL_NSICLASSINFO
-
-#ifdef XPC_USE_SECURITY_CHECKED_COMPONENT
     NS_DECL_NSISECURITYCHECKEDCOMPONENT
-#endif
 
 public:
     static JSBool
@@ -3922,10 +3864,8 @@ private:
 class nsXPCComponents_Interfaces :
             public nsIScriptableInterfaces,
             public nsIXPCScriptable,
-            public nsIClassInfo
-#ifdef XPC_USE_SECURITY_CHECKED_COMPONENT
-          , public nsISecurityCheckedComponent
-#endif
+            public nsIClassInfo,
+            public nsISecurityCheckedComponent
 {
 public:
     // all the interface method declarations...
@@ -3933,9 +3873,7 @@ public:
     NS_DECL_NSISCRIPTABLEINTERFACES
     NS_DECL_NSIXPCSCRIPTABLE
     NS_DECL_NSICLASSINFO
-#ifdef XPC_USE_SECURITY_CHECKED_COMPONENT
     NS_DECL_NSISECURITYCHECKEDCOMPONENT
-#endif
 
 public:
     nsXPCComponents_Interfaces();
@@ -4283,7 +4221,6 @@ DEFINE_AUTO_MARKING_ARRAY_PTR_TYPE(AutoMarkingNativeInterfacePtrArrayPtr,
     AutoMarkingJSVal AUTO_MARK_JSVAL_HELPER(_automarker_,__LINE__)           \
     (ccx, &AUTO_MARK_JSVAL_HELPER(_val_,__LINE__))
 
-#ifdef XPC_USE_SECURITY_CHECKED_COMPONENT
 /***************************************************************************/
 // Allocates a string that grants all access ("AllAccess")
 
@@ -4292,7 +4229,6 @@ extern char* xpc_CloneAllAccess();
 // Returns access if wideName is in list
 
 extern char * xpc_CheckAccessList(const PRUnichar* wideName, const char* list[]);
-#endif
 
 /***************************************************************************/
 // in xpcvariant.cpp...
@@ -4392,7 +4328,6 @@ public:
 };
 
 /***************************************************************************/
-#ifndef XPCONNECT_STANDALONE
 
 #define PRINCIPALHOLDER_IID \
 {0xbf109f49, 0xf94a, 0x43d8, {0x93, 0xdb, 0xe4, 0x66, 0x49, 0xc5, 0xd9, 0x7d}}
@@ -4418,8 +4353,6 @@ private:
 
 NS_DEFINE_STATIC_IID_ACCESSOR(PrincipalHolder, PRINCIPALHOLDER_IID)
 
-#endif /* !XPCONNECT_STANDALONE */
-
 /***************************************************************************/
 // Utilities
 
@@ -4429,8 +4362,6 @@ xpc_GetJSPrivate(JSObject *obj)
     return obj->getPrivate();
 }
 
-
-#ifndef XPCONNECT_STANDALONE
 
 // Helper for creating a sandbox object to use for evaluating
 // untrusted code completely separated from all other code in the
@@ -4459,7 +4390,6 @@ nsresult
 xpc_EvalInSandbox(JSContext *cx, JSObject *sandbox, const nsAString& source,
                   const char *filename, PRInt32 lineNo,
                   JSVersion jsVersion, PRBool returnStringOnly, jsval *rval);
-#endif /* !XPCONNECT_STANDALONE */
 
 /***************************************************************************/
 // Inlined utilities.
@@ -4573,27 +4503,6 @@ ParticipatesInCycleCollection(JSContext *cx, js::gc::Cell *cell)
 }
 
 #ifdef XPC_IDISPATCH_SUPPORT
-
-#ifdef WINCE
-/* defined static near the top here */
-FARPROC GetProcAddressA(HMODULE hMod, wchar_t *procName) {
-  FARPROC ret = NULL;
-  int len = wcslen(procName);
-  char *s = new char[len + 1];
-
-  for (int i = 0; i < len; i++) {
-    s[i] = (char) procName[i];
-  }
-  s[len-1] = 0;
-
-  ret = ::GetProcAddress(hMod, s);
-  delete [] s;
-
-  return ret;
-}
-#endif /* WINCE */
-
-
 // IDispatch specific classes
 #include "XPCDispPrivate.h"
 #endif

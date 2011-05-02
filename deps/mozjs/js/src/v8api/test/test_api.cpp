@@ -537,6 +537,106 @@ static void YSetter(Local<String> name,
   info.This()->Set(name, value);
 }
 
+int echo_named_call_count;
+
+static v8::Handle<Value> EchoNamedProperty(Local<String> name,
+                                           const AccessorInfo& info) {
+  ApiTestFuzzer::Fuzz();
+  CHECK_EQ(v8_str("data"), info.Data());
+  echo_named_call_count++;
+  return name;
+}
+
+int echo_indexed_call_count = 0;
+
+static v8::Handle<Value> EchoIndexedProperty(uint32_t index,
+                                             const AccessorInfo& info) {
+  ApiTestFuzzer::Fuzz();
+  CHECK_EQ(v8_num(637), info.Data());
+  echo_indexed_call_count++;
+  return v8_num(index);
+}
+
+v8::Handle<v8::Object> bottom;
+
+static v8::Handle<Value> CheckThisIndexedPropertyHandler(
+    uint32_t index,
+    const AccessorInfo& info) {
+  ApiTestFuzzer::Fuzz();
+  CHECK(info.This()->Equals(bottom));
+  return v8::Handle<Value>();
+}
+
+static v8::Handle<Value> CheckThisNamedPropertyHandler(
+    Local<String> name,
+    const AccessorInfo& info) {
+  ApiTestFuzzer::Fuzz();
+  CHECK(info.This()->Equals(bottom));
+  return v8::Handle<Value>();
+}
+
+v8::Handle<Value> CheckThisIndexedPropertySetter(uint32_t index,
+                                                 Local<Value> value,
+                                                 const AccessorInfo& info) {
+  ApiTestFuzzer::Fuzz();
+  CHECK(info.This()->Equals(bottom));
+  return v8::Handle<Value>();
+}
+
+v8::Handle<Value> CheckThisNamedPropertySetter(Local<String> property,
+                                               Local<Value> value,
+                                               const AccessorInfo& info) {
+  ApiTestFuzzer::Fuzz();
+  CHECK(info.This()->Equals(bottom));
+  return v8::Handle<Value>();
+}
+
+v8::Handle<v8::Integer> CheckThisIndexedPropertyQuery(
+    uint32_t index,
+    const AccessorInfo& info) {
+  ApiTestFuzzer::Fuzz();
+  CHECK(info.This()->Equals(bottom));
+  return v8::Handle<v8::Integer>();
+}
+
+v8::Handle<v8::Integer> CheckThisNamedPropertyQuery(Local<String> property,
+                                                    const AccessorInfo& info) {
+  ApiTestFuzzer::Fuzz();
+  CHECK(info.This()->Equals(bottom));
+  return v8::Handle<v8::Integer>();
+}
+
+v8::Handle<v8::Boolean> CheckThisIndexedPropertyDeleter(
+    uint32_t index,
+    const AccessorInfo& info) {
+  ApiTestFuzzer::Fuzz();
+  CHECK(info.This()->Equals(bottom));
+  return v8::Handle<v8::Boolean>();
+}
+
+v8::Handle<v8::Boolean> CheckThisNamedPropertyDeleter(
+    Local<String> property,
+    const AccessorInfo& info) {
+  ApiTestFuzzer::Fuzz();
+  CHECK(info.This()->Equals(bottom));
+  return v8::Handle<v8::Boolean>();
+}
+
+v8::Handle<v8::Array> CheckThisIndexedPropertyEnumerator(
+    const AccessorInfo& info) {
+  ApiTestFuzzer::Fuzz();
+  CHECK(info.This()->Equals(bottom));
+  return v8::Handle<v8::Array>();
+}
+
+
+v8::Handle<v8::Array> CheckThisNamedPropertyEnumerator(
+    const AccessorInfo& info) {
+  ApiTestFuzzer::Fuzz();
+  CHECK(info.This()->Equals(bottom));
+  return v8::Handle<v8::Array>();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //// Tests
 
@@ -879,22 +979,153 @@ test_ObjectTemplate()
 // from test-api.cc:1139
 void
 test_DescriptorInheritance()
-{ }
+{
+  v8::HandleScope scope;
+  v8::Handle<v8::FunctionTemplate> super = v8::FunctionTemplate::New();
+  super->PrototypeTemplate()->Set("flabby",
+                                  v8::FunctionTemplate::New(GetFlabby));
+  super->PrototypeTemplate()->Set("PI", v8_num(3.14));
+
+  super->InstanceTemplate()->SetAccessor(v8_str("knurd"), GetKnurd);
+
+  v8::Handle<v8::FunctionTemplate> base1 = v8::FunctionTemplate::New();
+  base1->Inherit(super);
+  base1->PrototypeTemplate()->Set("v1", v8_num(20.1));
+
+  v8::Handle<v8::FunctionTemplate> base2 = v8::FunctionTemplate::New();
+  base2->Inherit(super);
+  base2->PrototypeTemplate()->Set("v2", v8_num(10.1));
+
+  LocalContext env;
+
+  env->Global()->Set(v8_str("s"), super->GetFunction());
+  env->Global()->Set(v8_str("base1"), base1->GetFunction());
+  env->Global()->Set(v8_str("base2"), base2->GetFunction());
+
+  // Checks right __proto__ chain.
+  CHECK(CompileRun("base1.prototype.__proto__ == s.prototype")->BooleanValue());
+  CHECK(CompileRun("base2.prototype.__proto__ == s.prototype")->BooleanValue());
+
+  CHECK(v8_compile("s.prototype.PI == 3.14")->Run()->BooleanValue());
+
+  // Instance accessor should not be visible on function object or its prototype
+  CHECK(CompileRun("s.knurd == undefined")->BooleanValue());
+  CHECK(CompileRun("s.prototype.knurd == undefined")->BooleanValue());
+  CHECK(CompileRun("base1.prototype.knurd == undefined")->BooleanValue());
+
+  env->Global()->Set(v8_str("obj"),
+                     base1->GetFunction()->NewInstance());
+  CHECK_EQ(17.2, v8_compile("obj.flabby()")->Run()->NumberValue());
+  CHECK(v8_compile("'flabby' in obj")->Run()->BooleanValue());
+  CHECK_EQ(15.2, v8_compile("obj.knurd")->Run()->NumberValue());
+  CHECK(v8_compile("'knurd' in obj")->Run()->BooleanValue());
+  CHECK_EQ(20.1, v8_compile("obj.v1")->Run()->NumberValue());
+
+  env->Global()->Set(v8_str("obj2"),
+                     base2->GetFunction()->NewInstance());
+  CHECK_EQ(17.2, v8_compile("obj2.flabby()")->Run()->NumberValue());
+  CHECK(v8_compile("'flabby' in obj2")->Run()->BooleanValue());
+  CHECK_EQ(15.2, v8_compile("obj2.knurd")->Run()->NumberValue());
+  CHECK(v8_compile("'knurd' in obj2")->Run()->BooleanValue());
+  CHECK_EQ(10.1, v8_compile("obj2.v2")->Run()->NumberValue());
+
+  // base1 and base2 cannot cross reference to each's prototype
+  CHECK(v8_compile("obj.v2")->Run()->IsUndefined());
+  CHECK(v8_compile("obj2.v1")->Run()->IsUndefined());
+}
 
 // from test-api.cc:1207
 void
 test_NamedPropertyHandlerGetter()
-{ }
+{
+  echo_named_call_count = 0;
+  v8::HandleScope scope;
+  v8::Handle<v8::FunctionTemplate> templ = v8::FunctionTemplate::New();
+  templ->InstanceTemplate()->SetNamedPropertyHandler(EchoNamedProperty,
+                                                     0, 0, 0, 0,
+                                                     v8_str("data"));
+  LocalContext env;
+  env->Global()->Set(v8_str("obj"),
+                     templ->GetFunction()->NewInstance());
+  CHECK_EQ(echo_named_call_count, 0);
+  v8_compile("obj.x")->Run();
+  CHECK_EQ(echo_named_call_count, 1);
+  const char* code = "var str = 'oddle'; obj[str] + obj.poddle;";
+  v8::Handle<Value> str = CompileRun(code);
+  String::AsciiValue value(str);
+  CHECK_EQ(*value, "oddlepoddle");
+  // Check default behavior
+  CHECK_EQ(v8_compile("obj.flob = 10;")->Run()->Int32Value(), 10);
+  CHECK(v8_compile("'myProperty' in obj")->Run()->BooleanValue());
+  CHECK(v8_compile("delete obj.myProperty")->Run()->BooleanValue());
+}
 
 // from test-api.cc:1243
 void
 test_IndexedPropertyHandlerGetter()
-{ }
+{
+  v8::HandleScope scope;
+  v8::Handle<v8::FunctionTemplate> templ = v8::FunctionTemplate::New();
+  templ->InstanceTemplate()->SetIndexedPropertyHandler(EchoIndexedProperty,
+                                                       0, 0, 0, 0,
+                                                       v8_num(637));
+  LocalContext env;
+  env->Global()->Set(v8_str("obj"),
+                     templ->GetFunction()->NewInstance());
+  Local<Script> script = v8_compile("obj[900]");
+  CHECK_EQ(script->Run()->Int32Value(), 900);
+}
 
 // from test-api.cc:1344
 void
 test_PropertyHandlerInPrototype()
-{ }
+{
+  v8::HandleScope scope;
+  LocalContext env;
+
+  // Set up a prototype chain with three interceptors.
+  v8::Handle<v8::FunctionTemplate> templ = v8::FunctionTemplate::New();
+  templ->InstanceTemplate()->SetIndexedPropertyHandler(
+      CheckThisIndexedPropertyHandler,
+      CheckThisIndexedPropertySetter,
+      CheckThisIndexedPropertyQuery,
+      CheckThisIndexedPropertyDeleter,
+      CheckThisIndexedPropertyEnumerator);
+
+  templ->InstanceTemplate()->SetNamedPropertyHandler(
+      CheckThisNamedPropertyHandler,
+      CheckThisNamedPropertySetter,
+      CheckThisNamedPropertyQuery,
+      CheckThisNamedPropertyDeleter,
+      CheckThisNamedPropertyEnumerator);
+
+  bottom = templ->GetFunction()->NewInstance();
+  Local<v8::Object> top = templ->GetFunction()->NewInstance();
+  Local<v8::Object> middle = templ->GetFunction()->NewInstance();
+
+  bottom->Set(v8_str("__proto__"), middle);
+  middle->Set(v8_str("__proto__"), top);
+  env->Global()->Set(v8_str("obj"), bottom);
+
+  // Indexed and named get.
+  Script::Compile(v8_str("obj[0]"))->Run();
+  Script::Compile(v8_str("obj.x"))->Run();
+
+  // Indexed and named set.
+  Script::Compile(v8_str("obj[1] = 42"))->Run();
+  Script::Compile(v8_str("obj.y = 42"))->Run();
+
+  // Indexed and named query.
+  Script::Compile(v8_str("0 in obj"))->Run();
+  Script::Compile(v8_str("'x' in obj"))->Run();
+
+  // Indexed and named deleter.
+  Script::Compile(v8_str("delete obj[0]"))->Run();
+  Script::Compile(v8_str("delete obj.x"))->Run();
+
+  // Enumerators.
+  Script::Compile(v8_str("for (var p in obj) ;"))->Run();
+}
 
 // from test-api.cc:1413
 void
@@ -4170,10 +4401,10 @@ Test gTests[] = {
   TEST(test_Boolean),
   UNIMPLEMENTED_TEST(test_GlobalPrototype),
   TEST(test_ObjectTemplate),
-  UNIMPLEMENTED_TEST(test_DescriptorInheritance),
-  UNIMPLEMENTED_TEST(test_NamedPropertyHandlerGetter),
-  UNIMPLEMENTED_TEST(test_IndexedPropertyHandlerGetter),
-  UNIMPLEMENTED_TEST(test_PropertyHandlerInPrototype),
+  DISABLED_TEST(test_DescriptorInheritance, 91),
+  DISABLED_TEST(test_NamedPropertyHandlerGetter, 92),
+  TEST(test_IndexedPropertyHandlerGetter),
+  TEST(test_PropertyHandlerInPrototype),
   UNIMPLEMENTED_TEST(test_PrePropertyHandler),
   TEST(test_UndefinedIsNotEnumerable),
   UNIMPLEMENTED_TEST(test_DeepCrossLanguageRecursion),
