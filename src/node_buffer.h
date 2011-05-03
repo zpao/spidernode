@@ -71,17 +71,13 @@ class Buffer : public ObjectWrap {
 
   static bool HasInstance(v8::Handle<v8::Value> val);
 
-  static inline char* Data(v8::Handle<v8::Object> obj) {
-    return (char*)obj->GetIndexedPropertiesExternalArrayData();
-  }
+  static char* Data(v8::Handle<v8::Object> obj);
 
   static inline char* Data(Buffer *b) {
     return Buffer::Data(b->handle_);
   }
 
-  static inline size_t Length(v8::Handle<v8::Object> obj) {
-    return (size_t)obj->GetIndexedPropertiesExternalArrayDataLength();
-  }
+  static size_t Length(v8::Handle<v8::Object> obj);
 
   static inline size_t Length(Buffer *b) {
     return Buffer::Length(b->handle_);

@@ -723,6 +723,16 @@ bool Buffer::HasInstance(v8::Handle<v8::Value> val) {
 }
 
 
+char* Buffer::Data(v8::Handle<v8::Object> obj) {
+  return (char*)obj->GetIndexedPropertiesExternalArrayData();
+}
+
+
+size_t Buffer::Length(v8::Handle<v8::Object> obj) {
+  return (size_t)obj->GetIndexedPropertiesExternalArrayDataLength();
+}
+
+
 void Buffer::Initialize(Handle<Object> target) {
   HandleScope scope;
 
