@@ -275,7 +275,7 @@ void Buffer::Replace(char *data, size_t length,
 
 Handle<Value> Buffer::BinarySlice(const Arguments &args) {
   HandleScope scope;
-  Local<Object> parent = args.This()->Get(String::NewSymbol("parent"))->ToObject();
+  Local<Object> parent = args.This()->Get(String::NewSymbol("rawArray"))->ToObject();
   SLICE_ARGS(args[0], args[1])
 
   char* data = (char*)data_from_object(**parent);
@@ -289,7 +289,7 @@ Handle<Value> Buffer::BinarySlice(const Arguments &args) {
 
 Handle<Value> Buffer::AsciiSlice(const Arguments &args) {
   HandleScope scope;
-  Local<Object> parent = args.This()->Get(String::NewSymbol("parent"))->ToObject();
+  Local<Object> parent = args.This()->Get(String::NewSymbol("rawArray"))->ToObject();
   SLICE_ARGS(args[0], args[1])
   char* data = (char*)data_from_object(**parent);
 
@@ -301,8 +301,8 @@ Handle<Value> Buffer::AsciiSlice(const Arguments &args) {
 
 Handle<Value> Buffer::Utf8Slice(const Arguments &args) {
   HandleScope scope;
-  Local<Object> parent = args.This()->Get(String::NewSymbol("parent"))->ToObject();
-  SLICE_ARGS(args[0], args[1])
+  Local<Object> parent = args.This()->Get(String::NewSymbol("rawArray"))->ToObject();
+  SLICE_ARGS(args[0], args[1]);
   char* data = (char*)data_from_object(**parent);
   Local<String> string = String::New(data, end - start);
   return scope.Close(string);
@@ -310,7 +310,7 @@ Handle<Value> Buffer::Utf8Slice(const Arguments &args) {
 
 Handle<Value> Buffer::Ucs2Slice(const Arguments &args) {
   HandleScope scope;
-  Local<Object> parent = args.This()->Get(String::NewSymbol("parent"))->ToObject();
+  Local<Object> parent = args.This()->Get(String::NewSymbol("rawArray"))->ToObject();
   SLICE_ARGS(args[0], args[1])
   uint16_t *data = (uint16_t*)data_from_object(**parent);
   Local<String> string = String::New(data, (end - start) / 2);
@@ -343,7 +343,7 @@ static const int unbase64_table[] =
 
 Handle<Value> Buffer::Base64Slice(const Arguments &args) {
   HandleScope scope;
-  Local<Object> parent = args.This()->Get(String::NewSymbol("parent"))->ToObject();
+  Local<Object> parent = args.This()->Get(String::NewSymbol("rawArray"))->ToObject();
   char* data = (char*)data_from_object(**parent);
   SLICE_ARGS(args[0], args[1])
 
