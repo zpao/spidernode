@@ -476,7 +476,9 @@ Handle<Value> Buffer::Copy(const Arguments &args) {
 // var charsWritten = buffer.utf8Write(string, offset, [maxLength]);
 Handle<Value> Buffer::Utf8Write(const Arguments &args) {
   HandleScope scope;
-  Buffer *buffer = ObjectWrap::Unwrap<Buffer>(args.This());
+  Local<Object> buffer = args.This()->Get(String::NewSymbol("rawArray"))->ToObject();
+  char* data = (char*)data_from_object(**buffer);
+  int32 length = data_length_from_object(**buffer);
 
   if (!args[0]->IsString()) {
     return ThrowException(Exception::TypeError(String::New(
@@ -487,16 +489,16 @@ Handle<Value> Buffer::Utf8Write(const Arguments &args) {
 
   size_t offset = args[1]->Uint32Value();
 
-  if (s->Length() > 0 && offset >= buffer->length_) {
+  if (s->Length() > 0 && offset >= length) {
     return ThrowException(Exception::TypeError(String::New(
             "Offset is out of bounds")));
   }
 
-  size_t max_length = args[2]->IsUndefined() ? buffer->length_ - offset
+  size_t max_length = args[2]->IsUndefined() ? length - offset
                                              : args[2]->Uint32Value();
-  max_length = MIN(buffer->length_ - offset, max_length);
+  max_length = MIN(length - offset, max_length);
 
-  char* p = buffer->data_ + offset;
+  char* p = data + offset;
 
   int char_written;
 
