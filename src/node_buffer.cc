@@ -83,6 +83,14 @@ static inline void* data_from_object(JSObject* obj) {
 }
 
 
+static inline uint32 data_length_from_object(JSObject* obj) {
+  js::TypedArray* ta = js::TypedArray::fromJSObject(obj);
+  JS_ASSERT(ta);
+  JS_ASSERT(ta->buffer);
+  return ta->buffer->byteLength;
+}
+
+
 static inline size_t base64_decoded_size(const char *src, size_t size) {
   const char *const end = src + size;
   const int remainder = size % 4;
