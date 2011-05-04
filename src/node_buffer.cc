@@ -62,7 +62,7 @@ using namespace v8;
     return ThrowException(Exception::Error(                          \
           String::New("Must have start <= end")));                   \
   }                                                                  \
-  if ((size_t)end > parent->length_) {                               \
+  if ((size_t)end > data_length_from_object(**parent)) {             \
     return ThrowException(Exception::Error(                          \
           String::New("end cannot be longer than parent.length")));  \
   }
@@ -275,10 +275,10 @@ void Buffer::Replace(char *data, size_t length,
 
 Handle<Value> Buffer::BinarySlice(const Arguments &args) {
   HandleScope scope;
-  Buffer *parent = ObjectWrap::Unwrap<Buffer>(args.This());
+  Local<Object> parent = args.This()->Get(String::NewSymbol("parent"))->ToObject();
   SLICE_ARGS(args[0], args[1])
 
-  char *data = parent->data_ + start;
+  char* data = (char*)data_from_object(**parent);
   //Local<String> string = String::New(data, end - start);
 
   Local<Value> b =  Encode(data, end - start, BINARY);
@@ -289,10 +289,10 @@ Handle<Value> Buffer::BinarySlice(const Arguments &args) {
 
 Handle<Value> Buffer::AsciiSlice(const Arguments &args) {
   HandleScope scope;
-  Buffer *parent = ObjectWrap::Unwrap<Buffer>(args.This());
+  Local<Object> parent = args.This()->Get(String::NewSymbol("parent"))->ToObject();
   SLICE_ARGS(args[0], args[1])
+  char* data = (char*)data_from_object(**parent);
 
-  char* data = parent->data_ + start;
   Local<String> string = String::New(data, end - start);
 
   return scope.Close(string);
@@ -301,18 +301,18 @@ Handle<Value> Buffer::AsciiSlice(const Arguments &args) {
 
 Handle<Value> Buffer::Utf8Slice(const Arguments &args) {
   HandleScope scope;
-  Buffer *parent = ObjectWrap::Unwrap<Buffer>(args.This());
+  Local<Object> parent = args.This()->Get(String::NewSymbol("parent"))->ToObject();
   SLICE_ARGS(args[0], args[1])
-  char *data = parent->data_ + start;
+  char* data = (char*)data_from_object(**parent);
   Local<String> string = String::New(data, end - start);
   return scope.Close(string);
 }
 
 Handle<Value> Buffer::Ucs2Slice(const Arguments &args) {
   HandleScope scope;
-  Buffer *parent = ObjectWrap::Unwrap<Buffer>(args.This());
+  Local<Object> parent = args.This()->Get(String::NewSymbol("parent"))->ToObject();
   SLICE_ARGS(args[0], args[1])
-  uint16_t *data = (uint16_t*)(parent->data_ + start);
+  uint16_t *data = (uint16_t*)data_from_object(**parent);
   Local<String> string = String::New(data, (end - start) / 2);
   return scope.Close(string);
 }
@@ -343,7 +343,8 @@ static const int unbase64_table[] =
 
 Handle<Value> Buffer::Base64Slice(const Arguments &args) {
   HandleScope scope;
-  Buffer *parent = ObjectWrap::Unwrap<Buffer>(args.This());
+  Local<Object> parent = args.This()->Get(String::NewSymbol("parent"))->ToObject();
+  char* data = (char*)data_from_object(**parent);
   SLICE_ARGS(args[0], args[1])
 
   int n = end - start;
@@ -357,10 +358,10 @@ Handle<Value> Buffer::Base64Slice(const Arguments &args) {
   bool b1_oob, b2_oob;
 
   while (i < end) {
-    bitbuf[0] = parent->data_[i++];
+    bitbuf[0] = data[i++];
 
     if (i < end) {
-      bitbuf[1] = parent->data_[i];
+      bitbuf[1] = data[i];
       b1_oob = false;
     }  else {
       bitbuf[1] = 0;
@@ -369,7 +370,7 @@ Handle<Value> Buffer::Base64Slice(const Arguments &args) {
     i++;
 
     if (i < end) {
-      bitbuf[2] = parent->data_[i];
+      bitbuf[2] = data[i];
       b2_oob = false;
     }  else {
       bitbuf[2] = 0;
