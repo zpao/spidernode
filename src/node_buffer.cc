@@ -523,7 +523,8 @@ Handle<Value> Buffer::Utf8Write(const Arguments &args) {
 // var charsWritten = buffer.ucs2Write(string, offset, [maxLength]);
 Handle<Value> Buffer::Ucs2Write(const Arguments &args) {
   HandleScope scope;
-  Buffer *buffer = ObjectWrap::Unwrap<Buffer>(args.This());
+  char* buffer_data = Buffer::Data(args.This());
+  size_t buffer_length = Buffer::Length(args.This());
 
   if (!args[0]->IsString()) {
     return ThrowException(Exception::TypeError(String::New(
@@ -534,16 +535,16 @@ Handle<Value> Buffer::Ucs2Write(const Arguments &args) {
 
   size_t offset = args[1]->Uint32Value();
 
-  if (s->Length() > 0 && offset >= buffer->length_) {
+  if (s->Length() > 0 && offset >= buffer_length) {
     return ThrowException(Exception::TypeError(String::New(
             "Offset is out of bounds")));
   }
 
-  size_t max_length = args[2]->IsUndefined() ? buffer->length_ - offset
+  size_t max_length = args[2]->IsUndefined() ? buffer_length - offset
                                              : args[2]->Uint32Value();
-  max_length = MIN(buffer->length_ - offset, max_length);
+  max_length = MIN(buffer_length - offset, max_length);
 
-  uint16_t* p = (uint16_t*)(buffer->data_ + offset);
+  uint16_t* p = (uint16_t*)(buffer_data + offset);
 
   int written = s->Write(p,
                          0,
