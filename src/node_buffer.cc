@@ -84,7 +84,7 @@ static inline void* data_from_object(JSObject* obj) {
   js::TypedArray* ta = js::TypedArray::fromJSObject(obj);
   JS_ASSERT(ta);
   JS_ASSERT(ta->buffer);
-  JS_ASSERT(ta->buffer->data);
+  JS_ASSERT(!ta->byteLength || ta->buffer->data);
   return ta->buffer->data;
 }
 
