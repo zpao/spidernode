@@ -424,8 +424,6 @@ Handle<Value> Buffer::Base64Slice(const Arguments &args) {
 Handle<Value> Buffer::Copy(const Arguments &args) {
   HandleScope scope;
 
-  Buffer *source = ObjectWrap::Unwrap<Buffer>(args.This());
-
   if (!Buffer::HasInstance(args[0])) {
     return ThrowException(Exception::TypeError(String::New(
             "First arg should be a Buffer")));
@@ -438,7 +436,7 @@ Handle<Value> Buffer::Copy(const Arguments &args) {
   ssize_t target_start = args[1]->Int32Value();
   ssize_t source_start = args[2]->Int32Value();
   ssize_t source_end = args[3]->IsInt32() ? args[3]->Int32Value()
-                                          : source->length_;
+                                          : Buffer::Length(args.This());
 
   if (source_end < source_start) {
     return ThrowException(Exception::Error(String::New(
@@ -455,24 +453,24 @@ Handle<Value> Buffer::Copy(const Arguments &args) {
             "targetStart out of bounds")));
   }
 
-  if (source_start < 0 || source_start >= source->length_) {
+  if (source_start < 0 || source_start >= Buffer::Length(args.This())) {
     return ThrowException(Exception::Error(String::New(
             "sourceStart out of bounds")));
   }
 
-  if (source_end < 0 || source_end > source->length_) {
+  if (source_end < 0 || source_end > Buffer::Length(args.This())) {
     return ThrowException(Exception::Error(String::New(
             "sourceEnd out of bounds")));
   }
 
   ssize_t to_copy = MIN(MIN(source_end - source_start,
                             target_length - target_start),
-                            source->length_ - source_start);
+                            Buffer::Length(args.This()) - source_start);
 
 
   // need to use slightly slower memmove is the ranges might overlap
   memmove((void *)(target_data + target_start),
-          (const void*)(source->data_ + source_start),
+          (const void*)(Buffer::Data(args.This()) + source_start),
           to_copy);
 
   return scope.Close(Integer::New(to_copy));
