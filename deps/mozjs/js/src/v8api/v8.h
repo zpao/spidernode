@@ -382,6 +382,7 @@ class TryCatch {
   friend class V8;
   friend class Script;
   friend class Value;
+  friend class Function;
   static void ReportError(JSContext *ctx, const char *message, JSErrorReport *report);
   static void CheckForException();
 

@@ -83,6 +83,13 @@ struct ObjectTemplateHandle
   {
     JS_ASSERT(!ot.IsEmpty());
   }
+
+  ~ObjectTemplateHandle()
+  {
+    JS_ASSERT(!objectTemplate.IsEmpty());
+    objectTemplate.Dispose();
+  }
+
   static ObjectTemplateHandle* Get(JSContext* cx,
                                    JSObject* obj)
   {

@@ -105,6 +105,31 @@ test_Name()
   do_check_eq(s, String::NewSymbol("AddOne"));
 }
 
+void
+test_Exception()
+{
+  HandleScope handle_scope;
+
+  Persistent<Context> context = Context::New();
+  Handle<Script> script = Script::New(String::New("function foo(x) { throw x; };"));
+
+  Context::Scope scope(context);
+  TryCatch trycatch;
+
+  Handle<Value> v = script->Run();
+  do_check_true(!v.IsEmpty());
+  do_check_true(!trycatch.HasCaught());
+  Handle<Function> fn = context->Global()->Get(String::NewSymbol("foo")).As<Function>();
+  do_check_true(!fn.IsEmpty());
+  Local<Value> args[1] = { Integer::New(4) };
+  v = fn->Call(context->Global(), 1, args);
+  do_check_true(v.IsEmpty());
+  do_check_true(trycatch.HasCaught());
+  Handle<Value> exn = trycatch.Exception();
+  do_check_true(exn->IsInt32());
+  do_check_eq(exn->Int32Value(), 4);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //// Test Harness
 
@@ -113,6 +138,7 @@ Test gTests[] = {
   TEST(test_V8DocExample),
   TEST(test_Constructor),
   TEST(test_Name),
+  TEST(test_Exception)
 };
 
 const char* file = __FILE__;

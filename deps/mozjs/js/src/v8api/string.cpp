@@ -153,7 +153,7 @@ String::WriteAscii(char* buffer,
     idx++;
   }
   // If we have enough space for the NULL terminator, set it.
-  if (idx <= length) {
+  if (idx <= length && length > 0) {
     buffer[idx] = '\0';
   }
 

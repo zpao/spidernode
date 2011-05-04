@@ -11,6 +11,18 @@ AccessorStorage::AccessorStorage()
   mStore.init(10);
 }
 
+AccessorStorage::~AccessorStorage()
+{
+  JS_ASSERT(mStore.initialized());
+
+  Range r = mStore.all();
+  while (!r.empty()) {
+    PropertyData& attr = r.front().value;
+    JS_ASSERT(!attr.data.IsEmpty());
+    attr.data.Dispose();
+  }
+}
+
 void
 AccessorStorage::addAccessor(jsid name,
                              AccessorGetter getter,
@@ -28,6 +40,8 @@ AccessorStorage::addAccessor(jsid name,
   };
   AccessorTable::AddPtr slot = mStore.lookupForAdd(name);
   if (slot.found()) {
+    JS_ASSERT(!slot->value.data.IsEmpty());
+    slot->value.data.Dispose();
     mStore.remove(slot);
     slot = mStore.lookupForAdd(name);
   }
@@ -60,6 +74,18 @@ AttributeStorage::AttributeStorage()
   mStore.init(10);
 }
 
+AttributeStorage::~AttributeStorage()
+{
+  JS_ASSERT(mStore.initialized());
+
+  Range r = mStore.all();
+  while (!r.empty()) {
+    Persistent<Value>& val = r.front().value;
+    JS_ASSERT(!val.IsEmpty());
+    val.Dispose();
+  }
+}
+
 void
 AttributeStorage::addAttribute(jsid name,
                                Handle<Value> data)
@@ -68,6 +94,8 @@ AttributeStorage::addAttribute(jsid name,
 
   AttributeTable::AddPtr slot = mStore.lookupForAdd(name);
   if (slot.found()) {
+    JS_ASSERT(!slot->value.IsEmpty());
+    slot->value.Dispose();
     mStore.remove(slot);
     slot = mStore.lookupForAdd(name);
   }

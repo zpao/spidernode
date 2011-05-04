@@ -33,6 +33,7 @@ private:
 
 public:
   AccessorStorage();
+  ~AccessorStorage();
   void addAccessor(jsid name, AccessorGetter getter,
                    AccessorSetter setter, Handle<Value> data,
                    PropertyAttribute attribute);
@@ -52,6 +53,7 @@ class AttributeStorage
 
 public:
   AttributeStorage();
+  ~AttributeStorage();
   void addAttribute(jsid name, Handle<Value> value);
 
   typedef AttributeTable::Entry Entry;

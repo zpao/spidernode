@@ -180,6 +180,17 @@ test_Utf8Value_length()
   do_check_eq(k.length(), TEST_LENGTH);
   do_check_true(0 == strcmp(TEST_STRING, *k));
 }
+
+void
+test_WriteAsciiEmpty() {
+  HandleScope handle_scope;
+  Persistent<Context> context = Context::New();
+  Context::Scope context_scope(context);
+
+  Handle<String> str = String::Empty();
+  int written = str->WriteAscii(NULL, 0, 0);
+  do_check_eq(written, 0);
+}
 ////////////////////////////////////////////////////////////////////////////////
 //// Test Harness
 
@@ -192,6 +203,7 @@ Test gTests[] = {
   TEST(test_AsciiValue_operators),
   TEST(test_AsciiValue_length),
   TEST(test_Utf8Value_length),
+  TEST(test_WriteAsciiEmpty),
 };
 
 const char* file = __FILE__;
