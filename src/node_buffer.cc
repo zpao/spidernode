@@ -74,6 +74,12 @@ static Persistent<String> write_sym;
 Persistent<FunctionTemplate> Buffer::constructor_template;
 
 
+static inline JSObject* typed_array_from_object(Handle<Object> obj) {
+  JS_ASSERT(!obj.IsEmpty());
+  return **obj->Get(String::NewSymbol("rawArray"))->ToObject();
+}
+
+
 static inline void* data_from_object(JSObject* obj) {
   js::TypedArray* ta = js::TypedArray::fromJSObject(obj);
   JS_ASSERT(ta);
