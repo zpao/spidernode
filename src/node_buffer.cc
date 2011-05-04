@@ -62,7 +62,7 @@ using namespace v8;
     return ThrowException(Exception::Error(                          \
           String::New("Must have start <= end")));                   \
   }                                                                  \
-  if ((size_t)end > data_length_from_object(**parent)) {             \
+  if ((size_t)end > data_length_from_object(arr)) {             \
     return ThrowException(Exception::Error(                          \
           String::New("end cannot be longer than parent.length")));  \
   }
@@ -281,10 +281,10 @@ void Buffer::Replace(char *data, size_t length,
 
 Handle<Value> Buffer::BinarySlice(const Arguments &args) {
   HandleScope scope;
-  Local<Object> parent = args.This()->Get(String::NewSymbol("rawArray"))->ToObject();
+  JSObject* arr = typed_array_from_object(args.This());
   SLICE_ARGS(args[0], args[1])
 
-  char* data = (char*)data_from_object(**parent);
+  char* data = (char*)data_from_object(arr);
   //Local<String> string = String::New(data, end - start);
 
   Local<Value> b =  Encode(data, end - start, BINARY);
@@ -295,9 +295,9 @@ Handle<Value> Buffer::BinarySlice(const Arguments &args) {
 
 Handle<Value> Buffer::AsciiSlice(const Arguments &args) {
   HandleScope scope;
-  Local<Object> parent = args.This()->Get(String::NewSymbol("rawArray"))->ToObject();
+  JSObject* arr = typed_array_from_object(args.This());
   SLICE_ARGS(args[0], args[1])
-  char* data = (char*)data_from_object(**parent);
+  char* data = (char*)data_from_object(arr);
 
   Local<String> string = String::New(data, end - start);
 
@@ -307,18 +307,18 @@ Handle<Value> Buffer::AsciiSlice(const Arguments &args) {
 
 Handle<Value> Buffer::Utf8Slice(const Arguments &args) {
   HandleScope scope;
-  Local<Object> parent = args.This()->Get(String::NewSymbol("rawArray"))->ToObject();
+  JSObject* arr = typed_array_from_object(args.This());
   SLICE_ARGS(args[0], args[1]);
-  char* data = (char*)data_from_object(**parent);
+  char* data = (char*)data_from_object(arr);
   Local<String> string = String::New(data, end - start);
   return scope.Close(string);
 }
 
 Handle<Value> Buffer::Ucs2Slice(const Arguments &args) {
   HandleScope scope;
-  Local<Object> parent = args.This()->Get(String::NewSymbol("rawArray"))->ToObject();
+  JSObject* arr = typed_array_from_object(args.This());
   SLICE_ARGS(args[0], args[1])
-  uint16_t *data = (uint16_t*)data_from_object(**parent);
+  uint16_t *data = (uint16_t*)data_from_object(arr);
   Local<String> string = String::New(data, (end - start) / 2);
   return scope.Close(string);
 }
@@ -349,8 +349,8 @@ static const int unbase64_table[] =
 
 Handle<Value> Buffer::Base64Slice(const Arguments &args) {
   HandleScope scope;
-  Local<Object> parent = args.This()->Get(String::NewSymbol("rawArray"))->ToObject();
-  char* data = (char*)data_from_object(**parent);
+  JSObject* arr = typed_array_from_object(args.This());
+  char* data = (char*)data_from_object(arr);
   SLICE_ARGS(args[0], args[1])
 
   int n = end - start;
