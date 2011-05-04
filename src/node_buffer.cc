@@ -752,12 +752,12 @@ bool Buffer::HasInstance(v8::Handle<v8::Value> val) {
 
 
 char* Buffer::Data(v8::Handle<v8::Object> obj) {
-  return (char*)obj->GetIndexedPropertiesExternalArrayData();
+  return (char*)data_from_object(typed_array_from_object(obj));
 }
 
 
 size_t Buffer::Length(v8::Handle<v8::Object> obj) {
-  return (size_t)obj->GetIndexedPropertiesExternalArrayDataLength();
+  return (size_t)data_length_from_object(typed_array_from_object(obj));
 }
 
 
