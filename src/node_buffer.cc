@@ -284,7 +284,7 @@ Handle<Value> Buffer::BinarySlice(const Arguments &args) {
   JSObject* arr = typed_array_from_object(args.This());
   SLICE_ARGS(args[0], args[1])
 
-  char* data = (char*)data_from_object(arr);
+  char* data = (char*)data_from_object(arr) + start;
   //Local<String> string = String::New(data, end - start);
 
   Local<Value> b =  Encode(data, end - start, BINARY);
@@ -297,7 +297,7 @@ Handle<Value> Buffer::AsciiSlice(const Arguments &args) {
   HandleScope scope;
   JSObject* arr = typed_array_from_object(args.This());
   SLICE_ARGS(args[0], args[1])
-  char* data = (char*)data_from_object(arr);
+  char* data = (char*)data_from_object(arr) + start;
 
   Local<String> string = String::New(data, end - start);
 
@@ -309,7 +309,7 @@ Handle<Value> Buffer::Utf8Slice(const Arguments &args) {
   HandleScope scope;
   JSObject* arr = typed_array_from_object(args.This());
   SLICE_ARGS(args[0], args[1]);
-  char* data = (char*)data_from_object(arr);
+  char* data = (char*)data_from_object(arr) + start;
   Local<String> string = String::New(data, end - start);
   return scope.Close(string);
 }
@@ -318,7 +318,7 @@ Handle<Value> Buffer::Ucs2Slice(const Arguments &args) {
   HandleScope scope;
   JSObject* arr = typed_array_from_object(args.This());
   SLICE_ARGS(args[0], args[1])
-  uint16_t *data = (uint16_t*)data_from_object(arr);
+  uint16_t *data = (uint16_t*)data_from_object(arr) + start;
   Local<String> string = String::New(data, (end - start) / 2);
   return scope.Close(string);
 }
@@ -350,8 +350,8 @@ static const int unbase64_table[] =
 Handle<Value> Buffer::Base64Slice(const Arguments &args) {
   HandleScope scope;
   JSObject* arr = typed_array_from_object(args.This());
-  char* data = (char*)data_from_object(arr);
   SLICE_ARGS(args[0], args[1])
+  char* data = (char*)data_from_object(arr) + start;
 
   int n = end - start;
   int out_len = (n + 2 - ((n + 2) % 3)) / 3 * 4;
@@ -557,8 +557,6 @@ Handle<Value> Buffer::Ucs2Write(const Arguments &args) {
 Handle<Value> Buffer::AsciiWrite(const Arguments &args) {
   HandleScope scope;
 
-  Buffer *buffer = ObjectWrap::Unwrap<Buffer>(args.This());
-
   if (!args[0]->IsString()) {
     return ThrowException(Exception::TypeError(String::New(
             "Argument must be a string")));
@@ -568,16 +566,16 @@ Handle<Value> Buffer::AsciiWrite(const Arguments &args) {
 
   size_t offset = args[1]->Int32Value();
 
-  if (s->Length() > 0 && offset >= buffer->length_) {
+  if (s->Length() > 0 && offset >= Buffer::Length(args.This())) {
     return ThrowException(Exception::TypeError(String::New(
             "Offset is out of bounds")));
   }
 
-  size_t max_length = args[2]->IsUndefined() ? buffer->length_ - offset
+  size_t max_length = args[2]->IsUndefined() ? Buffer::Length(args.This()) - offset
                                              : args[2]->Uint32Value();
-  max_length = MIN(s->Length(), MIN(buffer->length_ - offset, max_length));
+  max_length = MIN(s->Length(), MIN(Buffer::Length(args.This()) - offset, max_length));
 
-  char *p = buffer->data_ + offset;
+  char *p = Buffer::Data(args.This()) + offset;
 
   int written = s->WriteAscii(p,
                               0,
@@ -602,7 +600,8 @@ Handle<Value> Buffer::Base64Write(const Arguments &args) {
   assert(unbase64('\n') == -2);
   assert(unbase64('\r') == -2);
 
-  Buffer *buffer = ObjectWrap::Unwrap<Buffer>(args.This());
+  char* buffer_data = Buffer::Data(args.This());
+  size_t buffer_length = Buffer::Length(args.This());
 
   if (!args[0]->IsString()) {
     return ThrowException(Exception::TypeError(String::New(
@@ -613,24 +612,24 @@ Handle<Value> Buffer::Base64Write(const Arguments &args) {
   size_t offset = args[1]->Int32Value();
 
   // handle zero-length buffers graciously
-  if (offset == 0 && buffer->length_ == 0) {
+  if (offset == 0 && buffer_length == 0) {
     return scope.Close(Integer::New(0));
   }
 
-  if (offset >= buffer->length_) {
+  if (offset >= buffer_length) {
     return ThrowException(Exception::TypeError(String::New(
             "Offset is out of bounds")));
   }
 
   const size_t size = base64_decoded_size(*s, s.length());
-  if (size > buffer->length_ - offset) {
+  if (size > buffer_length - offset) {
     // throw exception, don't silently truncate
     return ThrowException(Exception::TypeError(String::New(
             "Buffer too small")));
   }
 
   char a, b, c, d;
-  char* start = buffer->data_ + offset;
+  char* start = buffer_data + offset;
   char* dst = start;
   const char *src = *s;
   const char *const srcEnd = src + s.length();
@@ -677,7 +676,8 @@ Handle<Value> Buffer::Base64Write(const Arguments &args) {
 Handle<Value> Buffer::BinaryWrite(const Arguments &args) {
   HandleScope scope;
 
-  Buffer *buffer = ObjectWrap::Unwrap<Buffer>(args.This());
+  char* buffer_data = Buffer::Data(args.This());
+  size_t buffer_length = Buffer::Length(args.This());
 
   if (!args[0]->IsString()) {
     return ThrowException(Exception::TypeError(String::New(
@@ -688,14 +688,14 @@ Handle<Value> Buffer::BinaryWrite(const Arguments &args) {
 
   size_t offset = args[1]->Int32Value();
 
-  if (s->Length() > 0 && offset >= buffer->length_) {
+  if (s->Length() > 0 && offset >= buffer_length) {
     return ThrowException(Exception::TypeError(String::New(
             "Offset is out of bounds")));
   }
 
-  char *p = (char*)buffer->data_ + offset;
+  char *p = (char*)buffer_data + offset;
 
-  size_t towrite = MIN((unsigned long) s->Length(), buffer->length_ - offset);
+  size_t towrite = MIN((unsigned long) s->Length(), buffer_length - offset);
 
   int written = DecodeWrite(p, towrite, s, BINARY);
   return scope.Close(Integer::New(written));
