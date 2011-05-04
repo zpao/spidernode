@@ -677,8 +677,8 @@ def spidermonkey_cmd(bld, variant, moz_objdir):
     return ("echo '%s' && set -x -e && " % cmd) + cmd
 
 def build_spidermonkey(bld):
-    moz_objdir = join(bld.path.abspath(),'default','deps','moz_obj')
-    moz_objdir_g = join(bld.path.abspath(),'debug','deps','moz_obj')
+    moz_objdir = join(bld.path.abspath(),blddir,'default','deps','moz_obj')
+    moz_objdir_g = join(bld.path.abspath(),blddir,'debug','deps','moz_obj')
 
     # This is a list of file names that we use to decide whether spidermonkey
     # needs to be rebuilt.  We find all c/c++ source and headers as well as 
@@ -1084,7 +1084,7 @@ def build(bld):
     node_g.uselib += ' V8_G'
     if bld.env['JS_ENGINE'] == 'mozjs':
         # The v8 case is taken care of above
-        node_g.includes += ' %s ' % join(bld.path.abspath(),'debug','deps','moz_obj','dist','include')
+        node_g.includes += ' %s ' % join(bld.path.abspath(),blddir,'debug','deps','moz_obj','dist','include')
     node_conf_g = node_conf.clone("debug")
     node_conf_g.dict = subflags(node_g)
     node_conf_g.install_path = None
@@ -1098,7 +1098,7 @@ def build(bld):
   # default headers for default builds and debug headers for debug build
   if bld.env['JS_ENGINE'] == 'mozjs':
     # For some reason this header gets two -I flags for default builds ?!?!
-    node.includes += ' %s ' % join(bld.path.abspath(),'default','deps','moz_obj','dist','include')
+    node.includes += ' %s ' % join(bld.path.abspath(),blddir,'default','deps','moz_obj','dist','include')
 
   bld.install_files('${PREFIX}/include/node/', """
     config.h
