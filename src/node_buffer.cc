@@ -38,6 +38,8 @@
 # include <arpa/inet.h> // htons, htonl
 #endif
 
+#include "jstypedarray.h"
+
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
@@ -70,6 +72,15 @@ static Persistent<String> length_symbol;
 static Persistent<String> chars_written_sym;
 static Persistent<String> write_sym;
 Persistent<FunctionTemplate> Buffer::constructor_template;
+
+
+static inline void* data_from_object(JSObject* obj) {
+  js::TypedArray* ta = js::TypedArray::fromJSObject(obj);
+  JS_ASSERT(ta);
+  JS_ASSERT(ta->buffer);
+  JS_ASSERT(ta->buffer->data);
+  return ta->buffer->data;
+}
 
 
 static inline size_t base64_decoded_size(const char *src, size_t size) {
