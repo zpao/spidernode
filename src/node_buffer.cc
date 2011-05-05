@@ -76,7 +76,9 @@ Persistent<FunctionTemplate> Buffer::constructor_template;
 
 static inline JSObject* typed_array_from_object(Handle<Object> obj) {
   JS_ASSERT(!obj.IsEmpty());
-  return **obj->Get(String::NewSymbol("rawArray"))->ToObject();
+  Local<Value> arr = obj->Get(String::NewSymbol("rawArray"));
+  if (arr->IsUndefined()) return NULL;
+  return **arr->ToObject();
 }
 
 
@@ -737,7 +739,11 @@ Handle<Value> Buffer::MakeFastBuffer(const Arguments &args) {
 
 bool Buffer::HasInstance(v8::Handle<v8::Value> val) {
   if (!val->IsObject()) return false;
-  v8::Local<v8::Object> obj = val->ToObject();
+  JSObject* jo = typed_array_from_object(val->ToObject());
+  if (!jo) return false;
+  Value v(OBJECT_TO_JSVAL(jo));
+  v8::Local<v8::Object> obj = Local<Value>::New(&v)->ToObject();
+  if (obj.IsEmpty()) return false;
 
   if (obj->GetIndexedPropertiesExternalArrayDataType() == kExternalUnsignedByteArray)
     return true;
