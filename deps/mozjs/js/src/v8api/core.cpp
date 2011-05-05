@@ -82,6 +82,8 @@ bool V8::Initialize() {
 
 // TODO: call this
 bool V8::Dispose() {
+  DestroyObjectInernals();
+
   // Unwind the context scopes
   Local<Context> ctx;
   while (!(ctx = Context::GetCurrent()).IsEmpty()) {
@@ -95,6 +97,9 @@ bool V8::Dispose() {
   (void) JS_RemoveObjectRoot(gRootContext, &gCompartment);
   gCompartment = 0;
   JS_EndRequest(gRootContext);
+  // TODO when we have fixed our leaks, we need to uncomment this line.  It will
+  // assert as long as we are leaking roots...
+  //JS_DestroyContext(gRootContext);
   gRootContext = 0;
   if (gRuntime)
     JS_DestroyRuntime(gRuntime);

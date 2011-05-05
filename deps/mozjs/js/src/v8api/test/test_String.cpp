@@ -191,6 +191,23 @@ test_WriteAsciiEmpty() {
   int written = str->WriteAscii(NULL, 0, 0);
   do_check_eq(written, 0);
 }
+
+void
+test_PartialWriteAscii() {
+  HandleScope handle_scope;
+  Persistent<Context> context = Context::New();
+  Context::Scope context_scope(context);
+
+  char TEST_STRING[] = "toString";
+  int TEST_LENGTH = strlen(TEST_STRING);
+  Handle<String> str = String::New(TEST_STRING);
+  do_check_eq(str->Length(), TEST_LENGTH);
+  char buffer[] = "hag";
+  int written = str->WriteAscii(buffer, 0, 1);
+  do_check_eq(strlen(buffer), 3);
+  do_check_eq(strcmp(buffer, "tag"), 0);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //// Test Harness
 
@@ -204,6 +221,7 @@ Test gTests[] = {
   TEST(test_AsciiValue_length),
   TEST(test_Utf8Value_length),
   TEST(test_WriteAsciiEmpty),
+  TEST(test_PartialWriteAscii),
 };
 
 const char* file = __FILE__;

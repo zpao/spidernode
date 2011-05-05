@@ -51,6 +51,7 @@ int
 main(int aArgc,
      char** aArgv)
 {
+  do_check_true(V8::Initialize());
   (void)printf("Running %s tests...\n", TEST_NAME);
 
   for (size_t i = 0; i < (sizeof(gTests) / sizeof(gTests[0])); i++) {
@@ -68,6 +69,7 @@ main(int aArgc,
                    "https://github.com/zpao/v8monkey/issues/", test.issue);
     }
   }
+  do_check_true(V8::Dispose());
 
   // Check that we have passed all of our tests, and output accordingly.
   if (gPassedTests == gTotalTests) {

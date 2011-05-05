@@ -144,6 +144,9 @@ struct HandleScope {
   ~HandleScope();
 
   template <class T> Local<T> Close(Handle<T> value) {
+    if (value.IsEmpty()) {
+      return Local<T>();
+    }
     internal::GCReference* ref = InternalClose(*value);
     return Local<T>(reinterpret_cast<T*>(ref));
   }

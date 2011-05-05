@@ -40,6 +40,20 @@ static ObjectPrivateDataMap& privateDataMap() {
   return *gPrivateDataMap;
 }
 
+void
+internal::DestroyObjectInernals()
+{
+  if (!gPrivateDataMap) {
+    return;
+  }
+  ObjectPrivateDataMap::Range r = gPrivateDataMap->all();
+  while (!r.empty()) {
+    JS_ASSERT(!r.front().value->hiddenValues.IsEmpty());
+    r.front().value->hiddenValues.Dispose();
+    r.popFront();
+  }
+}
+
 JSBool Object::JSAPIPropertyGetter(JSContext* cx, uintN argc, jsval* vp) {
   HandleScope scope;
   JSObject* fnObj = JSVAL_TO_OBJECT(JS_CALLEE(cx, vp));

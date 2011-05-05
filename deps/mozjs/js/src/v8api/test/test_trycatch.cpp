@@ -56,20 +56,20 @@ Handle<Value> Throws(const Arguments& args) {
 void
 test_native() {
   HandleScope handle_scope;
-  Handle<ObjectTemplate> templ = ObjectTemplate::New();
-  Handle<FunctionTemplate> fnT = v8::FunctionTemplate::New(Throws);
+  Local<ObjectTemplate> templ = ObjectTemplate::New();
+  Local<FunctionTemplate> fnT = v8::FunctionTemplate::New(Throws);
   templ->Set("Throws", fnT);
   fnT->SetClassName(String::NewSymbol("Throws"));
 
   Persistent<Context> context = Context::New(NULL, templ);
-  Handle<Script> script = Script::New(String::New("Throws(9); 4"));
+  Local<Script> script = Script::New(String::New("Throws(9); 4"));
 
   Context::Scope scope(context);
   TryCatch trycatch;
-  Handle<Value> v = script->Run();
+  Local<Value> v = script->Run();
   do_check_true(v.IsEmpty());
   do_check_true(trycatch.HasCaught());
-  Handle<Value> exn = trycatch.Exception();
+  Local<Value> exn = trycatch.Exception();
   do_check_true(exn->IsInt32());
   do_check_eq(exn->Int32Value(), 9);
 }

@@ -716,11 +716,23 @@ Local<Script> Script::Create(Handle<String> source, ScriptOrigin *origin, Script
     chars = JS_GetStringCharsAndLength(cx(),
                                        anchor.get(), &len);
 
-    s = JS_CompileUCScript(cx(), NULL,
-                           chars, len, NULL, 0);
+    if (origin) {
+      String::AsciiValue filename(origin->ResourceName()->ToString());
+      uintN lineno = 0;
+      Handle<Integer> number = origin->ResourceLineOffset();
+      if (!number.IsEmpty()) {
+        lineno = number->Int32Value();
+      }
+      s = JS_CompileUCScript(cx(), NULL,
+                             chars, len, *filename, lineno);
+    } else {
+      s = JS_CompileUCScript(cx(), NULL,
+                             chars, len, NULL, 0);
+    }
   }
 
   if (!s) {
+    TryCatch::CheckForException();
     return Local<Script>();
   }
 

@@ -155,6 +155,7 @@ HandleScope::~HandleScope() {
 }
 
 internal::GCReference* HandleScope::InternalClose(internal::GCReference* ref) {
+  JS_ASSERT(ref);
   JS_ASSERT(mPrevious);
   JS_ASSERT(mGCReferences);
   JS_ASSERT(sCurrent == this);

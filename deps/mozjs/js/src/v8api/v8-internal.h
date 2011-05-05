@@ -15,6 +15,8 @@ extern JSClass global_class;
 JSContext *cx();
 bool disposed();
 
+void DestroyObjectInernals();
+
 ////////////////////////////////////////////////////////////////////////////////
 //// Accessor Storage
 

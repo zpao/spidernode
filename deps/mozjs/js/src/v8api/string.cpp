@@ -17,6 +17,9 @@ String::New(const char* data,
   else {
     str = JS_NewStringCopyN(cx(), data, length);
   }
+  if (!str) {
+    return Local<String>();
+  }
   String s(str);
   return Local<String>::New(&s);
 }
@@ -32,6 +35,9 @@ String::New(const JSUint16* data,
   }
   else {
     str = JS_NewUCStringCopyN(cx(), data, length);
+  }
+  if (!str) {
+    return Local<String>();
   }
   String s(str);
   return Local<String>::New(&s);
@@ -115,12 +121,12 @@ String::Write(JSUint16* buffer,
   size_t internalLen;
   const jschar* chars =
     JS_GetStringCharsZAndLength(cx(), *this, &internalLen);
-  if (!chars || internalLen >= static_cast<size_t>(start)) {
+  if (!chars || internalLen < static_cast<size_t>(start)) {
     return 0;
   }
-  size_t bytes = std::min<size_t>(length, internalLen - start) * 2;
+  size_t bytes = std::min<size_t>(length, internalLen - start) * sizeof(JSUint16);
   if (length == -1) {
-    bytes = (internalLen - start) * 2;
+    bytes = (internalLen - start) * sizeof(JSUint16);
   }
   (void)memcpy(buffer, &chars[start], bytes);
 
@@ -140,25 +146,40 @@ String::WriteAscii(char* buffer,
 
   // No easy way to convert UTF-8 to ASCII, so just drop characters that are
   // not ASCII.
-  int end = start + written;
-  if (length == -1) {
-    length = written;
+  int effectiveLength = length;
+  if (effectiveLength == -1) {
+    // Assume enough storage to fit the string + null
+    effectiveLength = written + 1;
   }
-  int idx = 0;
-  for (int i = start; i < end; i++) {
-    if (static_cast<unsigned int>(tmp[i]) > 0x7F) {
+  int end = start + encodedLength;
+  // [start,end) is the range to read from
+  // [0, effectiveLength) is the range to write to
+  int i = 0;
+  for (int idx = start; i < effectiveLength && idx < end; i++, idx++) {
+    unsigned char first = static_cast<unsigned char>(tmp[idx]);
+    if (first > 0x7F) {
+      if (first < 0xE0) {
+        char second = tmp[++idx] & ~0x80;
+        unsigned int ch = (static_cast<unsigned int>(first & ~0xC0) << 6) | second;
+        if (ch == (0xff & ch)) {
+          buffer[i] = ch;
+          continue;
+        }
+        // Doesn't fit into a single byte, fall through
+      }
+      i--;
       continue;
+    } else {
+      buffer[i] = tmp[idx];
     }
-    buffer[idx] = tmp[i];
-    idx++;
   }
   // If we have enough space for the NULL terminator, set it.
-  if (idx <= length && length > 0) {
-    buffer[idx] = '\0';
+  if (i < effectiveLength) {
+    buffer[i] = '\0';
   }
 
   delete[] tmp;
-  return idx;
+  return i;
 }
 
 int
