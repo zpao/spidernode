@@ -83,6 +83,7 @@ AttributeStorage::~AttributeStorage()
     Persistent<Value>& val = r.front().value;
     JS_ASSERT(!val.IsEmpty());
     val.Dispose();
+    r.popFront();
   }
 }
 

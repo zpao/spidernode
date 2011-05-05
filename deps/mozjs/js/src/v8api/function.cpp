@@ -30,6 +30,7 @@ Local<Value> Function::Call(Handle<Object> recv, int argc, Handle<Value> argv[])
   jsval rval;
   if (!JS_CallFunctionValue(cx(), **recv, mVal, argc, values, &rval)) {
     TryCatch::CheckForException();
+    delete[] values;
     return Local<Value>();
   }
   Value v(rval);
