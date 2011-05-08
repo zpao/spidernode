@@ -1,7 +1,28 @@
 #include "v8-internal.h"
+#include "jsprf.h"
 
 namespace v8 {
 namespace internal {
+
+static
+void
+printTraceName(JSTracer* trc,
+               char* buf,
+               size_t bufsize)
+{
+  JS_snprintf(buf, bufsize, "TracedObject(%p)", trc->debugPrintArg);
+}
+
+void
+traceValue(JSTracer* tracer,
+           jsval val)
+{
+  JS_SET_TRACING_DETAILS(tracer, printTraceName, NULL, 0);
+  if (JSVAL_IS_TRACEABLE(val)) {
+    uint32 kind = JSVAL_TRACE_KIND(val);
+    JS_CallTracer(tracer, JSVAL_TO_TRACEABLE(val), kind);
+  }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 //// Accessor Storage
@@ -9,18 +30,6 @@ namespace internal {
 AccessorStorage::AccessorStorage()
 {
   mStore.init(10);
-}
-
-AccessorStorage::~AccessorStorage()
-{
-  JS_ASSERT(mStore.initialized());
-
-  Range r = mStore.all();
-  while (!r.empty()) {
-    PropertyData& attr = r.front().value;
-    JS_ASSERT(!attr.data.IsEmpty());
-    attr.data.Dispose();
-  }
 }
 
 void
@@ -35,13 +44,12 @@ AccessorStorage::addAccessor(jsid name,
   PropertyData container = {
     getter,
     setter,
-    Persistent<Value>::New(data),
+    data,
     attribute,
   };
   AccessorTable::AddPtr slot = mStore.lookupForAdd(name);
   if (slot.found()) {
-    JS_ASSERT(!slot->value.data.IsEmpty());
-    slot->value.data.Dispose();
+    JS_ASSERT(slot->value.data);
     mStore.remove(slot);
     slot = mStore.lookupForAdd(name);
   }
@@ -66,25 +74,22 @@ AccessorStorage::all() const
   return mStore.all();
 }
 
+void
+AccessorStorage::trace(JSTracer* tracer)
+{
+  Range r = mStore.all();
+  while (!r.empty()) {
+    r.front().value.data.trace(tracer);
+    r.popFront();
+  }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //// Attribute Storage
 
 AttributeStorage::AttributeStorage()
 {
   mStore.init(10);
-}
-
-AttributeStorage::~AttributeStorage()
-{
-  JS_ASSERT(mStore.initialized());
-
-  Range r = mStore.all();
-  while (!r.empty()) {
-    Persistent<Value>& val = r.front().value;
-    JS_ASSERT(!val.IsEmpty());
-    val.Dispose();
-    r.popFront();
-  }
 }
 
 void
@@ -95,12 +100,11 @@ AttributeStorage::addAttribute(jsid name,
 
   AttributeTable::AddPtr slot = mStore.lookupForAdd(name);
   if (slot.found()) {
-    JS_ASSERT(!slot->value.IsEmpty());
-    slot->value.Dispose();
+    JS_ASSERT(slot->value);
     mStore.remove(slot);
     slot = mStore.lookupForAdd(name);
   }
-  mStore.add(slot, name, Persistent<Value>::New(data));
+  mStore.add(slot, name, data);
 }
 
 AttributeStorage::Range
@@ -109,6 +113,16 @@ AttributeStorage::all() const
   JS_ASSERT(mStore.initialized());
 
   return mStore.all();
+}
+
+void
+AttributeStorage::trace(JSTracer* tracer)
+{
+  Range r = mStore.all();
+  while (!r.empty()) {
+    r.front().value.trace(tracer);
+    r.popFront();
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

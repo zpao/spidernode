@@ -1,7 +1,7 @@
 #ifndef v8_v8_internal_h__
 #define v8_v8_internal_h__
 #include "v8.h"
-#include "jshashtable.h"
+#include "jscntxt.h"
 
 namespace v8 {
 namespace internal {
@@ -15,7 +15,68 @@ extern JSClass global_class;
 JSContext *cx();
 bool disposed();
 
-void DestroyObjectInernals();
+void TraceObjectInternals(JSTracer* tracer, void*);
+void DestroyObjectInternals();
+
+////////////////////////////////////////////////////////////////////////////////
+//// Tracing helpers
+
+void traceValue(JSTracer* tracer, jsval val);
+
+template <typename T>
+class Traced {
+public:
+  Traced() : mPtr(NULL) {}
+  Traced(Handle<T> h) :
+    mPtr(NULL) {
+    *this = h;
+  }
+  Traced(const Traced<T> &t) :
+    mPtr(t.mPtr ? cx()->new_<T>(*t.mPtr) : NULL)
+  {
+  }
+  ~Traced() {
+    cx()->delete_(mPtr);
+  }
+
+  operator bool() const {
+    return mPtr != NULL;
+  }
+
+  T* operator->() {
+    return mPtr;
+  }
+
+  Traced<T> &operator=(const Traced<T> &other) {
+    if (!other.mPtr) {
+      cx()->delete_(mPtr);
+      mPtr = NULL;
+    } else if (mPtr) {
+      *mPtr = *other.mPtr;
+    } else {
+      mPtr = cx()->new_<T>(*other.mPtr);
+    }
+    return *this;
+  }
+  void operator=(Handle<T> h) {
+    cx()->delete_(mPtr);
+    if (h.IsEmpty()) {
+      mPtr = NULL;
+    } else {
+      mPtr = cx()->new_<T>(**h);
+    }
+  }
+  Local<T> get() {
+    return Local<T>::New(mPtr);
+  }
+
+  void trace(JSTracer* tracer) {
+    if (mPtr)
+      traceValue(tracer, mPtr->native());
+  }
+private:
+  T* mPtr;
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 //// Accessor Storage
@@ -27,7 +88,7 @@ public:
   {
     AccessorGetter getter;
     AccessorSetter setter;
-    Persistent<Value> data;
+    Traced<Value> data;
     PropertyAttribute attribute;
   };
 private:
@@ -35,7 +96,6 @@ private:
 
 public:
   AccessorStorage();
-  ~AccessorStorage();
   void addAccessor(jsid name, AccessorGetter getter,
                    AccessorSetter setter, Handle<Value> data,
                    PropertyAttribute attribute);
@@ -45,23 +105,24 @@ public:
   typedef AccessorTable::Range Range;
   Range all() const;
 
+  void trace(JSTracer* tracer);
 private:
   AccessorTable mStore;
 };
 
 class AttributeStorage
 {
-  typedef js::HashMap<jsid, Persistent<Value>, JSIDHashPolicy, js::SystemAllocPolicy> AttributeTable;
+  typedef js::HashMap<jsid, Traced<Value>, JSIDHashPolicy, js::SystemAllocPolicy> AttributeTable;
 
 public:
   AttributeStorage();
-  ~AttributeStorage();
   void addAttribute(jsid name, Handle<Value> value);
 
   typedef AttributeTable::Entry Entry;
   typedef AttributeTable::Range Range;
   Range all() const;
 
+  void trace(JSTracer* tracer);
 private:
   AttributeTable mStore;
 };

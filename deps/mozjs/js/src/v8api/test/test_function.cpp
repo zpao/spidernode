@@ -38,6 +38,7 @@ test_BasicCall()
   do_check_true(v->IsNumber());
   Local<Number> n2 = v->ToNumber();
   do_check_eq(n2->Value(), 1.5);
+  context.Dispose();
 }
 
 Handle<Value> InvokeCallback(const Arguments& args) {
@@ -69,6 +70,7 @@ test_V8DocExample()
   v8::Local<v8::Function> function = t->GetFunction();
   v8::Local<v8::Object> instance = function->NewInstance();
   // TODO: test that we created the objects we were supposed to
+  context.Dispose();
 }
 
 void
@@ -84,6 +86,7 @@ test_Constructor()
 
   Context::Scope scope(context);
   script->Run();
+  context.Dispose();
 }
 
 void
@@ -103,6 +106,7 @@ test_Name()
   do_check_true(!v.IsEmpty());
   Handle<String> s = v->ToString();
   do_check_eq(s, String::NewSymbol("AddOne"));
+  context.Dispose();
 }
 
 void
@@ -128,6 +132,8 @@ test_Exception()
   Handle<Value> exn = trycatch.Exception();
   do_check_true(exn->IsInt32());
   do_check_eq(exn->Int32Value(), 4);
+
+  context.Dispose();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

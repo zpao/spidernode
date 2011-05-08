@@ -77,12 +77,13 @@ bool V8::Initialize() {
   (void) JS_AddObjectRoot(ctx, &gCompartment);
 
   JS_SetGCCallback(cx(), GCCallback);
+  JS_SetExtraGCRoots(gRuntime, TraceObjectInternals, NULL);
   return true;
 }
 
 // TODO: call this
 bool V8::Dispose() {
-  DestroyObjectInernals();
+  DestroyObjectInternals();
 
   // Unwind the context scopes
   Local<Context> ctx;

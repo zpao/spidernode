@@ -141,7 +141,7 @@ String::WriteAscii(char* buffer,
 {
   size_t encodedLength = JS_GetStringEncodingLength(cx(),
                                                     *this);
-  char* tmp = new char[encodedLength];
+  char* tmp = cx()->array_new<char>(encodedLength);
   int written = WriteUtf8(tmp, encodedLength);
 
   // No easy way to convert UTF-8 to ASCII, so just drop characters that are
@@ -178,7 +178,7 @@ String::WriteAscii(char* buffer,
     buffer[i] = '\0';
   }
 
-  delete[] tmp;
+  cx()->array_delete(tmp);
   return i;
 }
 
@@ -226,14 +226,14 @@ String::AsciiValue::AsciiValue(Handle<v8::Value> val)
   if (!str.IsEmpty()) {
     int len = str->Length();
     // Need space for the NULL terminator.
-    mStr = new char[len + 1];
+    mStr = cx()->array_new<char>(len + 1);
     mLength = str->WriteAscii(mStr, 0, len + 1);
   }
 }
 String::AsciiValue::~AsciiValue()
 {
   if (mStr)
-    delete[] mStr;
+    cx()->array_delete(mStr);
 }
 
 String::Utf8Value::Utf8Value(Handle<v8::Value> val)
@@ -251,14 +251,14 @@ String::Utf8Value::Utf8Value(Handle<v8::Value> val)
   if (!str.IsEmpty()) {
     int len = str->Utf8Length();
     // Need space for the NULL terminator.
-    mStr = new char[len + 1];
+    mStr = cx()->array_new<char>(len + 1);
     mLength = str->WriteUtf8(mStr, len + 1) - 1;
   }
 }
 String::Utf8Value::~Utf8Value()
 {
   if (mStr) {
-    delete[] mStr;
+    cx()->array_delete(mStr);
   }
 }
 

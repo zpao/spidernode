@@ -5,6 +5,7 @@
 #include "jsxdrapi.h"
 #include "jstl.h"
 #include "jshashtable.h"
+#include "jsutil.h"
 
 namespace v8 {
 // Define some classes first so we can use them before fully defined
@@ -88,6 +89,7 @@ public:
 // that Persistent handles are never copied around in memory.
 struct PersistentGCReference : public GCReference {
   PersistentGCReference(GCReference *ref);
+  ~PersistentGCReference();
 
   bool IsWeak() const {
     return prev != NULL || next != NULL;
@@ -96,7 +98,7 @@ struct PersistentGCReference : public GCReference {
     return isNearDeath;
   }
   void MakeWeak(WeakReferenceCallback callback, void *context);
-  void ClearWeak();
+  void ClearWeak(bool reroot=true);
 
 private:
   WeakReferenceCallback callback;
@@ -385,6 +387,7 @@ class TryCatch {
   friend class V8;
   friend class Script;
   friend class Value;
+  friend class Object;
   friend class Function;
   static void ReportError(JSContext *ctx, const char *message, JSErrorReport *report);
   static void CheckForException();
@@ -913,6 +916,7 @@ public:
 };
 
 class ScriptData {
+  JS_DECLARE_ALLOCATION_FRIENDS_FOR_PRIVATE_CONSTRUCTOR;
   ScriptData() : mXdr(NULL), mData(NULL), mLen(0), mError(true) {}
 
   void SerializeScriptObject(JSObject *scriptObj);

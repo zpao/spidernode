@@ -34,14 +34,28 @@ typedef js::HashMap<JSObject*,Object::PrivateData*, js::DefaultHasher<JSObject*>
 static ObjectPrivateDataMap *gPrivateDataMap = 0;
 static ObjectPrivateDataMap& privateDataMap() {
   if (!gPrivateDataMap) {
-    gPrivateDataMap = new ObjectPrivateDataMap;
+    gPrivateDataMap = cx()->new_<ObjectPrivateDataMap>();
     gPrivateDataMap->init(11);
   }
   return *gPrivateDataMap;
 }
 
 void
-internal::DestroyObjectInernals()
+internal::TraceObjectInternals(JSTracer* tracer,
+                               void*)
+{
+  if (!gPrivateDataMap) {
+    return;
+  }
+  ObjectPrivateDataMap::Range r = gPrivateDataMap->all();
+  while (!r.empty()) {
+    r.front().value->properties.trace(tracer);
+    r.popFront();
+  }
+}
+
+void
+internal::DestroyObjectInternals()
 {
   if (!gPrivateDataMap) {
     return;
@@ -52,6 +66,8 @@ internal::DestroyObjectInernals()
     r.front().value->hiddenValues.Dispose();
     r.popFront();
   }
+
+  cx()->delete_(gPrivateDataMap);
 }
 
 JSBool Object::JSAPIPropertyGetter(JSContext* cx, uintN argc, jsval* vp) {
@@ -68,7 +84,7 @@ JSBool Object::JSAPIPropertyGetter(JSContext* cx, uintN argc, jsval* vp) {
   (void) JS_ValueToId(cx, name, &id);
 
   AccessorStorage::PropertyData data = o.GetHiddenStore().properties.get(id);
-  AccessorInfo info(data.data, JS_THIS_OBJECT(cx, vp));
+  AccessorInfo info(data.data.get(), JS_THIS_OBJECT(cx, vp));
   Handle<Value> result = data.getter(String::FromJSID(id), info);
   JS_SET_RVAL(cx, vp, result->native());
   // XXX: this is usually correct
@@ -89,7 +105,7 @@ JSBool Object::JSAPIPropertySetter(JSContext* cx, uintN argc, jsval* vp) {
   (void) JS_ValueToId(cx, name, &id);
 
   AccessorStorage::PropertyData data = o.GetHiddenStore().properties.get(id);
-  AccessorInfo info(data.data, JS_THIS_OBJECT(cx, vp));
+  AccessorInfo info(data.data.get(), JS_THIS_OBJECT(cx, vp));
   Value value(*JS_ARGV(cx, vp));
   data.setter(String::FromJSID(id), &value, info);
   // XXX: this is usually correct
@@ -105,6 +121,7 @@ Object::Set(Handle<Value> key,
   jsval v = value->native();
 
   if (!JS_SetProperty(cx(), *this, *k, &v)) {
+    TryCatch::CheckForException();
     return false;
   }
 
@@ -136,7 +153,11 @@ Object::Set(JSUint32 index,
   }
 
   jsval& val = value->native();
-  return !!JS_SetElement(cx(), *this, index, &val);
+  if (!JS_SetElement(cx(), *this, index, &val)) {
+    TryCatch::CheckForException();
+    return false;
+  }
+  return true;
 }
 
 bool
@@ -157,6 +178,7 @@ Object::Get(Handle<Value> key) {
   if (JS_GetProperty(cx(), *this, *k, &v.native())) {
     return Local<Value>::New(&v);
   }
+  TryCatch::CheckForException();
   return Local<Value>();
 }
 
@@ -171,6 +193,7 @@ Object::Get(JSUint32 index)
   if (JS_GetElement(cx(), *this, index, &v.native())) {
     return Local<Value>::New(&v);
   }
+  TryCatch::CheckForException();
   return Local<Value>();
 }
 
@@ -184,6 +207,7 @@ Object::Has(Handle<String> key)
   if (JS_HasProperty(cx(), *this, *k, &found)) {
     return !!found;
   }
+  TryCatch::CheckForException();
   return false;
 }
 
@@ -198,6 +222,7 @@ Object::Has(JSUint32 index)
   if (JS_LookupElement(cx(), *this, index, &val)) {
     return !JSVAL_IS_VOID(val);
   }
+  TryCatch::CheckForException();
   return false;
 }
 
@@ -211,6 +236,7 @@ Object::Delete(Handle<String> key)
   if (JS_DeleteProperty2(cx(), *this, *k, &val)) {
     return val == JSVAL_TRUE;
   }
+  TryCatch::CheckForException();
   return false;
 }
 
@@ -225,6 +251,7 @@ Object::Delete(JSUint32 index)
   if (JS_DeleteElement2(cx(), *this, index, &val)) {
     return val == JSVAL_TRUE;
   }
+  TryCatch::CheckForException();
   return false;
 }
 
@@ -270,6 +297,7 @@ Object::SetAccessor(Handle<String> name,
         (JSPropertyOp)getterObj,
         (JSStrictPropertyOp)setterObj,
         attributes)) {
+    TryCatch::CheckForException();
     return false;
   }
   PrivateData &store = GetHiddenStore();
@@ -326,8 +354,10 @@ Object::ObjectProtoToString()
 {
   Object proto(JS_GetPrototype(cx(), *this));
   Handle<Function> toString = proto.Get(String::New("toString")).As<Function>();
-  if (toString.IsEmpty())
+  if (toString.IsEmpty()) {
+    TryCatch::CheckForException();
     return Local<String>();
+  }
   return toString->Call(this, 0, NULL).As<String>();
 }
 
@@ -463,8 +493,7 @@ Object::GetHiddenStore()
   if (p.found()) {
     pd = p->value;
   } else {
-    // XXX this will leak.  Fix!
-    pd = new PrivateData();
+    pd = cx()->new_<PrivateData>();
     ObjectPrivateDataMap::AddPtr slot = privateDataMap().lookupForAdd(*this);
     privateDataMap().add(slot, *this, pd);
   }

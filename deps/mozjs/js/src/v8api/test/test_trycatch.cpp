@@ -72,6 +72,7 @@ test_native() {
   Local<Value> exn = trycatch.Exception();
   do_check_true(exn->IsInt32());
   do_check_eq(exn->Int32Value(), 9);
+  context.Dispose();
 }
 
 void
@@ -92,6 +93,7 @@ test_native2() {
   do_check_true(v->IsInt32());
   do_check_eq(v->Int32Value(), 9);
   do_check_true(!trycatch.HasCaught());
+  context.Dispose();
 }
 
 void
@@ -109,6 +111,7 @@ test_jsthrows() {
   Handle<Value> exn = trycatch.Exception();
   do_check_true(exn->IsInt32());
   do_check_eq(exn->Int32Value(), 9);
+  context.Dispose();
 }
 ////////////////////////////////////////////////////////////////////////////////
 //// Test Harness

@@ -173,3 +173,4 @@ struct Test
   {aName, #aName, true, aIssueNumber}
 #define UNIMPLEMENTED_TEST(aName) \
   {aName, #aName, true, -1}
+#define UNWANTED_TEST(aName) UNIMPLEMENTED_TEST(aName)

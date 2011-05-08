@@ -11,30 +11,40 @@ Function::operator JSFunction*() const {
 
 Local<Object> Function::NewInstance() const {
   Object o(JS_New(cx(), JSVAL_TO_OBJECT(mVal), 0, NULL));
-  return Local<Object>::New(&o);
+  if (!o) {
+    TryCatch::CheckForException();
+    return Local<Object>();
+  } else {
+    return Local<Object>::New(&o);
+  }
 }
 
 Local<Object> Function::NewInstance(int argc, Handle<Value> argv[]) const {
-  jsval *values = new jsval[argc];
+  jsval *values = cx()->array_new<jsval>(argc);
   for (int i = 0; i < argc; i++)
     values[i] = argv[i]->native();
   Object o(JS_New(cx(), JSVAL_TO_OBJECT(mVal), argc, values));
-  delete[] values;
-  return Local<Object>::New(&o);
+  cx()->array_delete(values);
+  if (!o) {
+    TryCatch::CheckForException();
+    return Local<Object>();
+  } else {
+    return Local<Object>::New(&o);
+  }
 }
 
 Local<Value> Function::Call(Handle<Object> recv, int argc, Handle<Value> argv[]) const {
-  jsval *values = new jsval[argc];
+  jsval *values = cx()->array_new<jsval>(argc);
   for (int i = 0; i < argc; i++)
     values[i] = argv[i]->native();
   jsval rval;
   if (!JS_CallFunctionValue(cx(), **recv, mVal, argc, values, &rval)) {
     TryCatch::CheckForException();
-    delete[] values;
+    cx()->array_delete(values);
     return Local<Value>();
   }
   Value v(rval);
-  delete[] values;
+  cx()->array_delete(values);
   return Local<Value>::New(&v);
 }
 void Function::SetName(Handle<String> name) {

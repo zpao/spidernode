@@ -41,6 +41,7 @@ test_Length()
 
   int strlength = strlen(TEST_STRING);
   do_check_eq(str->Length(), strlength);
+  context.Dispose();
 }
 
 void
@@ -59,6 +60,7 @@ test_Utf8Length()
   TEST_STRING[8] = '\0';
   str = String::New(TEST_STRING, TEST_LENGTH);
   do_check_eq(str->Utf8Length(), TEST_LENGTH);
+  context.Dispose();
 }
 
 void
@@ -82,6 +84,7 @@ test_Write()
   }
 
   delete[] buf;
+  context.Dispose();
 }
 
 void
@@ -107,6 +110,7 @@ test_WriteAscii()
   }
 
   delete[] buf;
+  context.Dispose();
 }
 
 void
@@ -130,6 +134,7 @@ test_WriteUtf8()
   do_check_eq(strlen(buf), TEST_LENGTH);
 
   delete[] buf;
+  context.Dispose();
 }
 
 void
@@ -148,6 +153,7 @@ test_AsciiValue_operators()
   char* two = *asciiString;
   do_check_true(0 == strcmp(TEST_STRING, one));
   do_check_true(0 == strcmp(TEST_STRING, two));
+  context.Dispose();
 }
 
 void
@@ -163,6 +169,7 @@ test_AsciiValue_length()
   do_check_eq(str->Length(), TEST_LENGTH);
   String::AsciiValue k(str);
   do_check_eq(k.length(), TEST_LENGTH);
+  context.Dispose();
 }
 
 void
@@ -179,6 +186,7 @@ test_Utf8Value_length()
   String::Utf8Value k(str);
   do_check_eq(k.length(), TEST_LENGTH);
   do_check_true(0 == strcmp(TEST_STRING, *k));
+  context.Dispose();
 }
 
 void
@@ -190,6 +198,7 @@ test_WriteAsciiEmpty() {
   Handle<String> str = String::Empty();
   int written = str->WriteAscii(NULL, 0, 0);
   do_check_eq(written, 0);
+  context.Dispose();
 }
 
 void
@@ -206,6 +215,7 @@ test_PartialWriteAscii() {
   int written = str->WriteAscii(buffer, 0, 1);
   do_check_eq(strlen(buffer), 3);
   do_check_eq(strcmp(buffer, "tag"), 0);
+  context.Dispose();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

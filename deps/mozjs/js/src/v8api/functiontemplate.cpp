@@ -55,11 +55,18 @@ ft_SetProperty(JSContext* cx,
 }
 
 void
+ft_Trace(JSTracer* tracer, JSObject* obj) {
+  PrivateData* data = PrivateData::Get(tracer->context, obj);
+  JS_ASSERT(data);
+  data->attributes.trace(tracer);
+}
+
+void
 ft_finalize(JSContext* cx,
             JSObject* obj)
 {
   PrivateData* data = PrivateData::Get(cx, obj);
-  delete data;
+  cx->delete_(data);
 }
 
 
@@ -83,13 +90,13 @@ JSClass FunctionTemplate::sFunctionTemplateClass = {
   NULL, // construct
   NULL, // xdrObject
   NULL, // hasInstance
-  NULL, // trace
+  ft_Trace, // trace
 };
 
 FunctionTemplate::FunctionTemplate() :
   Template(&sFunctionTemplateClass)
 {
-  JS_SetPrivate(cx(), JSVAL_TO_OBJECT(mVal), new PrivateData);
+  JS_SetPrivate(cx(), JSVAL_TO_OBJECT(mVal), cx()->new_<PrivateData>());
 
   Handle<ObjectTemplate> protoTemplate = ObjectTemplate::New();
   Set("prototype", protoTemplate);
@@ -178,9 +185,10 @@ FunctionTemplate::New(InvocationCallback callback,
 Local<Function>
 FunctionTemplate::GetFunction(JSObject* parent)
 {
+  HandleScope scope;
   Local<Function> fn = InternalObject().GetInternalField(kCachedFunction).As<Function>();
   if (!fn.IsEmpty()) {
-    return Local<Function>::New(fn);
+    return scope.Close(Local<Function>::New(fn));
   }
   Handle<Value> name = InternalObject().GetInternalField(kFunctionName);
   if (name.IsEmpty())
@@ -202,7 +210,7 @@ FunctionTemplate::GetFunction(JSObject* parent)
   AttributeStorage::Range attributes = pd->attributes.all();
   while (!attributes.empty()) {
     AttributeStorage::Entry& entry = attributes.front();
-    Handle<Value> v = entry.value;
+    Handle<Value> v = entry.value.get();
     if (FunctionTemplate::IsFunctionTemplate(v)) {
       FunctionTemplate *tmpl = reinterpret_cast<FunctionTemplate*>(*v);
       v = tmpl->GetFunction(parent);
@@ -214,7 +222,7 @@ FunctionTemplate::GetFunction(JSObject* parent)
     attributes.popFront();
   }
 
-  return fn;
+  return scope.Close(fn);
 }
 
 void

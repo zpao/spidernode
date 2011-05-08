@@ -16,6 +16,7 @@ test_ArrayConversion()
   Local<String> s = String::New("hey");
   Local<String> uncaught_exception_symbol_l = Local<String>::New(s);
   Local<Value> argv[1] = { uncaught_exception_symbol_l  };
+  context.Dispose();
 }
 
 void
