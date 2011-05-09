@@ -39,7 +39,9 @@ import js2c
 
 srcdir = '.'
 blddir = 'build'
-supported_archs = ('arm', 'ia32', 'x64', 'sparc') # 'mips' supported by v8, but not node
+# 'mips' supported by v8, but not by node
+# 'sparc' supported by mozjs, but not by v8
+supported_archs = ('arm', 'ia32', 'x64', 'sparc')
 
 jobs=1
 if os.environ.has_key('JOBS'):
