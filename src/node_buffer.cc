@@ -95,7 +95,7 @@ static inline uint32 data_length_from_object(JSObject* obj) {
   js::TypedArray* ta = js::TypedArray::fromJSObject(obj);
   JS_ASSERT(ta);
   JS_ASSERT(ta->buffer);
-  return ta->byteLength;
+  return ta->buffer->byteLength;
 }
 
 
