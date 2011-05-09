@@ -28,6 +28,19 @@ def find_scc(conf):
 	v['CC']  = cc
 	v['CC_NAME'] = 'sun'
 
+	out = Utils.cmd_output('uname -p')
+	out = out.split('\n')
+	out = out[0]
+	v.DEST_CPU = out
+	v.DEST_BINFMT = 'elf'
+	out = Utils.cmd_output('uname -o')
+	if out.find('Solaris'):
+	    v.DEST_OS = 'sunos'
+	else:
+	    v.DEST_OS = 'linux'
+	# hard-code the version just so it exists, nothing checks it
+	v.CC_VERSION = (5, 9)
+
 @conftest
 def scc_common_flags(conf):
 	v = conf.env

@@ -14,6 +14,7 @@ def find_sxx(conf):
 	cc = None
 	if v['CXX']: cc = v['CXX']
 	elif 'CXX' in conf.environ: cc = conf.environ['CXX']
+	if not cc: cc = conf.find_program('CC', var='CXX')
 	if not cc: cc = conf.find_program('c++', var='CXX')
 	if not cc: conf.fatal('sunc++ was not found')
 	cc = conf.cmd_to_list(cc)
