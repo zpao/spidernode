@@ -38,8 +38,6 @@
 # include <arpa/inet.h> // htons, htonl
 #endif
 
-#include "jstypedarray.h"
-
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
@@ -62,7 +60,7 @@ using namespace v8;
     return ThrowException(Exception::Error(                          \
           String::New("Must have start <= end")));                   \
   }                                                                  \
-  if ((size_t)end > data_length_from_object(arr)) {             \
+  if ((size_t)end > parent->length_) {                               \
     return ThrowException(Exception::Error(                          \
           String::New("end cannot be longer than parent.length")));  \
   }
@@ -72,31 +70,6 @@ static Persistent<String> length_symbol;
 static Persistent<String> chars_written_sym;
 static Persistent<String> write_sym;
 Persistent<FunctionTemplate> Buffer::constructor_template;
-
-
-static inline JSObject* typed_array_from_object(Handle<Object> obj) {
-  JS_ASSERT(!obj.IsEmpty());
-  Local<Value> arr = obj->Get(String::NewSymbol("rawArray"));
-  if (arr->IsUndefined()) return NULL;
-  return **arr->ToObject();
-}
-
-
-static inline void* data_from_object(JSObject* obj) {
-  js::TypedArray* ta = js::TypedArray::fromJSObject(obj);
-  JS_ASSERT(ta);
-  JS_ASSERT(ta->buffer);
-  JS_ASSERT(!ta->byteLength || ta->buffer->data);
-  return ta->buffer->data;
-}
-
-
-static inline uint32 data_length_from_object(JSObject* obj) {
-  js::TypedArray* ta = js::TypedArray::fromJSObject(obj);
-  JS_ASSERT(ta);
-  JS_ASSERT(ta->buffer);
-  return ta->buffer->byteLength;
-}
 
 
 static inline size_t base64_decoded_size(const char *src, size_t size) {
@@ -161,14 +134,8 @@ Handle<Object> Buffer::New(Handle<String> string) {
 Buffer* Buffer::New(size_t length) {
   HandleScope scope;
 
-  // get Buffer from global scope.
-  Local<Object> global = v8::Context::GetCurrent()->Global();
-  Local<Value> bv = global->Get(String::NewSymbol("Buffer"));
-  assert(bv->IsFunction());
-  Local<Function> ctor = Local<Function>::Cast(bv);
-
   Local<Value> arg = Integer::NewFromUnsigned(length);
-  Local<Object> b = ctor->NewInstance(1, &arg);
+  Local<Object> b = constructor_template->GetFunction()->NewInstance(1, &arg);
   if (b.IsEmpty()) return NULL;
 
   return ObjectWrap::Unwrap<Buffer>(b);
@@ -178,14 +145,8 @@ Buffer* Buffer::New(size_t length) {
 Buffer* Buffer::New(char* data, size_t length) {
   HandleScope scope;
 
-  // get Buffer from global scope.
-  Local<Object> global = v8::Context::GetCurrent()->Global();
-  Local<Value> bv = global->Get(String::NewSymbol("Buffer"));
-  assert(bv->IsFunction());
-  Local<Function> ctor = Local<Function>::Cast(bv);
-
-  Local<Value> arg = Integer::NewFromUnsigned(length);
-  Local<Object> obj = ctor->NewInstance(1, &arg);
+  Local<Value> arg = Integer::NewFromUnsigned(0);
+  Local<Object> obj = constructor_template->GetFunction()->NewInstance(1, &arg);
 
   Buffer *buffer = ObjectWrap::Unwrap<Buffer>(obj);
   buffer->Replace(data, length, NULL, NULL);
@@ -197,15 +158,9 @@ Buffer* Buffer::New(char* data, size_t length) {
 Buffer* Buffer::New(char *data, size_t length,
                     free_callback callback, void *hint) {
   HandleScope scope;
-  // get Buffer from global scope.
-  Local<Object> global = v8::Context::GetCurrent()->Global();
-  Local<Value> bv = global->Get(String::NewSymbol("Buffer"));
-  assert(bv->IsFunction());
-  Local<Function> ctor = Local<Function>::Cast(bv);
-
 
   Local<Value> arg = Integer::NewFromUnsigned(0);
-  Local<Object> obj = ctor->NewInstance(1, &arg);
+  Local<Object> obj = constructor_template->GetFunction()->NewInstance(1, &arg);
 
   Buffer *buffer = ObjectWrap::Unwrap<Buffer>(obj);
   buffer->Replace(data, length, callback, hint);
@@ -215,9 +170,9 @@ Buffer* Buffer::New(char *data, size_t length,
 
 
 Handle<Value> Buffer::New(const Arguments &args) {
-  /*if (!args.IsConstructCall()) {
+  if (!args.IsConstructCall()) {
     return FromConstructorTemplate(constructor_template, args);
-  }*/
+  }
 
   HandleScope scope;
 
@@ -283,10 +238,10 @@ void Buffer::Replace(char *data, size_t length,
 
 Handle<Value> Buffer::BinarySlice(const Arguments &args) {
   HandleScope scope;
-  JSObject* arr = typed_array_from_object(args.This());
+  Buffer *parent = ObjectWrap::Unwrap<Buffer>(args.This());
   SLICE_ARGS(args[0], args[1])
 
-  char* data = (char*)data_from_object(arr) + start;
+  char *data = parent->data_ + start;
   //Local<String> string = String::New(data, end - start);
 
   Local<Value> b =  Encode(data, end - start, BINARY);
@@ -297,10 +252,10 @@ Handle<Value> Buffer::BinarySlice(const Arguments &args) {
 
 Handle<Value> Buffer::AsciiSlice(const Arguments &args) {
   HandleScope scope;
-  JSObject* arr = typed_array_from_object(args.This());
+  Buffer *parent = ObjectWrap::Unwrap<Buffer>(args.This());
   SLICE_ARGS(args[0], args[1])
-  char* data = (char*)data_from_object(arr) + start;
 
+  char* data = parent->data_ + start;
   Local<String> string = String::New(data, end - start);
 
   return scope.Close(string);
@@ -309,18 +264,18 @@ Handle<Value> Buffer::AsciiSlice(const Arguments &args) {
 
 Handle<Value> Buffer::Utf8Slice(const Arguments &args) {
   HandleScope scope;
-  JSObject* arr = typed_array_from_object(args.This());
-  SLICE_ARGS(args[0], args[1]);
-  char* data = (char*)data_from_object(arr) + start;
+  Buffer *parent = ObjectWrap::Unwrap<Buffer>(args.This());
+  SLICE_ARGS(args[0], args[1])
+  char *data = parent->data_ + start;
   Local<String> string = String::New(data, end - start);
   return scope.Close(string);
 }
 
 Handle<Value> Buffer::Ucs2Slice(const Arguments &args) {
   HandleScope scope;
-  JSObject* arr = typed_array_from_object(args.This());
+  Buffer *parent = ObjectWrap::Unwrap<Buffer>(args.This());
   SLICE_ARGS(args[0], args[1])
-  uint16_t *data = (uint16_t*)data_from_object(arr) + start;
+  uint16_t *data = (uint16_t*)(parent->data_ + start);
   Local<String> string = String::New(data, (end - start) / 2);
   return scope.Close(string);
 }
@@ -351,9 +306,8 @@ static const int unbase64_table[] =
 
 Handle<Value> Buffer::Base64Slice(const Arguments &args) {
   HandleScope scope;
-  JSObject* arr = typed_array_from_object(args.This());
+  Buffer *parent = ObjectWrap::Unwrap<Buffer>(args.This());
   SLICE_ARGS(args[0], args[1])
-  char* data = (char*)data_from_object(arr) + start;
 
   int n = end - start;
   int out_len = (n + 2 - ((n + 2) % 3)) / 3 * 4;
@@ -366,10 +320,10 @@ Handle<Value> Buffer::Base64Slice(const Arguments &args) {
   bool b1_oob, b2_oob;
 
   while (i < end) {
-    bitbuf[0] = data[i++];
+    bitbuf[0] = parent->data_[i++];
 
     if (i < end) {
-      bitbuf[1] = data[i];
+      bitbuf[1] = parent->data_[i];
       b1_oob = false;
     }  else {
       bitbuf[1] = 0;
@@ -378,7 +332,7 @@ Handle<Value> Buffer::Base64Slice(const Arguments &args) {
     i++;
 
     if (i < end) {
-      bitbuf[2] = data[i];
+      bitbuf[2] = parent->data_[i];
       b2_oob = false;
     }  else {
       bitbuf[2] = 0;
@@ -426,6 +380,8 @@ Handle<Value> Buffer::Base64Slice(const Arguments &args) {
 Handle<Value> Buffer::Copy(const Arguments &args) {
   HandleScope scope;
 
+  Buffer *source = ObjectWrap::Unwrap<Buffer>(args.This());
+
   if (!Buffer::HasInstance(args[0])) {
     return ThrowException(Exception::TypeError(String::New(
             "First arg should be a Buffer")));
@@ -438,7 +394,7 @@ Handle<Value> Buffer::Copy(const Arguments &args) {
   ssize_t target_start = args[1]->Int32Value();
   ssize_t source_start = args[2]->Int32Value();
   ssize_t source_end = args[3]->IsInt32() ? args[3]->Int32Value()
-                                          : Buffer::Length(args.This());
+                                          : source->length_;
 
   if (source_end < source_start) {
     return ThrowException(Exception::Error(String::New(
@@ -455,24 +411,24 @@ Handle<Value> Buffer::Copy(const Arguments &args) {
             "targetStart out of bounds")));
   }
 
-  if (source_start < 0 || source_start >= Buffer::Length(args.This())) {
+  if (source_start < 0 || source_start >= source->length_) {
     return ThrowException(Exception::Error(String::New(
             "sourceStart out of bounds")));
   }
 
-  if (source_end < 0 || source_end > Buffer::Length(args.This())) {
+  if (source_end < 0 || source_end > source->length_) {
     return ThrowException(Exception::Error(String::New(
             "sourceEnd out of bounds")));
   }
 
   ssize_t to_copy = MIN(MIN(source_end - source_start,
                             target_length - target_start),
-                            Buffer::Length(args.This()) - source_start);
+                            source->length_ - source_start);
 
 
   // need to use slightly slower memmove is the ranges might overlap
   memmove((void *)(target_data + target_start),
-          (const void*)(Buffer::Data(args.This()) + source_start),
+          (const void*)(source->data_ + source_start),
           to_copy);
 
   return scope.Close(Integer::New(to_copy));
@@ -482,9 +438,7 @@ Handle<Value> Buffer::Copy(const Arguments &args) {
 // var charsWritten = buffer.utf8Write(string, offset, [maxLength]);
 Handle<Value> Buffer::Utf8Write(const Arguments &args) {
   HandleScope scope;
-  Local<Object> buffer = args.This()->Get(String::NewSymbol("rawArray"))->ToObject();
-  char* data = (char*)data_from_object(**buffer);
-  int32 length = data_length_from_object(**buffer);
+  Buffer *buffer = ObjectWrap::Unwrap<Buffer>(args.This());
 
   if (!args[0]->IsString()) {
     return ThrowException(Exception::TypeError(String::New(
@@ -495,16 +449,16 @@ Handle<Value> Buffer::Utf8Write(const Arguments &args) {
 
   size_t offset = args[1]->Uint32Value();
 
-  if (s->Length() > 0 && offset >= length) {
+  if (s->Length() > 0 && offset >= buffer->length_) {
     return ThrowException(Exception::TypeError(String::New(
             "Offset is out of bounds")));
   }
 
-  size_t max_length = args[2]->IsUndefined() ? length - offset
+  size_t max_length = args[2]->IsUndefined() ? buffer->length_ - offset
                                              : args[2]->Uint32Value();
-  max_length = MIN(length - offset, max_length);
+  max_length = MIN(buffer->length_ - offset, max_length);
 
-  char* p = data + offset;
+  char* p = buffer->data_ + offset;
 
   int char_written;
 
@@ -525,8 +479,7 @@ Handle<Value> Buffer::Utf8Write(const Arguments &args) {
 // var charsWritten = buffer.ucs2Write(string, offset, [maxLength]);
 Handle<Value> Buffer::Ucs2Write(const Arguments &args) {
   HandleScope scope;
-  char* buffer_data = Buffer::Data(args.This());
-  size_t buffer_length = Buffer::Length(args.This());
+  Buffer *buffer = ObjectWrap::Unwrap<Buffer>(args.This());
 
   if (!args[0]->IsString()) {
     return ThrowException(Exception::TypeError(String::New(
@@ -537,16 +490,16 @@ Handle<Value> Buffer::Ucs2Write(const Arguments &args) {
 
   size_t offset = args[1]->Uint32Value();
 
-  if (s->Length() > 0 && offset >= buffer_length) {
+  if (s->Length() > 0 && offset >= buffer->length_) {
     return ThrowException(Exception::TypeError(String::New(
             "Offset is out of bounds")));
   }
 
-  size_t max_length = args[2]->IsUndefined() ? buffer_length - offset
+  size_t max_length = args[2]->IsUndefined() ? buffer->length_ - offset
                                              : args[2]->Uint32Value();
-  max_length = MIN(buffer_length - offset, max_length);
+  max_length = MIN(buffer->length_ - offset, max_length);
 
-  uint16_t* p = (uint16_t*)(buffer_data + offset);
+  uint16_t* p = (uint16_t*)(buffer->data_ + offset);
 
   int written = s->Write(p,
                          0,
@@ -560,6 +513,8 @@ Handle<Value> Buffer::Ucs2Write(const Arguments &args) {
 Handle<Value> Buffer::AsciiWrite(const Arguments &args) {
   HandleScope scope;
 
+  Buffer *buffer = ObjectWrap::Unwrap<Buffer>(args.This());
+
   if (!args[0]->IsString()) {
     return ThrowException(Exception::TypeError(String::New(
             "Argument must be a string")));
@@ -569,16 +524,16 @@ Handle<Value> Buffer::AsciiWrite(const Arguments &args) {
 
   size_t offset = args[1]->Int32Value();
 
-  if (s->Length() > 0 && offset >= Buffer::Length(args.This())) {
+  if (s->Length() > 0 && offset >= buffer->length_) {
     return ThrowException(Exception::TypeError(String::New(
             "Offset is out of bounds")));
   }
 
-  size_t max_length = args[2]->IsUndefined() ? Buffer::Length(args.This()) - offset
+  size_t max_length = args[2]->IsUndefined() ? buffer->length_ - offset
                                              : args[2]->Uint32Value();
-  max_length = MIN(s->Length(), MIN(Buffer::Length(args.This()) - offset, max_length));
+  max_length = MIN(s->Length(), MIN(buffer->length_ - offset, max_length));
 
-  char *p = Buffer::Data(args.This()) + offset;
+  char *p = buffer->data_ + offset;
 
   int written = s->WriteAscii(p,
                               0,
@@ -603,8 +558,7 @@ Handle<Value> Buffer::Base64Write(const Arguments &args) {
   assert(unbase64('\n') == -2);
   assert(unbase64('\r') == -2);
 
-  char* buffer_data = Buffer::Data(args.This());
-  size_t buffer_length = Buffer::Length(args.This());
+  Buffer *buffer = ObjectWrap::Unwrap<Buffer>(args.This());
 
   if (!args[0]->IsString()) {
     return ThrowException(Exception::TypeError(String::New(
@@ -615,24 +569,24 @@ Handle<Value> Buffer::Base64Write(const Arguments &args) {
   size_t offset = args[1]->Int32Value();
 
   // handle zero-length buffers graciously
-  if (offset == 0 && buffer_length == 0) {
+  if (offset == 0 && buffer->length_ == 0) {
     return scope.Close(Integer::New(0));
   }
 
-  if (offset >= buffer_length) {
+  if (offset >= buffer->length_) {
     return ThrowException(Exception::TypeError(String::New(
             "Offset is out of bounds")));
   }
 
   const size_t size = base64_decoded_size(*s, s.length());
-  if (size > buffer_length - offset) {
+  if (size > buffer->length_ - offset) {
     // throw exception, don't silently truncate
     return ThrowException(Exception::TypeError(String::New(
             "Buffer too small")));
   }
 
   char a, b, c, d;
-  char* start = buffer_data + offset;
+  char* start = buffer->data_ + offset;
   char* dst = start;
   const char *src = *s;
   const char *const srcEnd = src + s.length();
@@ -679,8 +633,7 @@ Handle<Value> Buffer::Base64Write(const Arguments &args) {
 Handle<Value> Buffer::BinaryWrite(const Arguments &args) {
   HandleScope scope;
 
-  char* buffer_data = Buffer::Data(args.This());
-  size_t buffer_length = Buffer::Length(args.This());
+  Buffer *buffer = ObjectWrap::Unwrap<Buffer>(args.This());
 
   if (!args[0]->IsString()) {
     return ThrowException(Exception::TypeError(String::New(
@@ -691,14 +644,14 @@ Handle<Value> Buffer::BinaryWrite(const Arguments &args) {
 
   size_t offset = args[1]->Int32Value();
 
-  if (s->Length() > 0 && offset >= buffer_length) {
+  if (s->Length() > 0 && offset >= buffer->length_) {
     return ThrowException(Exception::TypeError(String::New(
             "Offset is out of bounds")));
   }
 
-  char *p = (char*)buffer_data + offset;
+  char *p = (char*)buffer->data_ + offset;
 
-  size_t towrite = MIN((unsigned long) s->Length(), buffer_length - offset);
+  size_t towrite = MIN((unsigned long) s->Length(), buffer->length_ - offset);
 
   int written = DecodeWrite(p, towrite, s, BINARY);
   return scope.Close(Integer::New(written));
@@ -739,11 +692,7 @@ Handle<Value> Buffer::MakeFastBuffer(const Arguments &args) {
 
 bool Buffer::HasInstance(v8::Handle<v8::Value> val) {
   if (!val->IsObject()) return false;
-  JSObject* jo = typed_array_from_object(val->ToObject());
-  if (!jo) return false;
-  Value v(OBJECT_TO_JSVAL(jo));
-  v8::Local<v8::Object> obj = Local<Value>::New(&v)->ToObject();
-  if (obj.IsEmpty()) return false;
+  v8::Local<v8::Object> obj = val->ToObject();
 
   if (obj->GetIndexedPropertiesExternalArrayDataType() == kExternalUnsignedByteArray)
     return true;
@@ -753,16 +702,6 @@ bool Buffer::HasInstance(v8::Handle<v8::Value> val) {
     return true;
 
   return false;
-}
-
-
-char* Buffer::Data(v8::Handle<v8::Object> obj) {
-  return (char*)data_from_object(typed_array_from_object(obj));
-}
-
-
-size_t Buffer::Length(v8::Handle<v8::Object> obj) {
-  return (size_t)data_length_from_object(typed_array_from_object(obj));
 }
 
 
