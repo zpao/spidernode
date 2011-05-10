@@ -111,6 +111,9 @@
     global.GLOBAL = global;
     global.root = global;
     global.Buffer = NativeModule.require('buffer').Buffer;
+    if (process.cov) {
+      global.__cov = {};
+    }
   };
 
   startup.globalTimeouts = function() {
@@ -343,13 +346,27 @@
       var path = NativeModule.require('path');
       process.argv[0] = path.join(cwd, process.argv[0]);
     }
+
+    if (process.cov) {
+      process.on('exit', function() {
+        var coverage = JSON.stringify(__cov);
+        var path = NativeModule.require('path');
+        var fs = NativeModule.require('fs');
+        var filename = path.join(cwd, 'node-cov.json');
+        try {
+          fs.unlinkSync(filename);
+        } catch(e) {
+        }
+        fs.writeFileSync(filename, coverage);
+      });
+    }
   };
 
   // Below you find a minimal module system, which is used to load the node
   // core modules found in lib/*.js. All core modules are compiled into the
   // node binary, so they can be loaded faster.
 
-  var Script = process.binding('evals').Script;
+  var Script = process.binding('evals').NodeScript;
   var runInThisContext = Script.runInThisContext;
 
   function NativeModule(id) {

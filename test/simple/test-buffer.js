@@ -256,6 +256,15 @@ console.error('f.length: %d     (should be 12)', f.length);
 assert.deepEqual(f, new Buffer([63, 4, 64, 4, 56, 4, 50, 4, 53, 4, 66, 4]));
 assert.equal(f.toString('ucs2'), 'привет');
 
+var f = new Buffer([0, 0, 0, 0, 0]);
+assert.equal(f.length, 5);
+var size = f.write('あいうえお', 'ucs2');
+console.error('bytes written to buffer: %d     (should be 4)', size);
+console.error('chars written to buffer: %d     (should be 2)', Buffer._charsWritten);
+assert.equal(size, 4);
+assert.equal(Buffer._charsWritten, 2);
+assert.deepEqual(f, new Buffer([0x42, 0x30, 0x44, 0x30, 0x00]));
+
 
 var arrayIsh = {0: 0, 1: 1, 2: 2, 3: 3, length: 4};
 var g = new Buffer(arrayIsh);
@@ -471,3 +480,85 @@ var b3 = b.toString('hex', 1, 5);
 var b4 = b.toString('hex', 1);
 assert.equal(b2, b3);
 assert.equal(b2, b4);
+
+
+// Test slice on SlowBuffer GH-843
+var SlowBuffer = process.binding('buffer').SlowBuffer;
+
+function buildSlowBuffer (data) {
+  if (Array.isArray(data)) {
+    var buffer = new SlowBuffer(data.length);
+    data.forEach(function(v,k) {
+      buffer[k] = v;
+    });
+    return buffer;
+  };
+  return null;
+}
+
+var x = buildSlowBuffer([0x81,0xa3,0x66,0x6f,0x6f,0xa3,0x62,0x61,0x72]);
+
+console.log(x.inspect())
+assert.equal('<SlowBuffer 81 a3 66 6f 6f a3 62 61 72>', x.inspect());
+
+var z = x.slice(4);
+console.log(z.inspect())
+console.log(z.length)
+assert.equal(5, z.length);
+assert.equal(0x6f, z[0]);
+assert.equal(0xa3, z[1]);
+assert.equal(0x62, z[2]);
+assert.equal(0x61, z[3]);
+assert.equal(0x72, z[4]);
+
+var z = x.slice(0);
+console.log(z.inspect())
+console.log(z.length)
+assert.equal(z.length, x.length);
+
+var z = x.slice(0, 4);
+console.log(z.inspect())
+console.log(z.length)
+assert.equal(4, z.length);
+assert.equal(0x81, z[0]);
+assert.equal(0xa3, z[1]);
+
+var z = x.slice(0, 9);
+console.log(z.inspect())
+console.log(z.length)
+assert.equal(9, z.length);
+
+var z = x.slice(1, 4);
+console.log(z.inspect())
+console.log(z.length)
+assert.equal(3, z.length);
+assert.equal(0xa3, z[0]);
+
+var z = x.slice(2, 4);
+console.log(z.inspect())
+console.log(z.length)
+assert.equal(2, z.length);
+assert.equal(0x66, z[0]);
+assert.equal(0x6f, z[1]);
+
+assert.equal(0, Buffer('hello').slice(0, 0).length)
+
+b = new Buffer(50);
+b.fill("h");
+for (var i = 0; i < b.length; i++) {
+  assert.equal("h".charCodeAt(0), b[i]);
+}
+
+b.fill(0);
+for (var i = 0; i < b.length; i++) {
+  assert.equal(0, b[i]);
+}
+
+b.fill(1, 16, 32);
+for (var i = 0; i < 16; i++) assert.equal(0, b[i]);
+for (; i < 32; i++) assert.equal(1, b[i]);
+for (; i < b.length; i++) assert.equal(0, b[i]);
+
+var b = new SlowBuffer(10);
+b.write('あいうえお', 'ucs2');
+assert.equal(b.toString('ucs2'), 'あいうえお');

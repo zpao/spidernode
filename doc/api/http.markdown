@@ -31,6 +31,8 @@ This is an `EventEmitter` with the following events:
 
 `function (request, response) { }`
 
+Emitted each time there is request. Note that there may be multiple requests
+per connection (in the case of keep-alive connections).
  `request` is an instance of `http.ServerRequest` and `response` is
  an instance of `http.ServerResponse`
 
@@ -47,13 +49,6 @@ This is an `EventEmitter` with the following events:
 `function (errno) { }`
 
  Emitted when the server closes.
-
-### Event: 'request'
-
-`function (request, response) {}`
-
-Emitted each time there is request. Note that there may be multiple requests
-per connection (in the case of keep-alive connections).
 
 ### Event: 'checkContinue'
 
@@ -93,7 +88,7 @@ sent to the server on that socket.
 
 If a client connection emits an 'error' event - it will forwarded here.
 
-### http.createServer(requestListener)
+### http.createServer([requestListener])
 
 Returns a new web server object.
 
@@ -141,7 +136,7 @@ Emitted when a piece of the message body is received.
 Example: A chunk of the body is given as the single
 argument. The transfer-encoding has been decoded.  The
 body chunk is a string.  The body encoding is set with
-`request.setBodyEncoding()`.
+`request.setEncoding()`.
 
 ### Event: 'end'
 
@@ -241,7 +236,7 @@ passed as the second parameter to the `'request'` event. It is a `Writable Strea
 ### response.writeContinue()
 
 Sends a HTTP/1.1 100 Continue message to the client, indicating that
-the request body should be sent. See the the `checkContinue` event on
+the request body should be sent. See the [checkContinue](#event_checkContinue_) event on
 `Server`.
 
 ### response.writeHead(statusCode, [reasonPhrase], [headers])
@@ -263,6 +258,11 @@ be called before `response.end()` is called.
 
 If you call `response.write()` or `response.end()` before calling this, the
 implicit/mutable headers will be calculated and call this function for you.
+
+Note: that Content-Length is given in bytes not characters. The above example
+works because the string `'hello world'` contains only single byte characters.
+If the body contains higher coded characters then `Buffer.byteLength()`
+should be used to determine the number of bytes in a given encoding.
 
 ### response.statusCode
 
@@ -368,6 +368,7 @@ Options:
 
 - `host`: A domain name or IP address of the server to issue the request to.
 - `port`: Port of remote server.
+- `socketPath`: Unix Domain Socket (use one of host:port or socketPath)
 - `method`: A string specifying the HTTP request method. Possible values:
   `'GET'` (default), `'POST'`, `'PUT'`, and `'DELETE'`.
 - `path`: Request path. Should include query string and fragments if any.
@@ -394,6 +395,10 @@ Example:
       res.on('data', function (chunk) {
         console.log('BODY: ' + chunk);
       });
+    });
+
+    req.on('error', function(e) {
+      console.log('problem with request: ' + e.message);
     });
 
     // write data to request body
@@ -443,12 +448,18 @@ Example:
 
 
 ## http.Agent
-## http.getAgent(host, port)
+## http.getAgent(options)
 
 `http.request()` uses a special `Agent` for managing multiple connections to
 an HTTP server. Normally `Agent` instances should not be exposed to user
 code, however in certain situations it's useful to check the status of the
 agent. The `http.getAgent()` function allows you to access the agents.
+
+Options:
+
+- `host`: A domain name or IP address of the server to issue the request to.
+- `port`: Port of remote server.
+- `socketPath`: Unix Domain Socket (use one of host:port or socketPath)
 
 ### Event: 'upgrade'
 
@@ -458,7 +469,7 @@ Emitted each time a server responds to a request with an upgrade. If this event
 isn't being listened for, clients receiving an upgrade header will have their
 connections closed.
 
-See the description of the `upgrade` event for `http.Server` for further details.
+See the description of the [upgrade event](http.html#event_upgrade_) for `http.Server` for further details.
 
 ### Event: 'continue'
 
@@ -485,7 +496,7 @@ A queue of requests waiting to be sent to sockets.
 ## http.ClientRequest
 
 This object is created internally and returned from `http.request()`.  It
-represents an _in-progress_ request whose header has already been queued.  The 
+represents an _in-progress_ request whose header has already been queued.  The
 header is still mutable using the `setHeader(name, value)`, `getHeader(name)`,
 `removeHeader(name)` API.  The actual header will be sent along with the first
 data chunk or when closing the connection.

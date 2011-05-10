@@ -107,6 +107,7 @@ static char *eval_string = NULL;
 static int option_end_index = 0;
 static bool use_debug_agent = false;
 static bool debug_wait_connect = false;
+static bool cov = false;
 static int debug_port=5858;
 static int max_stack_size = 0;
 
@@ -1284,13 +1285,24 @@ static void ReportException(TryCatch &try_catch, bool show_line) {
 
   String::Utf8Value trace(try_catch.StackTrace());
 
-  if (trace.length() > 0) {
+  // range errors have a trace member set to undefined
+  if (trace.length() > 0 && !try_catch.StackTrace()->IsUndefined()) {
     fprintf(stderr, "%s\n", *trace);
   } else {
     // this really only happens for RangeErrors, since they're the only
-    // kind that won't have all this info in the trace.
+    // kind that won't have all this info in the trace, or when non-Error
+    // objects are thrown manually.
     Local<Value> er = try_catch.Exception();
-    String::Utf8Value msg(!er->IsObject() ? er->ToString()
+    bool isErrorObject = er->IsObject() &&
+      !(er->ToObject()->Get(String::New("message"))->IsUndefined()) &&
+      !(er->ToObject()->Get(String::New("name"))->IsUndefined());
+
+    if (isErrorObject) {
+      String::Utf8Value name(er->ToObject()->Get(String::New("name")));
+      fprintf(stderr, "%s: ", *name);
+    }
+
+    String::Utf8Value msg(!isErrorObject ? er->ToString()
                          : er->ToObject()->Get(String::New("message"))->ToString());
     fprintf(stderr, "%s\n", *msg);
   }
@@ -1998,6 +2010,9 @@ Handle<Object> SetupProcessObject(int argc, char *argv[]) {
 
 
 
+  // process.arch
+  process->Set(String::NewSymbol("arch"), String::New(ARCH));
+
   // process.platform
   process->Set(String::NewSymbol("platform"), String::New(PLATFORM));
 
@@ -2036,6 +2051,7 @@ Handle<Object> SetupProcessObject(int argc, char *argv[]) {
   process->Set(String::NewSymbol("ENV"), ENV);
 
   process->Set(String::NewSymbol("pid"), Integer::New(getpid()));
+  process->Set(String::NewSymbol("cov"), cov ? True() : False());
 
   // -e, --eval
   if (eval_string) {
@@ -2178,6 +2194,7 @@ static void PrintHelp() {
          "  --v8-options         print v8 command line options\n"
          "  --vars               print various compiled-in variables\n"
          "  --max-stack-size=val set max v8 stack size (bytes)\n"
+         "  --cov                code coverage; writes node-cov.json \n"
          "\n"
          "Enviromental variables:\n"
          "NODE_PATH              ':'-separated list of directories\n"
@@ -2199,6 +2216,9 @@ static void ParseArgs(int argc, char **argv) {
     const char *arg = argv[i];
     if (strstr(arg, "--debug") == arg) {
       ParseDebugOpt(arg);
+      argv[i] = const_cast<char*>("");
+    } else if (!strcmp(arg, "--cov")) {
+      cov = true;
       argv[i] = const_cast<char*>("");
     } else if (strcmp(arg, "--version") == 0 || strcmp(arg, "-v") == 0) {
       printf("%s\n", NODE_VERSION);
@@ -2249,7 +2269,7 @@ static void EnableDebug(bool wait_connect) {
   assert(r);
 
   // Print out some information.
-  fprintf(stderr, "debugger listening on port %d\r\n", debug_port);
+  fprintf(stderr, "debugger listening on port %d", debug_port);
 }
 
 

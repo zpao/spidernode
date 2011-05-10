@@ -70,6 +70,33 @@ given to the completion callback.
 
 Synchronous ftruncate(2).
 
+### fs.chown(path, mode, [callback])
+
+Asycnronous chown(2). No arguments other than a possible exception are given
+to the completion callback.
+
+### fs.chownSync(path, mode)
+
+Synchronous chown(2).
+
+### fs.fchown(path, mode, [callback])
+
+Asycnronous fchown(2). No arguments other than a possible exception are given
+to the completion callback.
+
+### fs.fchownSync(path, mode)
+
+Synchronous fchown(2).
+
+### fs.lchown(path, mode, [callback])
+
+Asycnronous lchown(2). No arguments other than a possible exception are given
+to the completion callback.
+
+### fs.lchownSync(path, mode)
+
+Synchronous lchown(2).
+
 ### fs.chmod(path, mode, [callback])
 
 Asynchronous chmod(2). No arguments other than a possible exception are given
@@ -79,10 +106,28 @@ to the completion callback.
 
 Synchronous chmod(2).
 
+### fs.fchmod(fd, mode, [callback])
+
+Asynchronous fchmod(2). No arguments other than a possible exception
+are given to the completion callback.
+
+### fs.fchmodSync(path, mode)
+
+Synchronous fchmod(2).
+
+### fs.lchmod(fd, mode, [callback])
+
+Asynchronous lchmod(2). No arguments other than a possible exception
+are given to the completion callback.
+
+### fs.lchmodSync(path, mode)
+
+Synchronous lchmod(2).
+
 ### fs.stat(path, [callback])
 
 Asynchronous stat(2). The callback gets two arguments `(err, stats)` where
-`stats` is a `fs.Stats` object. It looks like this:
+`stats` is a [`fs.Stats`](#fs.Stats) object. It looks like this:
 
     { dev: 2049,
       ino: 305352,
@@ -98,7 +143,7 @@ Asynchronous stat(2). The callback gets two arguments `(err, stats)` where
       mtime: '2009-06-29T11:11:40Z',
       ctime: '2009-06-29T11:11:40Z' }
 
-See the `fs.Stats` section below for more information.
+See the [fs.Stats](#fs.Stats) section below for more information.
 
 ### fs.lstat(path, [callback])
 
@@ -227,6 +272,14 @@ Change file timestamps.
 Change file timestamps with the difference that if filename refers to a
 symbolic link, then the link is not dereferenced.
 
+### fs.fsync(fd, callback)
+
+Asynchronous fsync(2). No arguments other than a possible exception are given
+to the completion callback.
+
+### fs.fsyncSync(fd)
+
+Synchronous fsync(2).
 
 ### fs.write(fd, buffer, offset, length, position, [callback])
 
@@ -239,8 +292,12 @@ should be written. If `position` is `null`, the data will be written at the
 current position.
 See pwrite(2).
 
-The callback will be given two arguments `(err, written)` where `written`
-specifies how many _bytes_ were written.
+The callback will be given three arguments `(err, written, buffer)` where `written`
+specifies how many _bytes_ were written into `buffer`.
+
+Note that it is unsafe to use `fs.write` multiple times on the same file
+without waiting for the callback. For this scenario,
+`fs.createWriteStream` is strongly recommended.
 
 ### fs.writeSync(fd, buffer, offset, length, position)
 
@@ -265,7 +322,7 @@ Read data from the file specified by `fd`.
 `position` is an integer specifying where to begin reading from in the file.
 If `position` is `null`, data will be read from the current file position.
 
-The callback is given the two arguments, `(err, bytesRead)`.
+The callback is given the three arguments, `(err, bytesRead, buffer)`.
 
 ### fs.readSync(fd, buffer, offset, length, position)
 
@@ -302,7 +359,8 @@ returns a buffer.
 
 ### fs.writeFile(filename, data, encoding='utf8', [callback])
 
-Asynchronously writes data to a file. `data` can be a string or a buffer.
+Asynchronously writes data to a file, replacing the file if it already exists.
+`data` can be a string or a buffer.
 
 Example:
 
@@ -374,7 +432,7 @@ Returns a new ReadStream object (See `Readable Stream`).
 
 `options` can include `start` and `end` values to read a range of bytes from
 the file instead of the entire file.  Both `start` and `end` are inclusive and
-start at 0.  When used, both the limits must be specified always.
+start at 0.
 
 An example to read the last 10 bytes of a file which is 100 bytes long:
 
@@ -390,6 +448,11 @@ An example to read the last 10 bytes of a file which is 100 bytes long:
 `function (fd) { }`
 
  `fd` is the file descriptor used by the WriteStream.
+
+### file.bytesWritten
+
+The number of bytes written so far. Does not include data that is still queued
+for writing.
 
 ### fs.createWriteStream(path, [options])
 

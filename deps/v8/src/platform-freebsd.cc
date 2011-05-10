@@ -528,12 +528,7 @@ class FreeBSDMutex : public Mutex {
 
   virtual bool TryLock() {
     int result = pthread_mutex_trylock(&mutex_);
-    // Return false if the lock is busy and locking failed.
-    if (result == EBUSY) {
-      return false;
-    }
-    ASSERT(result == 0);  // Verify no other errors.
-    return true;
+    return result == 0;
   }
 
  private:

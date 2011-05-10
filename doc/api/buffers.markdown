@@ -25,7 +25,7 @@ only BMP(Basic Multilingual Plane, U+0000 - U+FFFF).
 * `'base64'` - Base64 string encoding.
 
 * `'binary'` - A way of encoding raw binary data into strings by using only
-the first 8 bits of each character. This encoding method is depreciated and
+the first 8 bits of each character. This encoding method is deprecated and
 should be avoided in favor of `Buffer` objects where possible. This encoding
 will be removed in future versions of Node.
 
@@ -48,8 +48,8 @@ Allocates a new buffer containing the given `str`.
 
 Writes `string` to the buffer at `offset` using the given encoding. Returns
 number of octets written.  If `buffer` did not contain enough space to fit
-the entire string, it will write a partial amount of the string. In the case
-of `'utf8'` encoding, the method will not write partial characters.
+the entire string, it will write a partial amount of the string.
+The method will not write partial characters.
 
 Example: write a utf8 string into a buffer, then print it
 
@@ -57,7 +57,9 @@ Example: write a utf8 string into a buffer, then print it
     len = buf.write('\u00bd + \u00bc = \u00be', 0);
     console.log(len + " bytes: " + buf.toString('utf8', 0, len));
 
-    // 12 bytes: ½ + ¼ = ¾
+The number of characters written (which may be different than the number of
+bytes written) is set in `Buffer._charsWritten` and will be overwritten the
+next time `buf.write()` is called.
 
 
 ### buffer.toString(encoding, start=0, end=buffer.length)
@@ -166,3 +168,208 @@ from the original Buffer.
 
     // abc
     // !bc
+
+### buffer.readUInt8(offset, endian)
+
+Reads an unsigned 8 bit integer from the buffer at the specified offset. Endian
+must be either 'big' or 'little' and specifies what endian ordering to read the
+bytes from the buffer in.
+
+Example:
+
+    var buf = new Buffer(4);
+
+    buf[0] = 0x3;
+    buf[1] = 0x4;
+    buf[2] = 0x23;
+    buf[3] = 0x42;
+
+    for (ii = 0; ii < buf.length; ii++) {
+      console.log(buf.readUInt8(ii, 'big');
+      console.log(buf.readUInt8(ii, 'little');
+    }
+
+    // 0x3
+    // 0x3
+    // 0x4
+    // 0x4
+    // 0x23
+    // 0x23
+    // 0x42
+    // 0x42
+
+### buffer.readUInt16(offset, endian)
+
+Reads an unsigned 16 bit integer from the buffer at the specified offset. Endian
+must be either 'big' or 'little' and specifies what endian ordering to read the
+bytes from the buffer in.
+
+Example:
+
+    var buf = new Buffer(4);
+
+    buf[0] = 0x3;
+    buf[1] = 0x4;
+    buf[2] = 0x23;
+    buf[3] = 0x42;
+
+    console.log(buf.readUInt16(0, 'big');
+    console.log(buf.readUInt16(0, 'little');
+    console.log(buf.readUInt16(1, 'big');
+    console.log(buf.readUInt16(1, 'little');
+    console.log(buf.readUInt16(2, 'big');
+    console.log(buf.readUInt16(2, 'little');
+
+    // 0x0304
+    // 0x0403
+    // 0x0423
+    // 0x2304
+    // 0x2342
+    // 0x4223
+
+### buffer.readUInt32(offset, endian)
+
+Reads an unsigned 32 bit integer from the buffer at the specified offset. Endian
+must be either 'big' or 'little' and specifies what endian ordering to read the
+bytes from the buffer in.
+
+Example:
+
+    var buf = new Buffer(4);
+
+    buf[0] = 0x3;
+    buf[1] = 0x4;
+    buf[2] = 0x23;
+    buf[3] = 0x42;
+
+    console.log(buf.readUInt32(0, 'big');
+    console.log(buf.readUInt32(0, 'little');
+
+    // 0x03042342
+    // 0x42230403
+
+### buffer.readInt8(offset, endian)
+
+Reads a signed 8 bit integer from the buffer at the specified offset. Endian
+must be either 'big' or 'little' and specifies what endian ordering to read the
+bytes from the buffer in.
+
+Works as `buffer.readUInt8`, except buffer contents are treated as twos
+complement signed values.
+
+### buffer.readInt16(offset, endian)
+
+Reads a signed 16 bit integer from the buffer at the specified offset. Endian
+must be either 'big' or 'little' and specifies what endian ordering to read the
+bytes from the buffer in.
+
+Works as `buffer.readUInt16`, except buffer contents are treated as twos
+complement signed values.
+
+### buffer.readInt32(offset, endian)
+
+Reads a signed 32 bit integer from the buffer at the specified offset. Endian
+must be either 'big' or 'little' and specifies what endian ordering to read the
+bytes from the buffer in.
+
+Works as `buffer.readUInt32`, except buffer contents are treated as twos
+complement signed values.
+
+### buffer.writeUInt8(value, offset, endian)
+
+Writes `value` to the buffer at the specified offset with specified endian
+format. Note, `value` must be a valid 8 bit unsigned integer.
+
+Example:
+
+    var buf = new Buffer(4);
+    buf.writeUInt8(0x3, 0, 'big');
+    buf.writeUInt8(0x4, 1, 'big');
+    buf.writeUInt8(0x23, 2, 'big');
+    buf.writeUInt8(0x42, 3, 'big');
+
+    console.log(buf);
+
+    buf.writeUInt8(0x3, 0, 'little');
+    buf.writeUInt8(0x4, 1, 'little');
+    buf.writeUInt8(0x23, 2, 'little');
+    buf.writeUInt8(0x42, 3, 'little');
+
+    console.log(buf);
+
+    // <Buffer 03 04 23 42>
+    // <Buffer 03 04 23 42>
+
+### buffer.writeUInt16(value, offset, endian)
+
+Writes `value` to the buffer at the specified offset with specified endian
+format. Note, `value` must be a valid 16 bit unsigned integer.
+
+Example:
+
+    var buf = new Buffer(4);
+    buf.writeUInt16(0xdead, 0, 'big');
+    buf.writeUInt16(0xbeef, 2, 'big');
+
+    console.log(buf);
+
+    buf.writeUInt16(0xdead, 0, 'little');
+    buf.writeUInt16(0xbeef, 2, 'little');
+
+    console.log(buf);
+
+    // <Buffer de ad be ef>
+    // <Buffer ad de ef be>
+
+### buffer.writeUInt32(value, offset, endian)
+
+Writes `value` to the buffer at the specified offset with specified endian
+format. Note, `value` must be a valid 32 bit unsigned integer.
+
+Example:
+
+    var buf = new Buffer(4);
+    buf.writeUInt32(0xfeedface, 0, 'big');
+
+    console.log(buf);
+
+    buf.writeUInt32(0xfeedface, 0, 'little');
+
+    console.log(buf);
+
+    // <Buffer fe ed fa ce>
+    // <Buffer ce fa ed fe>
+
+### buffer.writeInt8(value, offset, endian)
+
+Writes `value` to the buffer at the specified offset with specified endian
+format. Note, `value` must be a valid 16 bit signed integer.
+
+Works as `buffer.writeUInt8`, except value is written out as a two's complement
+signed integer into `buffer`.
+
+### buffer.writeInt16(value, offset, endian)
+
+Writes `value` to the buffer at the specified offset with specified endian
+format. Note, `value` must be a valid 16 bit unsigned integer.
+
+Works as `buffer.writeUInt16`, except value is written out as a two's complement
+signed integer into `buffer`.
+
+### buffer.writeInt32(value, offset, endian)
+
+Writes `value` to the buffer at the specified offset with specified endian
+format. Note, `value` must be a valid 16 bit signed integer.
+
+Works as `buffer.writeUInt832, except value is written out as a two's complement
+signed integer into `buffer`.
+
+
+### buffer.fill(value, offset=0, length=-1)
+
+Fills the buffer with the specified value. If the offset and length are not
+given it will fill the entire buffer.
+
+    var b = new Buffer(50);
+    b.fill("h");
+

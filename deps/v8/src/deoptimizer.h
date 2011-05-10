@@ -42,38 +42,17 @@ class TranslationIterator;
 class DeoptimizingCodeListNode;
 
 
-class ValueDescription BASE_EMBEDDED {
+class HeapNumberMaterializationDescriptor BASE_EMBEDDED {
  public:
-  explicit ValueDescription(int index) : stack_index_(index) { }
-  int stack_index() const { return stack_index_; }
+  HeapNumberMaterializationDescriptor(Address slot_address, double val)
+      : slot_address_(slot_address), val_(val) { }
+
+  Address slot_address() const { return slot_address_; }
+  double value() const { return val_; }
 
  private:
-  // Offset relative to the top of the stack.
-  int stack_index_;
-};
-
-
-class ValueDescriptionInteger32: public ValueDescription {
- public:
-  ValueDescriptionInteger32(int index, int32_t value)
-      : ValueDescription(index), int32_value_(value) { }
-  int32_t int32_value() const { return int32_value_; }
-
- private:
-  // Raw value.
-  int32_t int32_value_;
-};
-
-
-class ValueDescriptionDouble: public ValueDescription {
- public:
-  ValueDescriptionDouble(int index, double value)
-      : ValueDescription(index), double_value_(value) { }
-  double double_value() const { return double_value_; }
-
- private:
-  // Raw value.
-  double double_value_;
+  Address slot_address_;
+  double val_;
 };
 
 
@@ -109,6 +88,13 @@ class Deoptimizer : public Malloced {
                           Address from,
                           int fp_to_sp_delta);
   static Deoptimizer* Grab();
+
+  // Makes sure that there is enough room in the relocation
+  // information of a code object to perform lazy deoptimization
+  // patching. If there is not enough room a new relocation
+  // information object is allocated and comments are added until it
+  // is big enough.
+  static void EnsureRelocSpaceForLazyDeoptimization(Handle<Code> code);
 
   // Deoptimize the function now. Its current optimized code will never be run
   // again and any activations of the optimized code will get deoptimized when
@@ -157,7 +143,7 @@ class Deoptimizer : public Malloced {
 
   ~Deoptimizer();
 
-  void InsertHeapNumberValues(int index, JavaScriptFrame* frame);
+  void MaterializeHeapNumbers();
 
   static void ComputeOutputFrames(Deoptimizer* deoptimizer);
 
@@ -246,13 +232,7 @@ class Deoptimizer : public Malloced {
 
   Object* ComputeLiteral(int index) const;
 
-  void InsertHeapNumberValue(JavaScriptFrame* frame,
-                             int stack_index,
-                             double val,
-                             int extra_slot_count);
-
-  void AddInteger32Value(int frame_index, int slot_index, int32_t value);
-  void AddDoubleValue(int frame_index, int slot_index, double value);
+  void AddDoubleValue(intptr_t slot_address, double value);
 
   static LargeObjectChunk* CreateCode(BailoutType type);
   static void GenerateDeoptimizationEntries(
@@ -288,8 +268,7 @@ class Deoptimizer : public Malloced {
   // Array of output frame descriptions.
   FrameDescription** output_;
 
-  List<ValueDescriptionInteger32>* integer32_values_;
-  List<ValueDescriptionDouble>* double_values_;
+  List<HeapNumberMaterializationDescriptor> deferred_heap_numbers_;
 
   static int table_entry_size_;
 

@@ -376,6 +376,27 @@ Handle<Value> Buffer::Base64Slice(const Arguments &args) {
 }
 
 
+// buffer.fill(value, start, end);
+Handle<Value> Buffer::Fill(const Arguments &args) {
+  HandleScope scope;
+
+  if (!args[0]->IsInt32()) {
+    return ThrowException(Exception::Error(String::New(
+            "value is not a number")));
+  }
+  int value = (char)args[0]->Int32Value();
+
+  Buffer *parent = ObjectWrap::Unwrap<Buffer>(args.This());
+  SLICE_ARGS(args[1], args[2])
+
+  memset( (void*)(parent->data_ + start),
+          value,
+          end - start);
+
+  return Undefined();
+}
+
+
 // var bytesCopied = buffer.copy(target, targetStart, sourceStart, sourceEnd);
 Handle<Value> Buffer::Copy(const Arguments &args) {
   HandleScope scope;
@@ -497,7 +518,7 @@ Handle<Value> Buffer::Ucs2Write(const Arguments &args) {
 
   size_t max_length = args[2]->IsUndefined() ? buffer->length_ - offset
                                              : args[2]->Uint32Value();
-  max_length = MIN(buffer->length_ - offset, max_length);
+  max_length = MIN(buffer->length_ - offset, max_length) / 2;
 
   uint16_t* p = (uint16_t*)(buffer->data_ + offset);
 
@@ -505,6 +526,10 @@ Handle<Value> Buffer::Ucs2Write(const Arguments &args) {
                          0,
                          max_length,
                          String::HINT_MANY_WRITES_EXPECTED);
+
+  constructor_template->GetFunction()->Set(chars_written_sym,
+                                           Integer::New(written));
+
   return scope.Close(Integer::New(written * 2));
 }
 
@@ -730,6 +755,7 @@ void Buffer::Initialize(Handle<Object> target) {
   NODE_SET_PROTOTYPE_METHOD(constructor_template, "binaryWrite", Buffer::BinaryWrite);
   NODE_SET_PROTOTYPE_METHOD(constructor_template, "base64Write", Buffer::Base64Write);
   NODE_SET_PROTOTYPE_METHOD(constructor_template, "ucs2Write", Buffer::Ucs2Write);
+  NODE_SET_PROTOTYPE_METHOD(constructor_template, "fill", Buffer::Fill);
   NODE_SET_PROTOTYPE_METHOD(constructor_template, "copy", Buffer::Copy);
 
   NODE_SET_METHOD(constructor_template->GetFunction(),
