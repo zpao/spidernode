@@ -715,6 +715,17 @@ Handle<Value> Buffer::MakeFastBuffer(const Arguments &args) {
 }
 
 
+Handle<Value> Buffer::ExtendArrayType(const Arguments &args) {
+  HandleScope scope;
+
+  Local<Object> tempCtor = FunctionTemplate::New()->GetFunction();
+  assert(tempCtor->SetPrototype(args[1]->ToObject()));
+  Local<Object> Uint8ArrayProto = args[0]->ToObject();
+  assert(Uint8ArrayProto->SetPrototype(tempCtor.As<Function>()->NewInstance()));
+  return Undefined();
+}
+
+
 bool Buffer::HasInstance(v8::Handle<v8::Value> val) {
   if (!val->IsObject()) return false;
   v8::Local<v8::Object> obj = val->ToObject();
@@ -764,6 +775,9 @@ void Buffer::Initialize(Handle<Object> target) {
   NODE_SET_METHOD(constructor_template->GetFunction(),
                   "makeFastBuffer",
                   Buffer::MakeFastBuffer);
+  NODE_SET_METHOD(constructor_template->GetFunction(),
+                  "extendArrayType",
+                  Buffer::ExtendArrayType);
 
   target->Set(String::NewSymbol("SlowBuffer"), constructor_template->GetFunction());
 }
