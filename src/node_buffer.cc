@@ -70,7 +70,7 @@ static Persistent<String> length_symbol;
 static Persistent<String> chars_written_sym;
 static Persistent<String> write_sym;
 Persistent<FunctionTemplate> Buffer::constructor_template;
-
+static Persistent<FunctionTemplate> byte_array_constructor;
 
 static inline size_t base64_decoded_size(const char *src, size_t size) {
   const char *const end = src + size;
@@ -740,12 +740,93 @@ bool Buffer::HasInstance(v8::Handle<v8::Value> val) {
   return false;
 }
 
+class ByteArray {
+  size_t count;
+  unsigned char* data;
+
+  ByteArray(size_t length) :
+    count(1), data(new unsigned char[length])
+  {
+    memset(data, 0, length);
+  }
+  ~ByteArray() {
+    delete[] data;
+  }
+
+  void ref() {
+    count++;
+  }
+  void unref() {
+    if (0 == --count) {
+      delete this;
+    }
+  }
+  static void FreeData(Persistent<Value> object, void* param) {
+    fromObject(object)->unref();
+  }
+
+  static ByteArray* fromObject(Handle<Value> o) {
+    assert(o->IsObject());
+    return reinterpret_cast<ByteArray*>(o->ToObject()->GetPointerFromInternalField(0));
+  }
+public:
+  static Handle<Value> New(const Arguments &args) {
+    if (!args.IsConstructCall()) {
+      return FromConstructorTemplate(byte_array_constructor, args);
+    }
+
+    HandleScope scope;
+    ByteArray* array = NULL;
+    if (args.Length() == 1 && args[0]->IsInt32()) {
+      // var byteArray = new ByteArray(1024);
+      size_t length = args[0]->Uint32Value();
+      array = new ByteArray(length);
+      args.This()->SetIndexedPropertiesToExternalArrayData(array->data, kExternalUnsignedByteArray, length);
+    } else if (args.Length() >= 2) {
+      Handle<Object> baseArray = args[0]->ToObject();
+      assert(!baseArray.IsEmpty());
+      array = fromObject(baseArray);
+      void* data = baseArray->GetIndexedPropertiesExternalArrayData();
+      size_t data_length = baseArray->GetIndexedPropertiesExternalArrayDataLength();
+      array->ref();
+      uint32_t begin = args[1]->Uint32Value();
+      uint32_t end = args.Length() == 3 ? args[2]->Uint32Value() : data_length;
+      void* sub_data = reinterpret_cast<char*>(data) + begin;
+      args.This()->SetIndexedPropertiesToExternalArrayData(sub_data, kExternalUnsignedByteArray, end - begin);
+    }
+    args.This()->SetPointerInInternalField(0, array);
+    Persistent<Value>::New(args.This()).MakeWeak(NULL, FreeData);
+    return v8::Undefined();
+  }
+  static Handle<Value> SubArray(const Arguments& args) {
+    if (args.Length() < 2 ||
+        !args[0]->IsUint32() || !args[1]->IsUint32()) {
+      return ThrowException(Exception::TypeError(String::New("could not grab offset")));
+    }
+    HandleScope scope;
+    Local<Function> ctor = byte_array_constructor->GetFunction();
+    Handle<Value> argv[] = {
+      args.This(),
+      args[0],
+      args[1]
+    };
+
+    Handle<Object> array = ctor->NewInstance(3, argv);
+    return scope.Close(array);
+  }
+};
 
 void Buffer::Initialize(Handle<Object> target) {
   HandleScope scope;
 
   length_symbol = Persistent<String>::New(String::NewSymbol("length"));
   chars_written_sym = Persistent<String>::New(String::NewSymbol("_charsWritten"));
+
+  Local<FunctionTemplate> ba = FunctionTemplate::New(ByteArray::New);
+  byte_array_constructor = Persistent<FunctionTemplate>::New(ba);
+  byte_array_constructor->InstanceTemplate()->SetInternalFieldCount(1);
+  byte_array_constructor->SetClassName(String::NewSymbol("ByteArray"));
+  NODE_SET_PROTOTYPE_METHOD(byte_array_constructor, "subarray", ByteArray::SubArray);
 
   Local<FunctionTemplate> t = FunctionTemplate::New(Buffer::New);
   constructor_template = Persistent<FunctionTemplate>::New(t);
