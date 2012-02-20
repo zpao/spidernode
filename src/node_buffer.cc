@@ -83,19 +83,14 @@ static inline JSObject* typed_array_from_object(Handle<Object> obj) {
 
 
 static inline void* data_from_object(JSObject* obj) {
-  js::TypedArray* ta = js::TypedArray::fromJSObject(obj);
-  JS_ASSERT(ta);
-  JS_ASSERT(ta->buffer);
-  JS_ASSERT(!ta->byteLength || ta->buffer->data);
-  return ta->buffer->data;
+  JS_ASSERT(js_IsTypedArray(obj));
+  return JS_GetTypedArrayData(obj);
 }
 
 
-static inline uint32 data_length_from_object(JSObject* obj) {
-  js::TypedArray* ta = js::TypedArray::fromJSObject(obj);
-  JS_ASSERT(ta);
-  JS_ASSERT(ta->buffer);
-  return ta->buffer->byteLength;
+static inline uint32_t data_length_from_object(JSObject* obj) {
+  JS_ASSERT(js_IsTypedArray(obj));
+  return JS_GetTypedArrayLength(obj);
 }
 
 
@@ -484,7 +479,7 @@ Handle<Value> Buffer::Utf8Write(const Arguments &args) {
   HandleScope scope;
   Local<Object> buffer = args.This()->Get(String::NewSymbol("rawArray"))->ToObject();
   char* data = (char*)data_from_object(**buffer);
-  int32 length = data_length_from_object(**buffer);
+  int32_t length = data_length_from_object(**buffer);
 
   if (!args[0]->IsString()) {
     return ThrowException(Exception::TypeError(String::New(
