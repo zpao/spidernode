@@ -55,52 +55,42 @@ namespace js {
 namespace mjit {
 
 /*
- * A problem often arises where, for one reason or another, a piece of code
- * wants to touch the script->code, but isn't expecting JSOP_TRAP. This allows
- * one to temporarily remove JSOP_TRAPs from the instruction stream (without
- * copying) and automatically re-add them on scope exit.
- */
-class AutoScriptRetrapper
-{
-  public:
-    AutoScriptRetrapper(JSContext *cx, JSScript *script1) :
-        script(script1), traps(cx) {};
-    ~AutoScriptRetrapper();
-
-    bool untrap(jsbytecode *pc);
-
-  private:
-    JSScript *script;
-    Vector<jsbytecode*> traps;
-};
-
-/*
- * This class is responsible for sanely re-JITing a script and fixing up
- * the world. If you ever change the code associated with a JSScript, or
- * otherwise would cause existing JITed code to be incorrect, you /must/ use
- * this to invalidate and potentially re-compile the existing JITed code,
- * fixing up the stack in the process.
+ * This class is responsible for sanely destroying a JITed script while frames
+ * for it are still on the stack, removing all references in the world to it
+ * and patching up those existing frames to go into the interpreter. If you
+ * ever change the code associated with a JSScript, or otherwise would cause
+ * existing JITed code to be incorrect, you /must/ use this to invalidate the
+ * JITed code, fixing up the stack in the process.
  */
 class Recompiler {
-    struct PatchableAddress {
-        void **location;
-        CallSite callSite;
-    };
-    
 public:
-    Recompiler(JSContext *cx, JSScript *script);
-    
-    bool recompile();
+
+    // Clear all uses of compiled code for script on the stack. This must be
+    // followed by destroying all JIT code for the script.
+    static void
+    clearStackReferences(JSContext *cx, JSScript *script);
+
+    // Clear all uses of compiled code for script on the stack, along with
+    // the specified compiled chunk.
+    static void
+    clearStackReferencesAndChunk(JSContext *cx, JSScript *script,
+                                 JITScript *jit, size_t chunkIndex,
+                                 bool resetUses = true);
+
+    static void
+    expandInlineFrames(JSCompartment *compartment, StackFrame *fp, mjit::CallSite *inlined,
+                       StackFrame *next, VMFrame *f);
+
+    static void patchFrame(JSCompartment *compartment, VMFrame *f, JSScript *script);
 
 private:
-    JSContext *cx;
-    JSScript *script;
-    
-    PatchableAddress findPatch(JITScript *jit, void **location);
-    void applyPatch(Compiler& c, PatchableAddress& toPatch);
-    bool recompile(StackFrame *fp, Vector<PatchableAddress> &patches,
-                   Vector<CallSite> &sites);
-    bool saveTraps(JITScript *jit, Vector<CallSite> *sites);
+
+    static void patchCall(JITChunk *chunk, StackFrame *fp, void **location);
+    static void patchNative(JSCompartment *compartment, JITChunk *chunk, StackFrame *fp,
+                            jsbytecode *pc, RejoinState rejoin);
+
+    static StackFrame *
+    expandInlineFrameChain(StackFrame *outer, InlineFrame *inner);
 };
 
 } /* namespace mjit */

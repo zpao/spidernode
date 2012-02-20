@@ -43,42 +43,51 @@
 
 #include "jscntxt.h"
 #include "jscompartment.h"
-#include "jsstaticcheck.h"
+#include "jsfriendapi.h"
+#include "jsinterp.h"
 #include "jsxml.h"
-#include "jsregexp.h"
 #include "jsgc.h"
 
+#include "frontend/ParseMaps.h"
+#include "vm/RegExpObject.h"
+
 namespace js {
+
+struct PreserveRegsGuard
+{
+    PreserveRegsGuard(JSContext *cx, FrameRegs &regs)
+      : prevContextRegs(cx->maybeRegs()), cx(cx), regs_(regs) {
+        cx->stack.repointRegs(&regs_);
+    }
+    ~PreserveRegsGuard() {
+        JS_ASSERT(cx->maybeRegs() == &regs_);
+        *prevContextRegs = regs_;
+        cx->stack.repointRegs(prevContextRegs);
+    }
+
+    FrameRegs *prevContextRegs;
+
+  private:
+    JSContext *cx;
+    FrameRegs &regs_;
+};
 
 static inline GlobalObject *
 GetGlobalForScopeChain(JSContext *cx)
 {
-    /*
-     * This is essentially GetScopeChain(cx)->getGlobal(), but without
-     * falling off trace.
-     *
-     * This use of cx->fp, possibly on trace, is deliberate:
-     * cx->fp->scopeChain->getGlobal() returns the same object whether we're on
-     * trace or not, since we do not trace calls across global objects.
-     */
-    VOUCH_DOES_NOT_REQUIRE_STACK();
+    if (cx->hasfp())
+        return &cx->fp()->scopeChain().global();
 
-    if (cx->running())
-        return cx->fp()->scopeChain().getGlobal();
-
-    JSObject *scope = cx->globalObject;
-    if (!scope) {
-        JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL, JSMSG_INACTIVE);
+    JSObject *scope = JS_ObjectToInnerObject(cx, cx->globalObject);
+    if (!scope)
         return NULL;
-    }
-    OBJ_TO_INNER_OBJECT(cx, scope);
-    return scope->asGlobal();
+    return &scope->asGlobal();
 }
 
 inline GSNCache *
 GetGSNCache(JSContext *cx)
 {
-    return &JS_THREAD_DATA(cx)->gsnCache;
+    return &cx->runtime->gsnCache;
 }
 
 class AutoNamespaceArray : protected AutoGCRooter {
@@ -91,25 +100,48 @@ class AutoNamespaceArray : protected AutoGCRooter {
         array.finish(context);
     }
 
-    uint32 length() const { return array.length; }
+    uint32_t length() const { return array.length; }
 
   public:
     friend void AutoGCRooter::trace(JSTracer *trc);
 
-    JSXMLArray array;
+    JSXMLArray<JSObject> array;
+};
+
+template <typename T>
+class AutoPtr
+{
+    JSContext *cx;
+    T *value;
+
+    AutoPtr(const AutoPtr &other) MOZ_DELETE;
+
+  public:
+    explicit AutoPtr(JSContext *cx) : cx(cx), value(NULL) {}
+    ~AutoPtr() {
+        cx->delete_<T>(value);
+    }
+
+    void operator=(T *ptr) { value = ptr; }
+
+    typedef void ***** ConvertibleToBool;
+    operator ConvertibleToBool() const { return (ConvertibleToBool) value; }
+
+    const T *operator->() const { return value; }
+    T *operator->() { return value; }
+
+    T *get() { return value; }
 };
 
 #ifdef DEBUG
 class CompartmentChecker
 {
-  private:
     JSContext *context;
     JSCompartment *compartment;
 
   public:
     explicit CompartmentChecker(JSContext *cx) : context(cx), compartment(cx->compartment) {
-        check(cx->running() ? JS_GetGlobalForScopeChain(cx) : cx->globalObject);
-        VOUCH_DOES_NOT_REQUIRE_STACK();
+        check(cx->hasfp() ? JS_GetGlobalForScopeChain(cx) : cx->globalObject);
     }
 
     /*
@@ -157,10 +189,6 @@ class CompartmentChecker
             check(v.toString());
     }
 
-    void check(jsval v) {
-        check(Valueify(v));
-    }
-
     void check(const ValueArray &arr) {
         for (size_t i = 0; i < arr.length; i++)
             check(arr.array[i]);
@@ -169,6 +197,11 @@ class CompartmentChecker
     void check(const JSValueArray &arr) {
         for (size_t i = 0; i < arr.length; i++)
             check(arr.array[i]);
+    }
+
+    void check(const CallArgs &args) {
+        for (Value *p = args.base(); p != args.end(); ++p)
+            check(*p);
     }
 
     void check(jsid id) {
@@ -187,14 +220,15 @@ class CompartmentChecker
 
     void check(JSScript *script) {
         if (script) {
-            check(script->compartment);
-            if (script->u.object)
-                check(script->u.object);
+            check(script->compartment());
+            if (!script->isCachedEval && script->globalObject)
+                check(script->globalObject);
         }
     }
 
     void check(StackFrame *fp) {
-        check(&fp->scopeChain());
+        if (fp)
+            check(&fp->scopeChain());
     }
 };
 
@@ -266,17 +300,17 @@ assertSameCompartment(JSContext *cx, T1 t1, T2 t2, T3 t3, T4 t4, T5 t5)
 
 #undef START_ASSERT_SAME_COMPARTMENT
 
-STATIC_PRECONDITION_ASSUME(ubound(vp) >= argc + 2)
+STATIC_PRECONDITION_ASSUME(ubound(args.argv_) >= argc)
 JS_ALWAYS_INLINE bool
-CallJSNative(JSContext *cx, js::Native native, uintN argc, js::Value *vp)
+CallJSNative(JSContext *cx, Native native, const CallArgs &args)
 {
 #ifdef DEBUG
     JSBool alreadyThrowing = cx->isExceptionPending();
 #endif
-    assertSameCompartment(cx, ValueArray(vp, argc + 2));
-    JSBool ok = native(cx, argc, vp);
+    assertSameCompartment(cx, args);
+    bool ok = native(cx, args.length(), args.base());
     if (ok) {
-        assertSameCompartment(cx, vp[0]);
+        assertSameCompartment(cx, args.rval());
         JS_ASSERT_IF(!alreadyThrowing, !cx->isExceptionPending());
     }
     return ok;
@@ -284,16 +318,16 @@ CallJSNative(JSContext *cx, js::Native native, uintN argc, js::Value *vp)
 
 extern JSBool CallOrConstructBoundFunction(JSContext *, uintN, js::Value *);
 
-STATIC_PRECONDITION(ubound(vp) >= argc + 2)
+STATIC_PRECONDITION(ubound(args.argv_) >= argc)
 JS_ALWAYS_INLINE bool
-CallJSNativeConstructor(JSContext *cx, js::Native native, uintN argc, js::Value *vp)
+CallJSNativeConstructor(JSContext *cx, Native native, const CallArgs &args)
 {
 #ifdef DEBUG
-    JSObject *callee = &vp[0].toObject();
+    JSObject &callee = args.callee();
 #endif
 
-    JS_ASSERT(vp[1].isMagic());
-    if (!CallJSNative(cx, native, argc, vp))
+    JS_ASSERT(args.thisv().isMagic());
+    if (!CallJSNative(cx, native, args))
         return false;
 
     /*
@@ -311,16 +345,17 @@ CallJSNativeConstructor(JSContext *cx, js::Native native, uintN argc, js::Value 
      *
      * (new Object(Object)) returns the callee.
      */
-    extern JSBool proxy_Construct(JSContext *, uintN, Value *);
-    JS_ASSERT_IF(native != proxy_Construct && native != js::CallOrConstructBoundFunction &&
-                 (!callee->isFunction() || callee->getFunctionPrivate()->u.n.clasp != &js_ObjectClass),
-                 !vp->isPrimitive() && callee != &vp[0].toObject());
+    JS_ASSERT_IF(native != FunctionProxyClass.construct &&
+                 native != CallableObjectClass.construct &&
+                 native != js::CallOrConstructBoundFunction &&
+                 (!callee.isFunction() || callee.toFunction()->u.n.clasp != &ObjectClass),
+                 !args.rval().isPrimitive() && callee != args.rval().toObject());
 
     return true;
 }
 
 JS_ALWAYS_INLINE bool
-CallJSPropertyOp(JSContext *cx, js::PropertyOp op, JSObject *receiver, jsid id, js::Value *vp)
+CallJSPropertyOp(JSContext *cx, PropertyOp op, JSObject *receiver, jsid id, Value *vp)
 {
     assertSameCompartment(cx, receiver, id, *vp);
     JSBool ok = op(cx, receiver, id, vp);
@@ -330,19 +365,19 @@ CallJSPropertyOp(JSContext *cx, js::PropertyOp op, JSObject *receiver, jsid id, 
 }
 
 JS_ALWAYS_INLINE bool
-CallJSPropertyOpSetter(JSContext *cx, js::StrictPropertyOp op, JSObject *obj, jsid id,
-                       JSBool strict, js::Value *vp)
+CallJSPropertyOpSetter(JSContext *cx, StrictPropertyOp op, JSObject *obj, jsid id,
+                       JSBool strict, Value *vp)
 {
     assertSameCompartment(cx, obj, id, *vp);
     return op(cx, obj, id, strict, vp);
 }
 
 inline bool
-CallSetter(JSContext *cx, JSObject *obj, jsid id, js::StrictPropertyOp op, uintN attrs,
-           uintN shortid, JSBool strict, js::Value *vp)
+CallSetter(JSContext *cx, JSObject *obj, jsid id, StrictPropertyOp op, uintN attrs,
+           uintN shortid, JSBool strict, Value *vp)
 {
     if (attrs & JSPROP_SETTER)
-        return ExternalGetOrSet(cx, obj, id, CastAsObjectJsval(op), JSACC_WRITE, 1, vp, vp);
+        return InvokeGetterOrSetter(cx, obj, CastAsObjectJsval(op), 1, vp, vp);
 
     if (attrs & JSPROP_GETTER)
         return js_ReportGetterOnlyAssignment(cx);
@@ -352,51 +387,95 @@ CallSetter(JSContext *cx, JSObject *obj, jsid id, js::StrictPropertyOp op, uintN
     return CallJSPropertyOpSetter(cx, op, obj, id, strict, vp);
 }
 
-#ifdef JS_TRACER
-/*
- * Reconstruct the JS stack and clear cx->tracecx. We must be currently in a
- * _FAIL builtin from trace on cx or another context on the same thread. The
- * machine code for the trace remains on the C stack when js_DeepBail returns.
- *
- * Implemented in jstracer.cpp.
- */
-JS_FORCES_STACK JS_FRIEND_API(void)
-DeepBail(JSContext *cx);
-#endif
-
-static JS_INLINE void
-LeaveTraceIfGlobalObject(JSContext *cx, JSObject *obj)
+static inline JSAtom **
+FrameAtomBase(JSContext *cx, js::StackFrame *fp)
 {
-    if (!obj->parent)
-        LeaveTrace(cx);
-}
-
-static JS_INLINE void
-LeaveTraceIfArgumentsObject(JSContext *cx, JSObject *obj)
-{
-    if (obj->isArguments())
-        LeaveTrace(cx);
-}
-
-static JS_INLINE JSBool
-CanLeaveTrace(JSContext *cx)
-{
-    JS_ASSERT(JS_ON_TRACE(cx));
-#ifdef JS_TRACER
-    return JS_TRACE_MONITOR_ON_TRACE(cx)->bailExit != NULL;
-#else
-    return JS_FALSE;
-#endif
+    return fp->script()->atoms;
 }
 
 }  /* namespace js */
 
+inline JSVersion
+JSContext::findVersion() const
+{
+    if (hasVersionOverride)
+        return versionOverride;
+
+    if (stack.hasfp()) {
+        /* There may be a scripted function somewhere on the stack! */
+        js::StackFrame *f = fp();
+        while (f && !f->isScriptFrame())
+            f = f->prev();
+        if (f)
+            return f->script()->getVersion();
+    }
+
+    return defaultVersion;
+}
+
+inline bool
+JSContext::canSetDefaultVersion() const
+{
+    return !stack.hasfp() && !hasVersionOverride;
+}
+
+inline void
+JSContext::overrideVersion(JSVersion newVersion)
+{
+    JS_ASSERT(!canSetDefaultVersion());
+    versionOverride = newVersion;
+    hasVersionOverride = true;
+}
+
+inline bool
+JSContext::maybeOverrideVersion(JSVersion newVersion)
+{
+    if (canSetDefaultVersion()) {
+        setDefaultVersion(newVersion);
+        return false;
+    }
+    overrideVersion(newVersion);
+    return true;
+}
+
+inline uintN
+JSContext::getCompileOptions() const { return js::VersionFlagsToOptions(findVersion()); }
+
+inline uintN
+JSContext::allOptions() const { return getRunOptions() | getCompileOptions(); }
+
+inline void
+JSContext::setCompileOptions(uintN newcopts)
+{
+    JS_ASSERT((newcopts & JSCOMPILEOPTION_MASK) == newcopts);
+    if (JS_LIKELY(getCompileOptions() == newcopts))
+        return;
+    JSVersion version = findVersion();
+    JSVersion newVersion = js::OptionFlagsToVersion(newcopts, version);
+    maybeOverrideVersion(newVersion);
+}
+
+inline void
+JSContext::assertValidStackDepth(uintN depth)
+{
+#ifdef DEBUG
+    JS_ASSERT(0 <= regs().sp - fp()->base());
+    JS_ASSERT(depth <= uintptr_t(regs().sp - fp()->base()));
+#endif
+}
+
 #ifdef JS_METHODJIT
 inline js::mjit::JaegerCompartment *JSContext::jaegerCompartment()
 {
-    return compartment->jaegerCompartment;
+    return compartment->jaegerCompartment();
 }
 #endif
+
+inline js::LifoAlloc &
+JSContext::typeLifoAlloc()
+{
+    return compartment->typeLifoAlloc;
+}
 
 inline bool
 JSContext::ensureGeneratorStackSpace()
@@ -407,17 +486,32 @@ JSContext::ensureGeneratorStackSpace()
     return ok;
 }
 
-inline js::RegExpStatics *
-JSContext::regExpStatics()
-{
-    return js::RegExpStatics::extractFrom(js::GetGlobalForScopeChain(this));
-}
-
 inline void
 JSContext::setPendingException(js::Value v) {
     this->throwing = true;
     this->exception = v;
-    assertSameCompartment(this, v);
+    js::assertSameCompartment(this, v);
+}
+
+inline bool
+JSContext::ensureParseMapPool()
+{
+    if (parseMapPool_)
+        return true;
+    parseMapPool_ = js::OffTheBooks::new_<js::ParseMapPool>(this);
+    return parseMapPool_;
+}
+
+/* Get the current frame, first lazily instantiating stack frames if needed. */
+static inline js::StackFrame *
+js_GetTopStackFrame(JSContext *cx, FrameExpandKind expand)
+{
+#ifdef JS_METHODJIT
+    if (expand)
+        js::mjit::ExpandInlineFrames(cx->compartment);
+#endif
+
+    return cx->maybefp();
 }
 
 #endif /* jscntxtinlines_h___ */

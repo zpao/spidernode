@@ -38,7 +38,7 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#ifndef jslogic_h_inl__
+#if !defined jslogic_h_inl__ && defined JS_METHODJIT
 #define jslogic_h_inl__
 
 namespace js {
@@ -51,16 +51,8 @@ ThrowException(VMFrame &f)
     *f.returnAddressLocation() = ptr;
 }
 
-#define THROW()   do { ThrowException(f); return; } while (0)
-#define THROWV(v) do { ThrowException(f); return v; } while (0)
-
-static inline JSObject *
-ValueToObject(JSContext *cx, Value *vp)
-{
-    if (vp->isObject())
-        return &vp->toObject();
-    return js_ValueToNonNullObject(cx, *vp);
-}
+#define THROW()   do { mjit::ThrowException(f); return; } while (0)
+#define THROWV(v) do { mjit::ThrowException(f); return v; } while (0)
 
 static inline void
 ReportAtomNotDefined(JSContext *cx, JSAtom *atom)
@@ -73,10 +65,10 @@ ReportAtomNotDefined(JSContext *cx, JSAtom *atom)
 #define NATIVE_SET(cx,obj,shape,entry,strict,vp)                              \
     JS_BEGIN_MACRO                                                            \
         if (shape->hasDefaultSetter() &&                                      \
-            (shape)->slot != SHAPE_INVALID_SLOT &&                            \
-            !(obj)->brandedOrHasMethodBarrier()) {                            \
+            (shape)->hasSlot() &&                                             \
+            !(shape)->isMethod()) {                                           \
             /* Fast path for, e.g., plain Object instance properties. */      \
-            (obj)->nativeSetSlot((shape)->slot, *vp);                         \
+            (obj)->nativeSetSlotWithType(cx, shape, *vp);                     \
         } else {                                                              \
             if (!js_NativeSet(cx, obj, shape, false, strict, vp))             \
                 THROW();                                                      \
@@ -87,10 +79,10 @@ ReportAtomNotDefined(JSContext *cx, JSAtom *atom)
     JS_BEGIN_MACRO                                                            \
         if (shape->isDataDescriptor() && shape->hasDefaultGetter()) {         \
             /* Fast path for Object instance properties. */                   \
-            JS_ASSERT((shape)->slot != SHAPE_INVALID_SLOT ||                  \
+            JS_ASSERT((shape)->slot() != SHAPE_INVALID_SLOT ||                \
                       !shape->hasDefaultSetter());                            \
-            if (((shape)->slot != SHAPE_INVALID_SLOT))                        \
-                *(vp) = (pobj)->nativeGetSlot((shape)->slot);                 \
+            if (((shape)->slot() != SHAPE_INVALID_SLOT))                      \
+                *(vp) = (pobj)->nativeGetSlot((shape)->slot());               \
             else                                                              \
                 (vp)->setUndefined();                                         \
         } else {                                                              \

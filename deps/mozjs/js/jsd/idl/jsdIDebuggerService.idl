@@ -1,6 +1,5 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- *
- * ***** BEGIN LICENSE BLOCK *****
+/* -*- Mode: IDL; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+/* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
  * The contents of this file are subject to the Mozilla Public License Version
@@ -79,7 +78,7 @@ interface jsdIActivationCallback;
  * Debugger service. It is not a good idea to have more than one active client
  * of the debugger service.
  */
-[scriptable, uuid(aa232c7f-855f-4488-a92c-6f89adc668cc)]
+[scriptable, uuid(9be5b327-6818-464d-9695-f33885fd8377)]
 interface jsdIDebuggerService : nsISupports
 {
     /** Internal use only. */
@@ -249,7 +248,7 @@ interface jsdIDebuggerService : nsISupports
     /**
      * Recompile all active scripts in the runtime for debugMode.
      */
-    [noscript] void recompileForDebugMode(in JSContext cx, in JSCompartment comp, in PRBool mode);
+    [noscript] void recompileForDebugMode(in JSContext cx, in JSCompartment comp, in boolean mode);
 
     /**
      * Turn the debugger off. This will invalidate all of your jsdIEphemeral
@@ -274,7 +273,10 @@ interface jsdIDebuggerService : nsISupports
      */
     unsigned long pause();
     /**
-     * Undo a pause.
+     * Undo a pause.  Once this is called, the debugger won't start
+     * getting execution callbacks until the stack is fully unwound so
+     * that no JS scripts are live.  There is no way to query whether
+     * there are such scripts left to unwind at a given point in time.
      *
      * @return depth The number of remaining pending pause calls.
      */
@@ -372,13 +374,8 @@ interface jsdIDebuggerService : nsISupports
      * When called from another language this method returns an xpconnect
      * defined error code.
      */
-    jsdIValue wrapValue(/*in jsvalue value*/);
+    jsdIValue wrapValue(in jsval value);
 
-    /**
-     * The same as above but to be called from C++.
-     */
-    [noscript] jsdIValue wrapJSValue(in jsval value);
-    
     /* XXX these two routines are candidates for refactoring. The only problem
      * is that it is not clear where and how they should land.
      */
@@ -542,7 +539,7 @@ interface jsdIContextEnumerator : nsISupports
 /**
  * Set jsdIDebuggerService::scriptHook to an instance of one of these.
  */
-[scriptable, uuid(bb722893-0f63-45c5-b547-7a0947c7b6b6)]
+[scriptable, uuid(d030d1a2-a58a-4f19-b9e3-96da4e2cdd09)]
 interface jsdIScriptHook : nsISupports
 {
     /**
@@ -811,7 +808,7 @@ interface jsdIContext : jsdIEphemeral
  * interface. Once a jsdIStackFrame has been invalidated all method and
  * property accesses will throw a NS_ERROR_NOT_AVAILABLE exception.
  */
-[scriptable, uuid(0633ca73-105e-4e8e-bcc5-13405d61754a)]
+[scriptable, uuid(7c95422c-7579-4a6f-8ef7-e5b391552ee5)]
 interface jsdIStackFrame : jsdIEphemeral
 {
     /** Internal use only. */
@@ -884,7 +881,7 @@ interface jsdIStackFrame : jsdIEphemeral
  * Script object. In JavaScript engine terms, there's a single script for each
  * function, and one for the top level script.
  */
-[scriptable, uuid(e7935220-7def-4c8e-832f-fbc948a97490)]
+[scriptable, uuid(721724e0-7716-4bf4-b48f-92b78d056141)]
 interface jsdIScript : jsdIEphemeral
 {
     /** Internal use only. */
@@ -1030,6 +1027,17 @@ interface jsdIScript : jsdIEphemeral
      * The |pcmap| argument specifies which pc to source line map to use.
      */
     boolean isLineExecutable(in unsigned long line, in unsigned long pcmap);
+
+    /**
+     * Return a list of all executable lines in a script.
+     * |pcmap| specifies which pc to source line map to use.
+     * |startLine| and |maxLines| may be used to retrieve a chunk at a time.
+     */
+    void getExecutableLines(in unsigned long pcmap,
+                            in unsigned long startLine, in unsigned long maxLines,
+                            [optional] out unsigned long count,
+                            [array, size_is(count), retval] out unsigned long executableLines);
+ 
     /**
      * Set a breakpoint at a PC in this script.
      */
@@ -1045,7 +1053,7 @@ interface jsdIScript : jsdIEphemeral
     /**
      * Call interrupt hook at least once per source line
      */
-    void enableSingleStepInterrupts(in PRBool mode);
+    void enableSingleStepInterrupts(in boolean mode);
 };
 
 /**
@@ -1054,7 +1062,7 @@ interface jsdIScript : jsdIEphemeral
  * jsdIValue adds a root for the underlying JavaScript value, so don't keep it
  * if you don't need to.
  */
-[scriptable, uuid(fd1311f7-096c-44a3-847b-9d478c8176c3)]
+[scriptable, uuid(1cd3535b-4ddb-4202-9053-e0ec88f5c82b)]
 interface jsdIValue : jsdIEphemeral
 {
     /** Internal use only. */
@@ -1182,7 +1190,7 @@ interface jsdIValue : jsdIEphemeral
      * When called from another language this method returns an xpconnect
      * defined error code.
      */
-    void getWrappedValue();
+    [implicit_jscontext] jsval getWrappedValue();
 
     /**
      * If this is a function value, return its associated jsdIScript.

@@ -2,8 +2,8 @@
 setDebug(true);
 x = "notset";
 function main() {
-  /* The JSOP_STOP in a. */
-  a = { valueOf: function () { trap(main, 36, "success()"); } };
+  /* The JSOP_STOP in main. */
+  a = { valueOf: function () { trap(main, 39, "success()"); } };
   a + "";
   x = "failure";
 }

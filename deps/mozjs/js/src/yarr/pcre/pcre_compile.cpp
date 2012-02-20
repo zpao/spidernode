@@ -44,8 +44,8 @@ supporting internal functions that are not used by other modules. */
 #include "pcre_internal.h"
 
 #include <string.h>
-#include "yarr/wtf/ASCIICType.h"
-#include "jsvector.h"
+#include "yarr/ASCIICType.h"
+#include "js/Vector.h"
 
 using namespace WTF;
 
@@ -1508,7 +1508,7 @@ compileBranch(int options, int* brackets, unsigned char** codePtr,
                         goto FAILED;
                     unsigned enclosedBrackets = (*brackets - bracketsBeforeRecursion);
                     unsigned limitBracket = minBracket + enclosedBrackets + (bravalue > OP_BRA);
-                    if (!((minBracket & 0xff) == minBracket && (limitBracket & 0xff) == limitBracket)) {
+                    if (!((minBracket & 0x1ff) == minBracket && (limitBracket & 0x1ff) == limitBracket)) {
                         *errorCodePtr = ERR17;
                         return false;
                     }

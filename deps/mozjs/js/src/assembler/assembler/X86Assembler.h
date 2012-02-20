@@ -35,9 +35,8 @@
 #if ENABLE_ASSEMBLER && (WTF_CPU_X86 || WTF_CPU_X86_64)
 
 #include "AssemblerBuffer.h"
-#include "jsstdint.h"
 #include "assembler/wtf/Assertions.h"
-#include "jsvector.h"
+#include "js/Vector.h"
 
 #include "methodjit/Logging.h"
 #define IPFX  "        %s"
@@ -226,6 +225,7 @@ private:
         OP_MOV_OvEAX                    = 0xA3,
         OP_MOV_EAXIv                    = 0xB8,
         OP_GROUP2_EvIb                  = 0xC1,
+        OP_RET_Iz                       = 0xC2,
         OP_RET                          = 0xC3,
         OP_GROUP11_EvIb                 = 0xC6,
         OP_GROUP11_EvIz                 = 0xC7,
@@ -257,6 +257,7 @@ private:
         OP2_SUBSD_VsdWsd    = 0x5C,
         OP2_DIVSD_VsdWsd    = 0x5E,
         OP2_SQRTSD_VsdWsd   = 0x51,
+        OP2_ANDPD_VpdWpd    = 0x54,
         OP2_XORPD_VpdWpd    = 0x57,
         OP2_MOVD_VdEd       = 0x6E,
         OP2_PSRLDQ_Vd       = 0x73,
@@ -690,6 +691,13 @@ public:
     }
 
 #if WTF_CPU_X86_64
+    void negq_r(RegisterID dst)
+    {
+        js::JaegerSpew(js::JSpew_Insns,
+                       IPFX "negq       %s\n", MAYBE_PAD, nameIReg(8,dst));
+        m_formatter.oneByteOp64(OP_GROUP3_Ev, GROUP3_OP_NEG, dst);
+    }
+
     void orq_rr(RegisterID src, RegisterID dst)
     {
         js::JaegerSpew(js::JSpew_Insns,
@@ -981,7 +989,9 @@ public:
 
     void imull_i32r(RegisterID src, int32_t value, RegisterID dst)
     {
-        FIXME_INSN_PRINTING;
+        js::JaegerSpew(js::JSpew_Insns,
+                       IPFX "imull      %d, %s, %s\n",
+                       MAYBE_PAD, value, nameIReg(4, src), nameIReg(4, dst));
         m_formatter.oneByteOp(OP_IMUL_GvEvIz, dst, src);
         m_formatter.immediate32(value);
     }
@@ -1563,8 +1573,8 @@ public:
     void movq_mr(int offset, RegisterID base, RegisterID index, int scale, RegisterID dst)
     {
         js::JaegerSpew(js::JSpew_Insns,
-                       IPFX "movq       %s0x%x(%s), %s\n", MAYBE_PAD,
-                       PRETTY_PRINT_OFFSET(offset), nameIReg(base), nameIReg(8,dst));
+                       IPFX "movq       %d(%s,%s,%d), %s\n", MAYBE_PAD,
+                       offset, nameIReg(base), nameIReg(index), scale, nameIReg(8,dst));
         m_formatter.oneByteOp64(OP_MOV_GvEv, dst, base, index, scale, offset);
     }
 
@@ -2250,6 +2260,15 @@ public:
         m_formatter.twoByteOp(OP2_XORPD_VpdWpd, (RegisterID)dst, (RegisterID)src);
     }
 
+    void andpd_rr(XMMRegisterID src, XMMRegisterID dst)
+    {
+        js::JaegerSpew(js::JSpew_Insns,
+                       IPFX "andpd      %s, %s\n", MAYBE_PAD,
+                       nameFPReg(src), nameFPReg(dst));
+        m_formatter.prefix(PRE_SSE_66);
+        m_formatter.twoByteOp(OP2_ANDPD_VpdWpd, (RegisterID)dst, (RegisterID)src);
+    }
+
     void sqrtsd_rr(XMMRegisterID src, XMMRegisterID dst)
     {
         js::JaegerSpew(js::JSpew_Insns,
@@ -2276,11 +2295,20 @@ public:
         js::JaegerSpew(js::JSpew_Insns, IPFX "int3\n", MAYBE_PAD);
         m_formatter.oneByteOp(OP_INT3);
     }
-    
+
     void ret()
     {
         js::JaegerSpew(js::JSpew_Insns, IPFX "ret\n", MAYBE_PAD);
         m_formatter.oneByteOp(OP_RET);
+    }
+
+    void ret(int imm)
+    {
+        js::JaegerSpew(js::JSpew_Insns,
+                       IPFX "ret        %d\n", MAYBE_PAD,
+                       imm);
+        m_formatter.oneByteOp(OP_RET_Iz);
+        m_formatter.immediate16(imm);
     }
 
     void predictNotTaken()
@@ -2474,9 +2502,9 @@ public:
         return dst.m_offset - src.m_offset;
     }
     
-    void* executableAllocAndCopy(ExecutableAllocator* allocator, ExecutablePool **poolp)
+    void* executableAllocAndCopy(ExecutableAllocator* allocator, ExecutablePool **poolp, CodeKind kind)
     {
-        return m_formatter.executableAllocAndCopy(allocator, poolp);
+        return m_formatter.executableAllocAndCopy(allocator, poolp, kind);
     }
 
     void executableCopy(void* buffer)
@@ -2826,8 +2854,8 @@ private:
         bool oom() const { return m_buffer.oom(); }
         bool isAligned(int alignment) const { return m_buffer.isAligned(alignment); }
         void* data() const { return m_buffer.data(); }
-        void* executableAllocAndCopy(ExecutableAllocator* allocator, ExecutablePool** poolp) {
-            return m_buffer.executableAllocAndCopy(allocator, poolp);
+        void* executableAllocAndCopy(ExecutableAllocator* allocator, ExecutablePool** poolp, CodeKind kind) {
+            return m_buffer.executableAllocAndCopy(allocator, poolp, kind);
         }
 
     private:
@@ -2918,10 +2946,11 @@ private:
         {
             // A base of esp or r12 would be interpreted as a sib, so force a sib with no index & put the base in there.
 #if WTF_CPU_X86_64
-            if ((base == hasSib) || (base == hasSib2)) {
+            if ((base == hasSib) || (base == hasSib2))
 #else
-            if (base == hasSib) {
+            if (base == hasSib)
 #endif
+            {
                 if (!offset) // No need to check if the base is noBase, since we know it is hasSib!
                     putModRmSib(ModRmMemoryNoDisp, reg, base, noIndex, 0);
                 else if (CAN_SIGN_EXTEND_8_32(offset)) {
@@ -2952,10 +2981,11 @@ private:
         {
             // A base of esp or r12 would be interpreted as a sib, so force a sib with no index & put the base in there.
 #if WTF_CPU_X86_64
-            if ((base == hasSib) || (base == hasSib2)) {
+            if ((base == hasSib) || (base == hasSib2))
 #else
-            if (base == hasSib) {
+            if (base == hasSib)
 #endif
+            {
                 putModRmSib(ModRmMemoryDisp32, reg, base, noIndex, 0);
                 m_buffer.putIntUnchecked(offset);
             } else {

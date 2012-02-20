@@ -14,7 +14,7 @@ BEGIN_TEST(testStringBuffer_finishString)
     JSString *str = JS_NewStringCopyZ(cx, "foopy");
     CHECK(str);
 
-    JSAtom *atom = js_AtomizeString(cx, str, 0);
+    JSAtom *atom = js_AtomizeString(cx, str);
     CHECK(atom);
 
     js::StringBuffer buffer(cx);
@@ -22,7 +22,7 @@ BEGIN_TEST(testStringBuffer_finishString)
 
     JSAtom *finishedAtom = buffer.finishAtom();
     CHECK(finishedAtom);
-    CHECK(atom == finishedAtom);
+    CHECK_EQUAL(atom, finishedAtom);
     return true;
 }
 END_TEST(testStringBuffer_finishString)

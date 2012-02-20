@@ -43,8 +43,7 @@ namespace JSC {
 
 class MacroAssemblerARM : public AbstractMacroAssembler<ARMAssembler> {
     static const int DoubleConditionMask = 0x0f;
-    static const int DoubleConditionBitSpecial = 0x10;
-    COMPILE_ASSERT(!(DoubleConditionBitSpecial & DoubleConditionMask), DoubleConditionBitSpecial_should_not_interfere_with_ARMAssembler_Condition_codes);
+    static const int DoubleConditionBitSpecial = 0x8;
 public:
     enum Condition {
         Equal = ARMAssembler::EQ,
@@ -91,14 +90,14 @@ public:
         m_assembler.adds_r(dest, dest, src);
     }
 
-    void add32(Imm32 imm, Address address)
+    void add32(TrustedImm32 imm, Address address)
     {
         load32(address, ARMRegisters::S1);
         add32(imm, ARMRegisters::S1);
         store32(ARMRegisters::S1, address);
     }
 
-    void add32(Imm32 imm, RegisterID dest)
+    void add32(TrustedImm32 imm, RegisterID dest)
     {
         m_assembler.adds_r(dest, dest, m_assembler.getImm(imm.m_value, ARMRegisters::S0));
     }
@@ -173,7 +172,7 @@ public:
         m_assembler.orrs_r(dest, dest, src);
     }
 
-    void or32(Imm32 imm, RegisterID dest)
+    void or32(TrustedImm32 imm, RegisterID dest)
     {
         m_assembler.orrs_r(dest, dest, m_assembler.getImm(imm.m_value, ARMRegisters::S0));
     }
@@ -211,12 +210,12 @@ public:
         m_assembler.subs_r(dest, dest, src);
     }
 
-    void sub32(Imm32 imm, RegisterID dest)
+    void sub32(TrustedImm32 imm, RegisterID dest)
     {
         m_assembler.subs_r(dest, dest, m_assembler.getImm(imm.m_value, ARMRegisters::S0));
     }
 
-    void sub32(Imm32 imm, Address address)
+    void sub32(TrustedImm32 imm, Address address)
     {
         load32(address, ARMRegisters::S1);
         sub32(imm, ARMRegisters::S1);
@@ -240,7 +239,7 @@ public:
         m_assembler.eors_r(dest, dest, src);
     }
 
-    void xor32(Imm32 imm, RegisterID dest)
+    void xor32(TrustedImm32 imm, RegisterID dest)
     {
         m_assembler.eors_r(dest, dest, m_assembler.getImm(imm.m_value, ARMRegisters::S0));
     }
@@ -251,9 +250,52 @@ public:
         m_assembler.eors_r(dest, dest, ARMRegisters::S1);
     }
 
+    void load8SignExtend(ImplicitAddress address, RegisterID dest)
+    {
+        m_assembler.dataTransferN(true, true, 8, dest, address.base, address.offset);
+    } 
+
+    void load8ZeroExtend(ImplicitAddress address, RegisterID dest)
+    {
+        m_assembler.dataTransferN(true, false, 8, dest, address.base, address.offset);
+    }
+
+    void load8SignExtend(BaseIndex address, RegisterID dest)
+    {
+        m_assembler.baseIndexTransferN(true, true, 8, dest,
+                                       address.base, address.index, address.scale, address.offset);
+    }
+
+    void load8ZeroExtend(BaseIndex address, RegisterID dest)
+    {
+        m_assembler.baseIndexTransferN(true, false, 8, dest,
+                                       address.base, address.index, address.scale, address.offset);
+    }
+
+    /* this is *identical* to the zero extending case*/
     void load8(ImplicitAddress address, RegisterID dest)
     {
-        m_assembler.dataTransfer8(true, dest, address.base, address.offset);
+        load8ZeroExtend(address, dest);
+    }
+   
+    void load16SignExtend(ImplicitAddress address, RegisterID dest)
+    {
+        m_assembler.dataTransferN(true, true, 16, dest, address.base, address.offset);
+    } 
+
+    void load16ZeroExtend(ImplicitAddress address, RegisterID dest)
+    {
+        m_assembler.dataTransferN(true, false, 16, dest, address.base, address.offset);
+    }
+    void load16SignExtend(BaseIndex address, RegisterID dest)
+    {
+        m_assembler.baseIndexTransferN(true, true, 16, dest,
+                                       address.base, address.index, address.scale, address.offset);
+    }
+    void load16ZeroExtend(BaseIndex address, RegisterID dest)
+    {
+        m_assembler.baseIndexTransferN(true, false, 16, dest,
+                                       address.base, address.index, address.scale, address.offset);
     }
 
     void load32(ImplicitAddress address, RegisterID dest)
@@ -380,7 +422,7 @@ public:
         m_assembler.baseIndexTransfer32(false, src, address.base, address.index, static_cast<int>(address.scale), address.offset);
     }
 
-    void store32(Imm32 imm, BaseIndex address)
+    void store32(TrustedImm32 imm, BaseIndex address)
     {
         if (imm.m_isPointer)
             m_assembler.ldr_un_imm(ARMRegisters::S1, imm.m_value);
@@ -389,7 +431,7 @@ public:
         store32(ARMRegisters::S1, address);
     }
 
-    void store32(Imm32 imm, ImplicitAddress address)
+    void store32(TrustedImm32 imm, ImplicitAddress address)
     {
         if (imm.m_isPointer)
             m_assembler.ldr_un_imm(ARMRegisters::S1, imm.m_value);
@@ -404,7 +446,7 @@ public:
         m_assembler.dtr_u(false, src, ARMRegisters::S0, 0);
     }
 
-    void store32(Imm32 imm, void* address)
+    void store32(TrustedImm32 imm, void* address)
     {
         m_assembler.ldr_un_imm(ARMRegisters::S0, reinterpret_cast<ARMWord>(address));
         if (imm.m_isPointer)
@@ -412,6 +454,92 @@ public:
         else
             m_assembler.moveImm(imm.m_value, ARMRegisters::S1);
         m_assembler.dtr_u(false, ARMRegisters::S1, ARMRegisters::S0, 0);
+    }
+
+    void store16(RegisterID src, ImplicitAddress address)
+    {
+        m_assembler.dataTransferN(false, false, 16,  src, address.base, address.offset);
+    }
+    void store16(RegisterID src, BaseIndex address)
+    {
+        m_assembler.baseIndexTransferN(false, false, 16, src, address.base, address.index, static_cast<int>(address.scale), address.offset);
+    }
+
+    void store16(TrustedImm32 imm, BaseIndex address)
+    {
+        if (imm.m_isPointer)
+            JS_ASSERT("What are you trying to do with 16 bits of a pointer?");
+        else
+            move(imm, ARMRegisters::S1);
+        store16(ARMRegisters::S1, address);
+    }
+    void store16(TrustedImm32 imm, ImplicitAddress address)
+    {
+        if (imm.m_isPointer)
+            JS_ASSERT("What are you trying to do with 16 bits of a pointer?");
+        else
+            move(imm, ARMRegisters::S1);
+        store16(ARMRegisters::S1, address);
+    }
+
+    void store16(RegisterID src, void* address)
+    {
+        m_assembler.ldr_un_imm(ARMRegisters::S0, reinterpret_cast<ARMWord>(address));
+        m_assembler.mem_imm_off(false, false, 16, true, src, ARMRegisters::S0, 0);
+    }
+
+    void store16(TrustedImm32 imm, void* address)
+    {
+        m_assembler.ldr_un_imm(ARMRegisters::S0, reinterpret_cast<ARMWord>(address));
+        if (imm.m_isPointer)
+            JS_ASSERT("What are you trying to do with 16 bits of a pointer?");
+        else
+            m_assembler.moveImm(imm.m_value, ARMRegisters::S1);
+        m_assembler.mem_imm_off(false, false, 16, true, ARMRegisters::S1, ARMRegisters::S0, 0);
+    }
+
+    void store8(RegisterID src, ImplicitAddress address)
+    {
+        m_assembler.dataTransferN(false, false, 16,  src, address.base, address.offset);
+    }
+
+    void store8(RegisterID src, BaseIndex address)
+    {
+        m_assembler.baseIndexTransferN(false, false, 8, src, address.base, address.index, static_cast<int>(address.scale), address.offset);
+    }
+
+    void store8(TrustedImm32 imm, BaseIndex address)
+    {
+        if (imm.m_isPointer)
+            JS_ASSERT("What are you trying to do with 8 bits of a pointer?");
+        else
+            move(imm, ARMRegisters::S1);
+        store8(ARMRegisters::S1, address);
+    }
+
+    void store8(TrustedImm32 imm, ImplicitAddress address)
+    {
+        if (imm.m_isPointer)
+            JS_ASSERT("What are you trying to do with 16 bits of a pointer?");
+        else
+            move(imm, ARMRegisters::S1);
+        store8(ARMRegisters::S1, address);
+    }
+
+    void store8(RegisterID src, void* address)
+    {
+        m_assembler.ldr_un_imm(ARMRegisters::S0, reinterpret_cast<ARMWord>(address));
+        m_assembler.mem_imm_off(false, false, 8, true, src, ARMRegisters::S0, 0);
+    }
+
+    void store8(TrustedImm32 imm, void* address)
+    {
+        m_assembler.ldr_un_imm(ARMRegisters::S0, reinterpret_cast<ARMWord>(address));
+        if (imm.m_isPointer)
+            JS_ASSERT("What are you trying to do with 16 bits of a pointer?");
+        else
+            m_assembler.moveImm(imm.m_value, ARMRegisters::S1);
+        m_assembler.mem_imm_off(false, false, 8, true, ARMRegisters::S1, ARMRegisters::S0, 0);
     }
 
     void pop(RegisterID dest)
@@ -436,7 +564,7 @@ public:
         push(ARMRegisters::S0);
     }
 
-    void move(Imm32 imm, RegisterID dest)
+    void move(TrustedImm32 imm, RegisterID dest)
     {
         if (imm.m_isPointer)
             m_assembler.ldr_un_imm(dest, imm.m_value);
@@ -449,7 +577,7 @@ public:
         m_assembler.mov_r(dest, src);
     }
 
-    void move(ImmPtr imm, RegisterID dest)
+    void move(TrustedImmPtr imm, RegisterID dest)
     {
         move(Imm32(imm), dest);
     }
@@ -485,14 +613,36 @@ public:
         return Jump(m_assembler.jmp(ARMCondition(cond), useConstantPool));
     }
 
-    Jump branch32(Condition cond, RegisterID left, Imm32 right, int useConstantPool = 0)
+    Jump branch32(Condition cond, RegisterID left, TrustedImm32 right, int useConstantPool = 0)
     {
         ASSERT(left != ARMRegisters::S0);
         if (right.m_isPointer) {
             m_assembler.ldr_un_imm(ARMRegisters::S0, right.m_value);
             m_assembler.cmp_r(left, ARMRegisters::S0);
-        } else
-            m_assembler.cmp_r(left, m_assembler.getImm(right.m_value, ARMRegisters::S0));
+        } else {
+            // This is a rather cute (if not confusing) pattern.
+            // unfortunately, it is not quite conducive to switching from
+            // cmp to cmn, so I'm doing so manually.
+            // m_assembler.cmp_r(left, m_assembler.getImm(right.m_value, ARMRegisters::S0));
+
+            // try to shoehorn the immediate into the compare instruction
+            ARMWord arg = m_assembler.getOp2(right.m_value);
+            if (arg != m_assembler.INVALID_IMM) {
+                m_assembler.cmp_r(left, arg);
+            } else {
+                // if it does not fit, try to shoehorn a negative in, and use a negated compare
+                // p.s. why couldn't arm just include the sign bit in the imm, rather than the inst.
+                arg = m_assembler.getOp2(-right.m_value);
+                if (arg != m_assembler.INVALID_IMM) {
+                    m_assembler.cmn_r(left, arg);
+                } else {
+                    // If we get here, we *need* to use a temp register and any way of loading a value
+                    // will enable us to load a negative easily, so there is no reason to switch from
+                    // cmp to cmn.
+                    m_assembler.cmp_r(left, m_assembler.getImm(right.m_value, ARMRegisters::S0));
+                }
+            }
+        }
         return Jump(m_assembler.jmp(ARMCondition(cond), useConstantPool));
     }
 
@@ -500,21 +650,21 @@ public:
     // number of instructions emitted is constant, regardless of the argument
     // values. For ARM, this is identical to branch32WithPatch, except that it
     // does not generate a DataLabel32.
-    Jump branch32FixedLength(Condition cond, RegisterID left, Imm32 right)
+    Jump branch32FixedLength(Condition cond, RegisterID left, TrustedImm32 right)
     {
         m_assembler.ldr_un_imm(ARMRegisters::S1, right.m_value);
         return branch32(cond, left, ARMRegisters::S1, true);
     }
 
     // As branch32_force32, but allow the value ('right') to be patched.
-    Jump branch32WithPatch(Condition cond, RegisterID left, Imm32 right, DataLabel32 &dataLabel)
+    Jump branch32WithPatch(Condition cond, RegisterID left, TrustedImm32 right, DataLabel32 &dataLabel)
     {
         ASSERT(left != ARMRegisters::S1);
         dataLabel = moveWithPatch(right, ARMRegisters::S1);
         return branch32(cond, left, ARMRegisters::S1, true);
     }
 
-    Jump branch32WithPatch(Condition cond, Address left, Imm32 right, DataLabel32 &dataLabel)
+    Jump branch32WithPatch(Condition cond, Address left, TrustedImm32 right, DataLabel32 &dataLabel)
     {
         ASSERT(left.base != ARMRegisters::S1);
         load32(left, ARMRegisters::S1);
@@ -524,6 +674,7 @@ public:
 
     Jump branch32(Condition cond, RegisterID left, Address right)
     {
+        /*If the load only takes a single instruction, then we could just do a load into*/
         load32(right, ARMRegisters::S1);
         return branch32(cond, left, ARMRegisters::S1);
     }
@@ -534,19 +685,19 @@ public:
         return branch32(cond, ARMRegisters::S1, right);
     }
 
-    Jump branch32(Condition cond, Address left, Imm32 right)
+    Jump branch32(Condition cond, Address left, TrustedImm32 right)
     {
         load32(left, ARMRegisters::S1);
         return branch32(cond, ARMRegisters::S1, right);
     }
 
-    Jump branch32(Condition cond, BaseIndex left, Imm32 right)
+    Jump branch32(Condition cond, BaseIndex left, TrustedImm32 right)
     {
         load32(left, ARMRegisters::S1);
         return branch32(cond, ARMRegisters::S1, right);
     }
 
-    Jump branch32WithUnalignedHalfWords(Condition cond, BaseIndex left, Imm32 right)
+    Jump branch32WithUnalignedHalfWords(Condition cond, BaseIndex left, TrustedImm32 right)
     {
         load32WithUnalignedHalfWords(left, ARMRegisters::S1);
         return branch32(cond, ARMRegisters::S1, right);
@@ -828,7 +979,7 @@ public:
         setTest32(cond, address, mask, dest);
     }
 
-    void add32(Imm32 imm, RegisterID src, RegisterID dest)
+    void add32(TrustedImm32 imm, RegisterID src, RegisterID dest)
     {
         m_assembler.add_r(dest, src, m_assembler.getImm(imm.m_value, ARMRegisters::S0));
     }
@@ -850,7 +1001,7 @@ public:
         move(ARMRegisters::S1, dest);
     }
 
-    void add32(Imm32 imm, AbsoluteAddress address)
+    void add32(TrustedImm32 imm, AbsoluteAddress address)
     {
         m_assembler.ldr_un_imm(ARMRegisters::S1, reinterpret_cast<ARMWord>(address.m_ptr));
         m_assembler.dtr_u(true, ARMRegisters::S1, ARMRegisters::S1, 0);
@@ -859,7 +1010,7 @@ public:
         m_assembler.dtr_u(false, ARMRegisters::S1, ARMRegisters::S0, 0);
     }
 
-    void sub32(Imm32 imm, AbsoluteAddress address)
+    void sub32(TrustedImm32 imm, AbsoluteAddress address)
     {
         m_assembler.ldr_un_imm(ARMRegisters::S1, reinterpret_cast<ARMWord>(address.m_ptr));
         m_assembler.dtr_u(true, ARMRegisters::S1, ARMRegisters::S1, 0);
@@ -880,7 +1031,7 @@ public:
         return branch32(cond, ARMRegisters::S1, right);
     }
 
-    Jump branch32(Condition cond, AbsoluteAddress left, Imm32 right)
+    Jump branch32(Condition cond, AbsoluteAddress left, TrustedImm32 right)
     {
         load32(left.m_ptr, ARMRegisters::S1);
         return branch32(cond, ARMRegisters::S1, right);
@@ -908,14 +1059,14 @@ public:
         return Call::fromTailJump(oldJump);
     }
 
-    DataLabelPtr moveWithPatch(ImmPtr initialValue, RegisterID dest)
+    DataLabelPtr moveWithPatch(TrustedImmPtr initialValue, RegisterID dest)
     {
         DataLabelPtr dataLabel(this);
         m_assembler.ldr_un_imm(dest, reinterpret_cast<ARMWord>(initialValue.m_value));
         return dataLabel;
     }
 
-    DataLabel32 moveWithPatch(Imm32 initialValue, RegisterID dest)
+    DataLabel32 moveWithPatch(TrustedImm32 initialValue, RegisterID dest)
     {
         DataLabel32 dataLabel(this);
         m_assembler.ldr_un_imm(dest, initialValue.m_value);
@@ -937,7 +1088,7 @@ public:
         return jump;
     }
 
-    DataLabelPtr storePtrWithPatch(ImmPtr initialValue, ImplicitAddress address)
+    DataLabelPtr storePtrWithPatch(TrustedImmPtr initialValue, ImplicitAddress address)
     {
         DataLabelPtr dataLabel = moveWithPatch(initialValue, ARMRegisters::S1);
         store32(ARMRegisters::S1, address);
@@ -972,19 +1123,110 @@ public:
 
     void loadDouble(ImplicitAddress address, FPRegisterID dest)
     {
+        // Load a double from base+offset.
         m_assembler.doubleTransfer(true, dest, address.base, address.offset);
+    }
+
+    void loadDouble(BaseIndex address, FPRegisterID dest)
+    {
+        m_assembler.baseIndexFloatTransfer(true, true, dest,
+                                           address.base, address.index,
+                                           address.scale, address.offset);
     }
 
     DataLabelPtr loadDouble(const void* address, FPRegisterID dest)
     {
         DataLabelPtr label = moveWithPatch(ImmPtr(address), ARMRegisters::S0);
-        m_assembler.fdtr_u(true, dest, ARMRegisters::S0, 0);
+        m_assembler.doubleTransfer(true, dest, ARMRegisters::S0, 0);
         return label;
     }
 
+    void fastLoadDouble(RegisterID lo, RegisterID hi, FPRegisterID fpReg) {
+        m_assembler.vmov64(false, true, lo, hi, fpReg);
+    }
+
+    void loadFloat(ImplicitAddress address, FPRegisterID dest)
+    {
+        // as long as this is a sane mapping, (*2) should just work
+        dest = (FPRegisterID) (dest * 2);
+        ASSERT((address.offset & 0x3) == 0);
+        m_assembler.floatTransfer(true, dest, address.base, address.offset);
+        m_assembler.vcvt(m_assembler.FloatReg32, m_assembler.FloatReg64, (FPRegisterID)(dest*2), dest);
+    }
+    void loadFloat(BaseIndex address, FPRegisterID dest)
+    {
+        m_assembler.baseIndexFloatTransfer(true, false, (FPRegisterID)(dest*2),
+                                           address.base, address.index,
+                                           address.scale, address.offset);
+        m_assembler.vcvt(m_assembler.FloatReg32, m_assembler.FloatReg64, (FPRegisterID)(dest*2), dest);
+    }
+
+    DataLabelPtr loadFloat(const void* address, FPRegisterID dest)
+    {
+        DataLabelPtr label = moveWithPatch(ImmPtr(address), ARMRegisters::S0);
+        m_assembler.fmem_imm_off(true, false, true, (FPRegisterID)(dest*2), ARMRegisters::S0, 0);
+        m_assembler.vcvt(m_assembler.FloatReg32, m_assembler.FloatReg64, (FPRegisterID)(dest*2), dest);
+        return label;
+    }
+ 
     void storeDouble(FPRegisterID src, ImplicitAddress address)
     {
+        // Store a double at base+offset.
         m_assembler.doubleTransfer(false, src, address.base, address.offset);
+    }
+
+    void storeDouble(FPRegisterID src, BaseIndex address)
+    {
+        m_assembler.baseIndexFloatTransfer(false, true, src,
+                                           address.base, address.index,
+                                           address.scale, address.offset);
+    }
+
+    void storeDouble(ImmDouble imm, Address address)
+    {
+        store32(Imm32(imm.u.s.lsb), address);
+        store32(Imm32(imm.u.s.msb), Address(address.base, address.offset + 4));
+    }
+
+    void storeDouble(ImmDouble imm, BaseIndex address)
+    {
+        store32(Imm32(imm.u.s.lsb), address);
+        store32(Imm32(imm.u.s.msb),
+                BaseIndex(address.base, address.index, address.scale, address.offset + 4));
+    }
+    void fastStoreDouble(FPRegisterID fpReg, RegisterID lo, RegisterID hi) {
+        m_assembler.vmov64(true, true, lo, hi, fpReg);
+    }
+
+    void storeFloat(FPRegisterID src, ImplicitAddress address)
+    {
+        m_assembler.floatTransfer(false, src, address.base, address.offset);
+    }
+
+    void storeFloat(FPRegisterID src, BaseIndex address)
+    {
+        m_assembler.baseIndexFloatTransfer(false, false, src,
+                                           address.base, address.index,
+                                           address.scale, address.offset);
+    }
+    void storeFloat(ImmDouble imm, Address address)
+    {
+        union {
+            float f;
+            uint32_t u32;
+        } u;
+        u.f = imm.u.d;
+        store32(Imm32(u.u32), address);
+    }
+
+    void storeFloat(ImmDouble imm, BaseIndex address)
+    {
+        union {
+            float f;
+            uint32_t u32;
+        } u;
+        u.f = imm.u.d;
+        store32(Imm32(u.u32), address);
     }
 
     void addDouble(FPRegisterID src, FPRegisterID dest)
@@ -1037,6 +1279,11 @@ public:
         m_assembler.fnegd_r(dest, src);
     }
 
+    void absDouble(FPRegisterID src, FPRegisterID dest)
+    {
+        m_assembler.fabsd_r(dest, src);
+    }
+
     void sqrtDouble(FPRegisterID src, FPRegisterID dest)
     {
         m_assembler.fsqrtd_r(dest, src);
@@ -1044,8 +1291,14 @@ public:
 
     void convertInt32ToDouble(RegisterID src, FPRegisterID dest)
     {
-        m_assembler.fmsr_r(dest, src);
-        m_assembler.fsitod_r(dest, dest);
+        m_assembler.fmsr_r(floatShadow(dest), src);
+        m_assembler.fsitod_r(dest, floatShadow(dest));
+    }
+
+    void convertUInt32ToDouble(RegisterID src, FPRegisterID dest)
+    {
+        m_assembler.fmsr_r(floatShadow(dest), src);
+        m_assembler.fuitod_r(dest, floatShadow(dest));
     }
 
     void convertInt32ToDouble(Address src, FPRegisterID dest)
@@ -1064,6 +1317,11 @@ public:
         convertInt32ToDouble(ARMRegisters::S1, dest);
     }
 
+    void convertDoubleToFloat(FPRegisterID src, FPRegisterID dest)
+    {
+        m_assembler.vcvt(m_assembler.FloatReg64, m_assembler.FloatReg32, src, dest);
+    }
+
     Jump branchDouble(DoubleCondition cond, FPRegisterID left, FPRegisterID right)
     {
         m_assembler.fcmpd_r(left, right);
@@ -1078,11 +1336,11 @@ public:
     // May also branch for some values that are representable in 32 bits
     Jump branchTruncateDoubleToInt32(FPRegisterID src, RegisterID dest)
     {
-        m_assembler.ftosizd_r(ARMRegisters::SD0, src);
+        m_assembler.ftosizd_r(floatShadow(ARMRegisters::SD0), src);
         // If FTOSIZD (VCVT.S32.F64) can't fit the result into a 32-bit
         // integer, it saturates at INT_MAX or INT_MIN. Testing this is
         // probably quicker than testing FPSCR for exception.
-        m_assembler.fmrs_r(dest, ARMRegisters::SD0);
+        m_assembler.fmrs_r(dest, floatShadow(ARMRegisters::SD0));
         m_assembler.cmn_r(dest, ARMAssembler::getOp2(-0x7fffffff));
         m_assembler.cmp_r(dest, ARMAssembler::getOp2(0x80000000), ARMCondition(NonZero));
         return Jump(m_assembler.jmp(ARMCondition(Zero)));
@@ -1094,11 +1352,11 @@ public:
     // (specifically, in this case, 0).
     void branchConvertDoubleToInt32(FPRegisterID src, RegisterID dest, JumpList& failureCases, FPRegisterID fpTemp)
     {
-        m_assembler.ftosid_r(ARMRegisters::SD0, src);
-        m_assembler.fmrs_r(dest, ARMRegisters::SD0);
+        m_assembler.ftosid_r(floatShadow(ARMRegisters::SD0), src);
+        m_assembler.fmrs_r(dest, floatShadow(ARMRegisters::SD0));
 
         // Convert the integer result back to float & compare to the original value - if not equal or unordered (NaN) then jump.
-        m_assembler.fsitod_r(ARMRegisters::SD0, ARMRegisters::SD0);
+        m_assembler.fsitod_r(ARMRegisters::SD0, floatShadow(ARMRegisters::SD0));
         failureCases.append(branchDouble(DoubleNotEqualOrUnordered, src, ARMRegisters::SD0));
 
         // If the result is zero, it might have been -0.0, and 0.0 equals to -0.0
@@ -1121,12 +1379,10 @@ public:
         m_assembler.forceFlushConstantPool();
     }
 
-#ifdef DEBUG
-    void allowPoolFlush(bool allowFlush)
+    int flushCount()
     {
-        m_assembler.allowPoolFlush(allowFlush);
+        return m_assembler.flushCount();
     }
-#endif
 
 protected:
     ARMAssembler::Condition ARMCondition(Condition cond)

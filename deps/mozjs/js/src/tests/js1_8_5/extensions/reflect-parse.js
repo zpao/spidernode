@@ -56,7 +56,7 @@ function switchStmt(disc, cases) Pattern({ type: "SwitchStatement", discriminant
 function caseClause(test, stmts) Pattern({ type: "SwitchCase", test: test, consequent: stmts })
 function defaultClause(stmts) Pattern({ type: "SwitchCase", test: null, consequent: stmts })
 function catchClause(id, guard, body) Pattern({ type: "CatchClause", param: id, guard: guard, body: body })
-function tryStmt(body, catches, fin) Pattern({ type: "TryStatement", block: body, handler: catches, finalizer: fin })
+function tryStmt(body, catches, fin) Pattern({ type: "TryStatement", block: body, handlers: catches, finalizer: fin })
 function letStmt(head, body) Pattern({ type: "LetStatement", head: head, body: body })
 function funExpr(id, args, body, gen) Pattern({ type: "FunctionExpression",
                                                 id: id,
@@ -152,6 +152,10 @@ function assertGlobalExpr(src, patt, builder) {
 
 function assertGlobalDecl(src, patt) {
     program([patt]).assert(Reflect.parse(src));
+}
+
+function assertProg(src, patt) {
+    program(patt).assert(Reflect.parse(src));
 }
 
 function assertStmt(src, patt) {
@@ -329,6 +333,21 @@ assertExpr("({'x':1, 'y':2, 3:3})", objExpr([{ key: lit("x"), value: lit(1) },
                                              { key: lit("y"), value: lit(2) },
                                              { key: lit(3), value: lit(3) } ]));
 
+// Bug 571617: eliminate constant-folding
+assertExpr("2 + 3", binExpr("+", lit(2), lit(3)));
+
+// Bug 632026: constant-folding
+assertExpr("typeof(0?0:a)", unExpr("typeof", condExpr(lit(0), lit(0), ident("a"))));
+
+// Bug 632029: constant-folding
+assertExpr("[x for each (x in y) if (false)]", compExpr(ident("x"), [compEachBlock(ident("x"), ident("y"))], lit(false)));
+
+// Bug 632056: constant-folding
+program([exprStmt(ident("f")),
+         ifStmt(lit(1),
+                funDecl(ident("f"), [], blockStmt([])),
+                null)]).assert(Reflect.parse("f; if (1) function f(){}"));
+
 // statements
 
 assertStmt("throw 42", throwStmt(lit(42)));
@@ -378,15 +397,15 @@ assertStmt("switch (foo) { case 1: 1; break; case 2: 2; break; default: 3; case 
                         caseClause(lit(42), [ exprStmt(lit(42)) ]) ]));
 assertStmt("try { } catch (e) { }",
            tryStmt(blockStmt([]),
-                   catchClause(ident("e"), null, blockStmt([])),
+                   [ catchClause(ident("e"), null, blockStmt([])) ],
                    null));
 assertStmt("try { } catch (e) { } finally { }",
            tryStmt(blockStmt([]),
-                   catchClause(ident("e"), null, blockStmt([])),
+                   [ catchClause(ident("e"), null, blockStmt([])) ],
                    blockStmt([])));
 assertStmt("try { } finally { }",
            tryStmt(blockStmt([]),
-                   null,
+                   [],
                    blockStmt([])));
 assertStmt("try { } catch (e if foo) { } catch (e if bar) { } finally { }",
            tryStmt(blockStmt([]),
@@ -399,6 +418,17 @@ assertStmt("try { } catch (e if foo) { } catch (e if bar) { } catch (e) { } fina
                      catchClause(ident("e"), ident("bar"), blockStmt([])),
                      catchClause(ident("e"), null, blockStmt([])) ],
                    blockStmt([])));
+
+// Bug 632028: yield outside of a function should throw
+(function() {
+    var threw = false;
+    try {
+        Reflect.parse("yield 0");
+    } catch (expected) {
+        threw = true;
+    }
+    assertEq(threw, true);
+})();
 
 // redeclarations (TOK_NAME nodes with lexdef)
 
@@ -417,6 +447,15 @@ assertStmt("function f() { var x = 42; var x = 43; }",
 
 assertDecl("var {x:y} = foo;", varDecl([{ id: objPatt([{ key: ident("x"), value: ident("y") }]),
                                           init: ident("foo") }]));
+
+// Bug 632030: redeclarations between var and funargs, var and function
+assertStmt("function g(x) { var x }",
+           funDecl(ident("g"), [ident("x")], blockStmt([varDecl[{ id: ident("x"), init: null }]])));
+assertProg("f.p = 1; var f; f.p; function f(){}",
+           [exprStmt(aExpr("=", dotExpr(ident("f"), ident("p")), lit(1))),
+            varDecl([{ id: ident("f"), init: null }]),
+            exprStmt(dotExpr(ident("f"), ident("p"))),
+            funDecl(ident("f"), [], blockStmt([]))]);
 
 // global let is var
 assertGlobalDecl("let {x:y} = foo;", varDecl([{ id: objPatt([{ key: ident("x"), value: ident("y") }]),
@@ -536,7 +575,7 @@ function testVarPatternCombinations(makePattSrc, makePattPatt) {
         assertStmt("for (var " + pattSrcs[i].join(",") + "; foo; bar);",
                    forStmt(varDecl(pattPatts[i]), ident("foo"), ident("bar"), emptyStmt));
         assertStmt("for (let " + pattSrcs[i].join(",") + "; foo; bar);",
-                   forStmt(letDecl(pattPatts[i]), ident("foo"), ident("bar"), emptyStmt));
+                   letStmt(pattPatts[i], forStmt(null, ident("foo"), ident("bar"), emptyStmt)));
         assertStmt("for (const " + pattSrcs[i].join(",") + "; foo; bar);",
                    forStmt(constDecl(pattPatts[i]), ident("foo"), ident("bar"), emptyStmt));
     }
@@ -723,10 +762,6 @@ assertExpr("( [x,y,z] for each (x in foo) for each (y in bar) for each (z in baz
 // NOTE: it would be good to test generator expressions both with and without upvars, just like functions above.
 
 
-// sharp variables
-
-assertExpr("#1={me:#1#}", graphExpr(1, objExpr([{ key: ident("me"), value: idxExpr(1) }])));
-
 // let expressions
 
 assertExpr("(let (x=1) x)", letExpr([{ id: ident("x"), init: lit(1) }], ident("x")));
@@ -774,10 +809,16 @@ assertStmt("let (x = 1, y = x) { }", letStmt([{ id: ident("x"), init: lit(1) },
 assertError("let (x = 1, x = 2) { }", TypeError);
 
 
+// Bug 632024: no crashing on stack overflow
+try {
+    Reflect.parse(Array(3000).join("x + y - ") + "z")
+} catch (e) { }
+
+
 // E4X
 
 assertExpr("x..tagName", binExpr("..", ident("x"), lit("tagName")));
-assertExpr("x.*", dotExpr(ident("x"), xmlAnyName));
+assertExpr("x.*", memExpr(ident("x"), xmlAnyName));
 assertExpr("x[*]", memExpr(ident("x"), xmlAnyName));
 assertExpr("x::y", xmlQualId(ident("x"), ident("y"), false));
 assertExpr("x::[foo]", xmlQualId(ident("x"), ident("foo"), true));
@@ -785,15 +826,15 @@ assertExpr("x::[foo()]", xmlQualId(ident("x"), callExpr(ident("foo"), []), true)
 assertExpr("*::*", xmlQualId(xmlAnyName, ident("*"), false));
 assertExpr("*::[foo]", xmlQualId(xmlAnyName, ident("foo"), true));
 assertExpr("*::[foo()]", xmlQualId(xmlAnyName, callExpr(ident("foo"), []), true));
-assertExpr("x.y::z", dotExpr(ident("x"), xmlQualId(ident("y"), ident("z"), false)));
+assertExpr("x.y::z", memExpr(ident("x"), xmlQualId(ident("y"), ident("z"), false)));
 assertExpr("x[y::z]", memExpr(ident("x"), xmlQualId(ident("y"), ident("z"), false)));
 assertExpr("x[y::[z]]", memExpr(ident("x"), xmlQualId(ident("y"), ident("z"), true)));
 assertExpr("function::x", xmlFuncQualId(ident("x"), false));
 assertExpr("function::[foo]", xmlFuncQualId(ident("foo"), true));
 assertExpr("@foo", xmlAttrSel(ident("foo"), false));
 assertExpr("@[foo]", xmlAttrSel(ident("foo"), true));
-assertExpr("x.@foo", dotExpr(ident("x"), xmlAttrSel(ident("foo"), false)));
-assertExpr("x.@[foo]", dotExpr(ident("x"), xmlAttrSel(ident("foo"), true)));
+assertExpr("x.@foo", memExpr(ident("x"), xmlAttrSel(ident("foo"), false)));
+assertExpr("x.@[foo]", memExpr(ident("x"), xmlAttrSel(ident("foo"), true)));
 assertExpr("x[@foo]", memExpr(ident("x"), xmlAttrSel(ident("foo"), false)));
 assertExpr("x[@[foo]]", memExpr(ident("x"), xmlAttrSel(ident("foo"), true)));
 assertExpr("x.(p)", xmlFilter(ident("x"), ident("p")));
@@ -818,7 +859,7 @@ assertExpr("function::x = foo", aExpr("=", xmlFuncQualId(ident("x"), false), ide
 assertExpr("@x = foo", aExpr("=", xmlAttrSel(ident("x")), ident("foo")));
 assertExpr("x::* = foo", aExpr("=", xmlQualId(ident("x"), ident("*"), false), ident("foo")));
 assertExpr("*::* = foo", aExpr("=", xmlQualId(xmlAnyName, ident("*"), false), ident("foo")));
-assertExpr("x.* = foo", aExpr("=", dotExpr(ident("x"), xmlAnyName), ident("foo")));
+assertExpr("x.* = foo", aExpr("=", memExpr(ident("x"), xmlAnyName), ident("foo")));
 assertExpr("x[*] = foo", aExpr("=", memExpr(ident("x"), xmlAnyName), ident("foo")));
 
 assertExpr("x::y += foo", aExpr("+=", xmlQualId(ident("x"), ident("y"), false), ident("foo")));
@@ -826,7 +867,7 @@ assertExpr("function::x += foo", aExpr("+=", xmlFuncQualId(ident("x"), false), i
 assertExpr("@x += foo", aExpr("+=", xmlAttrSel(ident("x")), ident("foo")));
 assertExpr("x::* += foo", aExpr("+=", xmlQualId(ident("x"), ident("*"), false), ident("foo")));
 assertExpr("*::* += foo", aExpr("+=", xmlQualId(xmlAnyName, ident("*"), false), ident("foo")));
-assertExpr("x.* += foo", aExpr("+=", dotExpr(ident("x"), xmlAnyName), ident("foo")));
+assertExpr("x.* += foo", aExpr("+=", memExpr(ident("x"), xmlAnyName), ident("foo")));
 assertExpr("x[*] += foo", aExpr("+=", memExpr(ident("x"), xmlAnyName), ident("foo")));
 
 assertExpr("x::y++", updExpr("++", xmlQualId(ident("x"), ident("y"), false), false));
@@ -834,7 +875,7 @@ assertExpr("function::x++", updExpr("++", xmlFuncQualId(ident("x"), false), fals
 assertExpr("@x++", updExpr("++", xmlAttrSel(ident("x")), false));
 assertExpr("x::*++", updExpr("++", xmlQualId(ident("x"), ident("*"), false), false));
 assertExpr("*::*++", updExpr("++", xmlQualId(xmlAnyName, ident("*"), false), false));
-assertExpr("x.*++", updExpr("++", dotExpr(ident("x"), xmlAnyName), false));
+assertExpr("x.*++", updExpr("++", memExpr(ident("x"), xmlAnyName), false));
 assertExpr("x[*]++", updExpr("++", memExpr(ident("x"), xmlAnyName), false));
 
 assertExpr("++x::y", updExpr("++", xmlQualId(ident("x"), ident("y"), false), true));
@@ -842,7 +883,7 @@ assertExpr("++function::x", updExpr("++", xmlFuncQualId(ident("x"), false), true
 assertExpr("++@x", updExpr("++", xmlAttrSel(ident("x")), true));
 assertExpr("++x::*", updExpr("++", xmlQualId(ident("x"), ident("*"), false), true));
 assertExpr("++*::*", updExpr("++", xmlQualId(xmlAnyName, ident("*"), false), true));
-assertExpr("++x.*", updExpr("++", dotExpr(ident("x"), xmlAnyName), true));
+assertExpr("++x.*", updExpr("++", memExpr(ident("x"), xmlAnyName), true));
 assertExpr("++x[*]", updExpr("++", memExpr(ident("x"), xmlAnyName), true));
 
 
@@ -855,7 +896,7 @@ assertExpr("({a:function::x}) = foo", aExpr("=", singletonObjPatt("a", xmlFuncQu
 assertExpr("({a:@x}) = foo", aExpr("=", singletonObjPatt("a", xmlAttrSel(ident("x"))), ident("foo")));
 assertExpr("({a:x::*}) = foo", aExpr("=", singletonObjPatt("a", xmlQualId(ident("x"), ident("*"), false)), ident("foo")));
 assertExpr("({a:*::*}) = foo", aExpr("=", singletonObjPatt("a", xmlQualId(xmlAnyName, ident("*"), false)), ident("foo")));
-assertExpr("({a:x.*}) = foo", aExpr("=", singletonObjPatt("a", dotExpr(ident("x"), xmlAnyName)), ident("foo")));
+assertExpr("({a:x.*}) = foo", aExpr("=", singletonObjPatt("a", memExpr(ident("x"), xmlAnyName)), ident("foo")));
 assertExpr("({a:x[*]}) = foo", aExpr("=", singletonObjPatt("a", memExpr(ident("x"), xmlAnyName)), ident("foo")));
 
 function emptyForInPatt(val, rhs) forInStmt(val, rhs, emptyStmt)
@@ -865,7 +906,7 @@ assertStmt("for (function::x in foo);", emptyForInPatt(xmlFuncQualId(ident("x"),
 assertStmt("for (@x in foo);", emptyForInPatt(xmlAttrSel(ident("x")), ident("foo")));
 assertStmt("for (x::* in foo);", emptyForInPatt(xmlQualId(ident("x"), ident("*"), false), ident("foo")));
 assertStmt("for (*::* in foo);", emptyForInPatt(xmlQualId(xmlAnyName, ident("*"), false), ident("foo")));
-assertStmt("for (x.* in foo);", emptyForInPatt(dotExpr(ident("x"), xmlAnyName), ident("foo")));
+assertStmt("for (x.* in foo);", emptyForInPatt(memExpr(ident("x"), xmlAnyName), ident("foo")));
 assertStmt("for (x[*] in foo);", emptyForInPatt(memExpr(ident("x"), xmlAnyName), ident("foo")));
 
 
@@ -961,15 +1002,13 @@ assertGlobalExpr("(function() { })", 11, { functionExpression: function() 11 });
 assertGlobalExpr("[1,2,3]", 12, { arrayExpression: function() 12 });
 assertGlobalExpr("({ x: y })", 13, { objectExpression: function() 13 });
 assertGlobalExpr("this", 14, { thisExpression: function() 14 });
-assertGlobalExpr("#1={ }", 15, { graphExpression: function() 15 });
-assertGlobalExpr("#1={ self: #1# }", graphExpr(1, objExpr([{ key: ident("self"), value: 16 }])), { graphIndexExpression: function() 16 });
 assertGlobalExpr("[x for (x in y)]", 17, { comprehensionExpression: function() 17 });
 assertGlobalExpr("(x for (x in y))", 18, { generatorExpression: function() 18 });
 assertGlobalExpr("(function() { yield 42 })", genFunExpr(null, [], blockStmt([exprStmt(19)])), { yieldExpression: function() 19 });
 assertGlobalExpr("(let (x) x)", 20, { letExpression: function() 20 });
 
 assertGlobalStmt("switch (x) { case y: }", switchStmt(ident("x"), [1]), { switchCase: function() 1 });
-assertGlobalStmt("try { } catch (e) { }", tryStmt(blockStmt([]), 2, null), { catchClause: function() 2 });
+assertGlobalStmt("try { } catch (e) { }", tryStmt(blockStmt([]), [2], null), { catchClause: function() 2 });
 assertGlobalStmt("try { } catch (e if e instanceof A) { } catch (e if e instanceof B) { }",
                  tryStmt(blockStmt([]), [2, 2], null),
                  { catchClause: function() 2 });
@@ -982,7 +1021,7 @@ assertGlobalExpr("[ x ] = y", aExpr("=", 3, ident("y")), { arrayPattern: functio
 assertGlobalExpr("({a:x::y}) = foo", aExpr("=", singletonObjPatt("a", 1), ident("foo")), { xmlQualifiedIdentifier: function() 1 });
 assertGlobalExpr("({a:function::x}) = foo", aExpr("=", singletonObjPatt("a", 2), ident("foo")), { xmlFunctionQualifiedIdentifier: function() 2 });
 assertGlobalExpr("({a:@x}) = foo", aExpr("=", singletonObjPatt("a", 3), ident("foo")), { xmlAttributeSelector: function() 3 });
-assertGlobalExpr("({a:x.*}) = foo", aExpr("=", singletonObjPatt("a", dotExpr(ident("x"), 4)), ident("foo")), { xmlAnyName: function() 4 });
+assertGlobalExpr("({a:x.*}) = foo", aExpr("=", singletonObjPatt("a", memExpr(ident("x"), 4)), ident("foo")), { xmlAnyName: function() 4 });
 
 assertGlobalExpr("(<x> </x>)()", callExpr(xmlElt([5, xmlText(" "), xmlEndTag([xmlName("x")])]), []), { xmlStartTag: function() 5 });
 assertGlobalExpr("(<x> </x>)()", callExpr(xmlElt([xmlStartTag([6]), xmlText(" "), xmlEndTag([6])]), []), { xmlName: function() 6 });
@@ -1001,6 +1040,12 @@ try {
 }
 if (!thrown)
     throw new Error("builder exception not propagated");
+
+// Missing property RHS's in an object literal should throw.
+try {
+    Reflect.parse("({foo})");
+    throw new Error("object literal missing property RHS didn't throw");
+} catch (e if e instanceof SyntaxError) { }
 
 
 // A simple proof-of-concept that the builder API can be used to generate other

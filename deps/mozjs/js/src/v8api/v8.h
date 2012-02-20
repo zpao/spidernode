@@ -2,9 +2,8 @@
 #define v8_v8_h__
 
 #include "jsapi.h"
+#include "jscell.h"
 #include "jsxdrapi.h"
-#include "jstl.h"
-#include "jshashtable.h"
 #include "jsutil.h"
 
 namespace v8 {
@@ -58,7 +57,7 @@ void notImplemented(const char* functionName);
 class GCReference {
   friend struct GCOps;
   friend struct PersistentGCReference;
-
+  
   void root(JSContext *ctx) {
     JS_AddValueRoot(ctx, &mVal);
   }
@@ -69,12 +68,8 @@ class GCReference {
 protected:
   jsval mVal;
 public:
-  GCReference(jsval val) :
-    mVal(val)
-  {}
-  GCReference() :
-    mVal(JSVAL_VOID)
-  {}
+  GCReference(jsval val) : mVal(val) {}
+  GCReference() : mVal(JSVAL_VOID) {}
   jsval &native() {
     return mVal;
   }
@@ -130,8 +125,8 @@ struct JSIDHashPolicy
   typedef jsid Key;
   typedef Key Lookup;
 
-  static uint32 hash(const Lookup &l) {
-    return *reinterpret_cast<const uint32*>(&l);
+  static uint32_t hash(const Lookup &l) {
+    return *reinterpret_cast<const uint32_t*>(&l);
   }
 
   static JSBool match(const Key &k, const Lookup &l) {
@@ -392,7 +387,6 @@ class TryCatch {
   static void ReportError(JSContext *ctx, const char *message, JSErrorReport *report);
   static void CheckForException();
 
-  bool mHasCaught;
   bool mCaptureMessage;
   bool mRethrown;
   Persistent<Value> mException;
@@ -407,7 +401,7 @@ public:
   ~TryCatch();
 
   bool HasCaught() const {
-    return mHasCaught;
+    return !mException.IsEmpty();
   }
   bool CanContinue() const {
     return true;
@@ -472,23 +466,37 @@ public:
   void set_max_old_space_size(int value) { mMaxOldSpaceSize = value; }
   int max_executable_size() { return mMaxExecutableSize; }
   void set_max_executable_size(int value) { mMaxExecutableSize = value; }
-  JSUint32* stack_limit() const { return mStackLimit; }
-  void set_stack_limit(JSUint32* value) { mStackLimit = value; }
+  uint32_t* stack_limit() const { return mStackLimit; }
+  void set_stack_limit(uint32_t* value) { mStackLimit = value; }
 private:
   int mMaxYoungSpaceSize;
   int mMaxOldSpaceSize;
   int mMaxExecutableSize;
-  JSUint32* mStackLimit;
+  uint32_t* mStackLimit;
 };
 bool SetResourceConstraints(ResourceConstraints *constraints);
 
 class HeapStatistics {
  public:
-  HeapStatistics() {}
-  size_t total_heap_size() { UNIMPLEMENTEDAPI(0); }
-  size_t total_heap_size_executable() { UNIMPLEMENTEDAPI(0); }
-  size_t used_heap_size() { UNIMPLEMENTEDAPI(0); }
-  size_t heap_size_limit() { UNIMPLEMENTEDAPI(0); }
+  HeapStatistics();
+  size_t total_heap_size() { UNIMPLEMENTEDAPI(total_heap_size_); }
+  size_t total_heap_size_executable() { UNIMPLEMENTEDAPI(total_heap_size_executable_); }
+  size_t used_heap_size() { return used_heap_size_; }
+  size_t heap_size_limit() { return heap_size_limit_; }
+ private:
+  void set_total_heap_size(size_t size) { total_heap_size_ = size; }
+  void set_total_heap_size_executable(size_t size) {
+    total_heap_size_executable_ = size;
+  }
+  void set_used_heap_size(size_t size) { used_heap_size_ = size; }
+  void set_heap_size_limit(size_t size) { heap_size_limit_ = size; }
+
+  size_t total_heap_size_;
+  size_t total_heap_size_executable_;
+  size_t used_heap_size_;
+  size_t heap_size_limit_;
+
+  friend class V8;
 };
 
 class Data : public internal::GCReference {
@@ -520,6 +528,8 @@ public:
     UNIMPLEMENTEDAPI(false);
   }
 
+  Local<Uint32> ToArrayIndex() const;
+
   Local<Boolean> ToBoolean() const;
   Local<Number> ToNumber() const;
   Local<String> ToString() const;
@@ -529,10 +539,11 @@ public:
   Local<Integer> ToInteger() const;
   bool BooleanValue() const;
   double NumberValue() const;
-  JSInt64 IntegerValue() const;
-  JSUint32 Uint32Value() const;
-  JSInt32 Int32Value() const;
-
+  int64_t IntegerValue() const;
+  uint32_t Uint32Value() const;
+  int32_t Int32Value() const;
+  
+  jsval &native() { return mVal; }
   bool Equals(Handle<Value> other) const;
   bool StrictEquals(Handle<Value> other) const;
 };
@@ -568,12 +579,12 @@ class Integer : public Number {
 protected:
   Integer(jsval v) : Number(v) { }
 public:
-  static Local<Integer> New(JSInt32 value);
-  static Local<Integer> NewFromUnsigned(JSUint32 value);
-  JSInt64 Value() const;
+  static Local<Integer> New(int32_t value);
+  static Local<Integer> NewFromUnsigned(uint32_t value);
+  int64_t Value() const;
   // XXX Cast is inline in V8
   static Integer* Cast(v8::Value* obj) {
-    // TODO: check for uint32
+    // TODO: check for uint32_t
     if (obj->IsInt32()) {
       return reinterpret_cast<Integer*>(obj);
     }
@@ -583,16 +594,16 @@ public:
 
 class Int32 : public Integer {
   friend class Value;
-  Int32(JSInt32 i) : Integer(INT_TO_JSVAL(i)) { }
+  Int32(int32_t i) : Integer(INT_TO_JSVAL(i)) { }
 public:
-  JSInt32 Value();
+  int32_t Value();
 };
 
 class Uint32 : public Integer {
   friend class Value;
-  Uint32(JSUint32 i) : Integer(UINT_TO_JSVAL(i)) { }
+  Uint32(uint32_t i) : Integer(UINT_TO_JSVAL(i)) { }
 public:
-  JSUint32 Value();
+  uint32_t Value();
 };
 
 class Date : public Value {
@@ -647,7 +658,7 @@ public:
     NO_HINTS = 0,
     HINT_MANY_WRITES_EXPECTED = 1
   };
-  int Write(JSUint16* buffer,
+  int Write(uint16_t* buffer,
             int start = 0,
             int length = -1,
             WriteHints hints = NO_HINTS) const;
@@ -699,7 +710,7 @@ public:
   class ExternalStringResource : public ExternalStringResourceBase {
   public:
     virtual ~ExternalStringResource() {}
-    virtual const JSUint16* data() const = 0;
+    virtual const uint16_t* data() const = 0;
     virtual size_t length() const = 0;
   protected:
     ExternalStringResource() {}
@@ -729,7 +740,7 @@ public:
   }
 
   static Local<String> New(const char *data, int length = -1);
-  static Local<String> New(const JSUint16* data, int length = -1);
+  static Local<String> New(const uint16_t* data, int length = -1);
   static Local<String> NewSymbol(const char* data, int length = -1);
   static Local<String> Concat(Handle<String> left, Handle<String> right);
   static Local<String> FromJSID(jsid id);
@@ -796,14 +807,14 @@ protected:
 public:
   operator JSObject *() const { return JSVAL_TO_OBJECT(mVal); }
   bool Set(Handle<Value> key, Handle<Value> value, PropertyAttribute attribs = None);
-  bool Set(JSUint32 index, Handle<Value> value);
+  bool Set(uint32_t index, Handle<Value> value);
   bool ForceSet(Handle<Value> key, Handle<Value> value, PropertyAttribute attrib = None);
   Local<Value> Get(Handle<Value> key);
-  Local<Value> Get(JSUint32 index);
+  Local<Value> Get(uint32_t index);
   bool Has(Handle<String> key);
-  bool Has(JSUint32 index);
+  bool Has(uint32_t index);
   bool Delete(Handle<String> key);
-  bool Delete(JSUint32 index);
+  bool Delete(uint32_t index);
   bool ForceDelete(Handle<String> key);
   bool SetAccessor(Handle<String> name, AccessorGetter getter, AccessorSetter setter = 0, Handle<Value> data = Handle<Value>(), AccessControl settings = DEFAULT, PropertyAttribute attribs = None);
   Local<Array> GetPropertyNames();
@@ -818,7 +829,7 @@ public:
   void* GetPointerFromInternalField(int index);
   void SetPointerInInternalField(int index, void* value);
   bool HasRealNamedProperty(Handle<String> key);
-  bool HasRealIndexedProperty(JSUint32 index);
+  bool HasRealIndexedProperty(uint32_t index);
   bool HasRealNamedCallbackProperty(Handle<String> key);
   Local<Value> GetRealNamedPropertyInPrototypeChain(Handle<String> key);
   Local<Value> GetRealNamedProperty(Handle<String> key);
@@ -831,9 +842,9 @@ public:
   bool DeleteHiddenValue(Handle<String> key);
   bool IsDirty();
   Local<Object> Clone();
-  void SetIndexedPropertiesToPixelData(JSUint8* data, int length);
+  void SetIndexedPropertiesToPixelData(uint8_t* data, int length);
   bool HasIndexedPropertiesInPixelData();
-  JSUint8* GetIndexedPropertiesPixelData();
+  uint8_t* GetIndexedPropertiesPixelData();
   int GetIndexedPropertiesPixelDataLength();
   void SetIndexedPropertiesToExternalArrayData(
       void* data,
@@ -858,8 +869,8 @@ class Array : public Object {
     Object(obj)
   {}
  public:
-  JSUint32 Length() const;
-  Local<Object> CloneElementAt(JSUint32 index);
+  uint32_t Length() const;
+  Local<Object> CloneElementAt(uint32_t index);
 
   static Local<Array> New(int length = 0);
   static inline Array* Cast(Value* obj) {
@@ -916,17 +927,18 @@ public:
 };
 
 class ScriptData {
-  JS_DECLARE_ALLOCATION_FRIENDS_FOR_PRIVATE_CONSTRUCTOR;
+public:
   ScriptData() : mXdr(NULL), mData(NULL), mLen(0), mError(true) {}
 
-  void SerializeScriptObject(JSObject *scriptObj);
-  JSObject* GenerateScriptObject(void *data, int len);
+protected:
+  void SerializeScript(JSScript *script);
+  JSScript* GenerateScript(void *data, int len);
 
   JSXDRState *mXdr;
   const char *mData;
-  uint32      mLen;
+  uint32_t      mLen;
   bool        mError;
-  JSObject   *mScript;
+  JSScript   *mScript;
 public:
   ~ScriptData();
   static ScriptData* PreCompile(const char* input, int length);
@@ -936,17 +948,18 @@ public:
   const char* Data();
   bool HasError();
 protected:
-  JSObject* ScriptObject();
+  JSScript* Script();
 
   friend class Script;
 };
 
-class Script : public internal::GCReference {
-  Script(JSObject *s);
-
-  operator JSObject *();
-  Handle<Object> InternalObject();
-
+class Script : public v8::Object {
+  Script(JSObject *s) : v8::Object(s) {};
+  
+  operator JSScript *() {
+    return reinterpret_cast<JSScript *>(JS_GetPrivate(*this));
+  }
+  
   static Local<Script> Create(Handle<String> source, ScriptOrigin *origin, ScriptData *preData, Handle<String> scriptData, bool bindToCurrentContext);
 public:
   static Local<Script> New(Handle<String> source, ScriptOrigin *origin = NULL,
@@ -1010,19 +1023,18 @@ public:
 
 class AccessorInfo {
   friend class Object;
-  AccessorInfo(Handle<Value> data, JSObject *obj);
+  AccessorInfo(Handle<Value> data, JSObject* obj, JSObject* holder);
 
   Handle<Value> mData;
   JSObject* mObj;
+  JSObject* mHolder;
 public:
-  static const AccessorInfo MakeAccessorInfo(Handle<Value> data, JSObject* obj);
+  static const AccessorInfo MakeAccessorInfo(Handle<Value> data, JSObject* obj, JSObject* holder = NULL);
   Local<Value> Data() const {
     return Local<Value>::New(mData);
   }
   Local<Object> This() const;
-  Local<Object> Holder() const {
-    UNIMPLEMENTEDAPI(Local<Object>());
-  }
+  Local<Object> Holder() const;
 };
 
 typedef Handle<Value> (*InvocationCallback)(const Arguments &args);
@@ -1032,10 +1044,10 @@ typedef Handle<Integer> (*NamedPropertyQuery)(Local<String> property, const Acce
 typedef Handle<Boolean> (*NamedPropertyDeleter)(Local<String> property, const AccessorInfo &info);
 typedef Handle<Array> (*NamedPropertyEnumerator)(const AccessorInfo &info);
 
-typedef Handle<Value> (*IndexedPropertyGetter)(JSUint32 index, const AccessorInfo &info);
-typedef Handle<Value> (*IndexedPropertySetter)(JSUint32 index, Local<Value> value, const AccessorInfo &info);
-typedef Handle<Integer> (*IndexedPropertyQuery)(JSUint32 index, const AccessorInfo &info);
-typedef Handle<Boolean> (*IndexedPropertyDeleter)(JSUint32 index, const AccessorInfo &info);
+typedef Handle<Value> (*IndexedPropertyGetter)(uint32_t index, const AccessorInfo &info);
+typedef Handle<Value> (*IndexedPropertySetter)(uint32_t index, Local<Value> value, const AccessorInfo &info);
+typedef Handle<Integer> (*IndexedPropertyQuery)(uint32_t index, const AccessorInfo &info);
+typedef Handle<Boolean> (*IndexedPropertyDeleter)(uint32_t index, const AccessorInfo &info);
 typedef Handle<Array> (*IndexedPropertyEnumerator)(const AccessorInfo &info);
 
 enum AccessType {
@@ -1047,15 +1059,13 @@ enum AccessType {
 };
 
 typedef bool (*NamedSecurityCallback)(Local<Object> host, Local<Value> key, AccessType type, Local<Value> data);
-typedef bool (*IndexedSecurityCallback)(Local<Object> host, JSUint32 index, AccessType type, Local<Value> data);
+typedef bool (*IndexedSecurityCallback)(Local<Object> host, uint32_t index, AccessType type, Local<Value> data);
 
 class FunctionTemplate : public Template {
   FunctionTemplate();
 
-  static JSClass sFunctionTemplateClass;
   static JSBool CallCallback(JSContext *cx, uintN argc, jsval *vp);
 
-  static bool IsFunctionTemplate(Handle<Value> v);
   friend class ObjectTemplate;
 public:
   static Local<FunctionTemplate> New(InvocationCallback callback = 0, Handle<Value> data = Handle<Value>(), Handle<Signature> signature = Handle<Signature>());
@@ -1072,8 +1082,8 @@ public:
 class ObjectTemplate : public Template {
   ObjectTemplate();
 
-  static bool IsObjectTemplate(Handle<Value> v);
   void SetPrototype(Handle<ObjectTemplate> o);
+  void SetObjectName(Handle<String> s);
   friend class FunctionTemplate;
 public:
   static Local<ObjectTemplate> New();
