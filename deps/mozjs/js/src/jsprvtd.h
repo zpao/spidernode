@@ -54,9 +54,13 @@
  * make dependency induced by this file should not prove painful.
  */
 
-#include "jspubtd.h"
-#include "jsstaticcheck.h"
+#include "jsapi.h"
 #include "jsutil.h"
+
+#ifdef __cplusplus
+#include "js/HashTable.h"
+#include "js/Vector.h"
+#endif
 
 JS_BEGIN_EXTERN_C
 
@@ -71,41 +75,27 @@ static const uintN JS_GCTHING_ALIGN = 8;
 static const uintN JS_GCTHING_ZEROBITS = 3;
 
 /* Scalar typedefs. */
-typedef uint8  jsbytecode;
-typedef uint8  jssrcnote;
-typedef uint32 jsatomid;
+typedef uint8_t     jsbytecode;
+typedef uint8_t     jssrcnote;
+typedef uintptr_t   jsatomid;
 
 /* Struct typedefs. */
 typedef struct JSArgumentFormatMap  JSArgumentFormatMap;
-typedef struct JSCodeGenerator      JSCodeGenerator;
 typedef struct JSGCThing            JSGCThing;
 typedef struct JSGenerator          JSGenerator;
 typedef struct JSNativeEnumerator   JSNativeEnumerator;
-typedef struct JSFunctionBox        JSFunctionBox;
-typedef struct JSObjectBox          JSObjectBox;
-typedef struct JSParseNode          JSParseNode;
 typedef struct JSProperty           JSProperty;
-typedef struct JSScript             JSScript;
 typedef struct JSSharpObjectMap     JSSharpObjectMap;
-typedef struct JSThread             JSThread;
-typedef struct JSTreeContext        JSTreeContext;
 typedef struct JSTryNote            JSTryNote;
 
 /* Friend "Advanced API" typedefs. */
-typedef struct JSAtomList           JSAtomList;
-typedef struct JSAtomListElement    JSAtomListElement;
-typedef struct JSAtomMap            JSAtomMap;
 typedef struct JSAtomState          JSAtomState;
 typedef struct JSCodeSpec           JSCodeSpec;
 typedef struct JSPrinter            JSPrinter;
-typedef struct JSRegExpStatics      JSRegExpStatics;
 typedef struct JSStackHeader        JSStackHeader;
 typedef struct JSSubString          JSSubString;
-typedef struct JSNativeTraceInfo    JSNativeTraceInfo;
 typedef struct JSSpecializedNative  JSSpecializedNative;
 typedef struct JSXML                JSXML;
-typedef struct JSXMLArray           JSXMLArray;
-typedef struct JSXMLArrayCursor     JSXMLArrayCursor;
 
 /*
  * Template declarations.
@@ -126,21 +116,42 @@ class JSFixedString;
 class JSStaticAtom;
 class JSRope;
 class JSAtom;
+class JSWrapper;
 
 namespace js {
 
 struct ArgumentsData;
+struct Class;
 
-class RegExp;
+class RegExpObject;
+class RegExpObjectBuilder;
+class RegExpShared;
 class RegExpStatics;
-class AutoStringRooter;
+class MatchPairs;
+
+namespace detail { class RegExpCode; }
+
+enum RegExpFlag
+{
+    IgnoreCaseFlag  = 0x01,
+    GlobalFlag      = 0x02,
+    MultilineFlag   = 0x04,
+    StickyFlag      = 0x08,
+
+    NoFlags         = 0x00,
+    AllFlags        = 0x0f
+};
+
+enum RegExpExecType
+{
+    RegExpExec,
+    RegExpTest
+};
+
 class ExecuteArgsGuard;
 class InvokeFrameGuard;
 class InvokeArgsGuard;
-class InvokeSessionGuard;
 class StringBuffer;
-class TraceRecorder;
-struct TraceMonitor;
 
 class FrameRegs;
 class StackFrame;
@@ -151,43 +162,172 @@ class FrameRegsIter;
 class CallReceiver;
 class CallArgs;
 
-struct Compiler;
+struct BytecodeEmitter;
+struct Definition;
+struct FunctionBox;
+struct ObjectBox;
+struct ParseNode;
 struct Parser;
 class TokenStream;
 struct Token;
 struct TokenPos;
 struct TokenPtr;
+struct TreeContext;
+class UpvarCookie;
 
-class ContextAllocPolicy;
-class SystemAllocPolicy;
+class Proxy;
+class ProxyHandler;
+class Wrapper;
+class CrossCompartmentWrapper;
 
-template <class T,
-          size_t MinInlineCapacity = 0,
-          class AllocPolicy = ContextAllocPolicy>
-class Vector;
+class TempAllocPolicy;
+class RuntimeAllocPolicy;
 
-template <class>
-struct DefaultHasher;
+class GlobalObject;
 
-template <class Key,
-          class Value,
-          class HashPolicy = DefaultHasher<Key>,
-          class AllocPolicy = ContextAllocPolicy>
-class HashMap;
+template <typename K,
+          typename V,
+          size_t InlineElems>
+class InlineMap;
 
-template <class T,
-          class HashPolicy = DefaultHasher<T>,
-          class AllocPolicy = ContextAllocPolicy>
-class HashSet;
+class LifoAlloc;
 
-class PropertyCache;
-struct PropertyCacheEntry;
-
+class BaseShape;
+class UnownedBaseShape;
 struct Shape;
 struct EmptyShape;
+class ShapeKindArray;
 class Bindings;
 
+struct StackBaseShape;
+struct StackShape;
+
+class MultiDeclRange;
+class ParseMapPool;
+class DefnOrHeader;
+typedef InlineMap<JSAtom *, Definition *, 24> AtomDefnMap;
+typedef InlineMap<JSAtom *, jsatomid, 24> AtomIndexMap;
+typedef InlineMap<JSAtom *, DefnOrHeader, 24> AtomDOHMap;
+typedef Vector<UpvarCookie, 8> UpvarCookies;
+
+class Breakpoint;
+class BreakpointSite;
+class Debugger;
+class WatchpointMap;
+
+/*
+ * Env is the type of what ES5 calls "lexical environments" (runtime
+ * activations of lexical scopes). This is currently just JSObject, and is
+ * implemented by Call, Block, With, and DeclEnv objects, among others--but
+ * environments and objects are really two different concepts.
+ */
+typedef JSObject Env;
+
+typedef JSNative             Native;
+typedef JSPropertyOp         PropertyOp;
+typedef JSStrictPropertyOp   StrictPropertyOp;
+typedef JSPropertyDescriptor PropertyDescriptor;
+
+namespace analyze {
+
+struct LifetimeVariable;
+class LoopAnalysis;
+class ScriptAnalysis;
+class SlotValue;
+class SSAValue;
+class SSAUseChain;
+
+} /* namespace analyze */
+
+namespace types {
+
+class TypeSet;
+struct TypeCallsite;
+struct TypeObject;
+struct TypeCompartment;
+
+} /* namespace types */
+
+enum ThingRootKind
+{
+    THING_ROOT_OBJECT,
+    THING_ROOT_SHAPE,
+    THING_ROOT_BASE_SHAPE,
+    THING_ROOT_TYPE_OBJECT,
+    THING_ROOT_STRING,
+    THING_ROOT_SCRIPT,
+    THING_ROOT_ID,
+    THING_ROOT_VALUE,
+    THING_ROOT_LIMIT
+};
+
+template <typename T> class Root;
+template <typename T> class RootedVar;
+
+template <typename T>
+struct RootMethods { };
+
+/*
+ * Reference to a stack location rooted for GC. See "Moving GC Stack Rooting"
+ * comment in jscntxt.h.
+ */
+template <typename T>
+class Handle
+{
+  public:
+    /* Copy handles of different types, with implicit coercion. */
+    template <typename S> Handle(Handle<S> handle) {
+        testAssign<S>();
+        ptr = reinterpret_cast<const T *>(handle.address());
+    }
+
+    /* Get a handle from a rooted stack location, with implicit coercion. */
+    template <typename S> inline Handle(const Root<S> &root);
+    template <typename S> inline Handle(const RootedVar<S> &root);
+
+    const T *address() { return ptr; }
+
+    operator T () { return value(); }
+    T operator ->() { return value(); }
+
+  private:
+    const T *ptr;
+    T value() { return *ptr; }
+
+    template <typename S>
+    void testAssign() {
+#ifdef DEBUG
+        T a = RootMethods<T>::initial();
+        S b = RootMethods<S>::initial();
+        a = b;
+        (void)a;
+#endif
+    }
+};
+
+typedef Handle<JSObject*>          HandleObject;
+typedef Handle<JSFunction*>        HandleFunction;
+typedef Handle<Shape*>             HandleShape;
+typedef Handle<BaseShape*>         HandleBaseShape;
+typedef Handle<types::TypeObject*> HandleTypeObject;
+typedef Handle<JSString*>          HandleString;
+typedef Handle<JSAtom*>            HandleAtom;
+typedef Handle<jsid>               HandleId;
+typedef Handle<Value>              HandleValue;
+
 } /* namespace js */
+
+namespace JSC {
+
+class ExecutableAllocator;
+
+} /* namespace JSC */
+
+namespace WTF {
+
+class BumpPointerAllocator;
+
+} /* namespace WTF */
 
 } /* export "C++" */
 
@@ -242,7 +382,7 @@ typedef void
                         void      *callerdata);
 
 typedef void
-(* JSSourceHandler)(const char *filename, uintN lineno, jschar *str,
+(* JSSourceHandler)(const char *filename, uintN lineno, const jschar *str,
                     size_t length, void **listenerTSData, void *closure);
 
 /*
@@ -311,11 +451,6 @@ typedef struct JSDebugHooks {
  * If JSLookupPropOp succeeds and returns with *propp non-null, that pointer
  * may be passed as the prop parameter to a JSAttributesOp, as a short-cut
  * that bypasses id re-lookup.
- *
- * NB: successful return with non-null *propp means the implementation may
- * have locked *objp and added a reference count associated with *propp, so
- * callers should not risk deadlock by nesting or interleaving other lookups
- * or any obj-bearing ops before dropping *propp.
  */
 typedef JSBool
 (* JSLookupPropOp)(JSContext *cx, JSObject *obj, jsid id, JSObject **objp,
@@ -351,13 +486,6 @@ typedef JSObject *
 #else
 extern JSBool js_CStringsAreUTF8;
 #endif
-
-/*
- * Hack to expose obj->getOps()->outer to the C implementation of the debugger
- * interface.
- */
-extern JS_FRIEND_API(JSObject *)
-js_ObjectToOuterObject(JSContext *cx, JSObject *obj);
 
 JS_END_EXTERN_C
 

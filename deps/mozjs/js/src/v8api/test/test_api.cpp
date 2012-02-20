@@ -34,11 +34,6 @@
 #include "v8api_test_harness.h"
 #include "v8api_test_checks.h"
 
-typedef JSUint16 uint16_t;
-typedef JSInt32 int32_t;
-typedef JSUint32 uint32_t;
-typedef JSInt64 int64_t;
-
 ////////////////////////////////////////////////////////////////////////////////
 //// Fake Internal Namespace
 namespace v8 {
@@ -637,6 +632,23 @@ v8::Handle<v8::Array> CheckThisNamedPropertyEnumerator(
   return v8::Handle<v8::Array>();
 }
 
+static v8::Handle<Value> handle_call(const v8::Arguments& args) {
+  ApiTestFuzzer::Fuzz();
+  return v8_num(102);
+}
+
+static v8::Handle<Value> construct_call(const v8::Arguments& args) {
+  ApiTestFuzzer::Fuzz();
+  args.This()->Set(v8_str("x"), v8_num(1));
+  args.This()->Set(v8_str("y"), v8_num(2));
+  return args.This();
+}
+
+static v8::Handle<Value> Return239(Local<String> name, const AccessorInfo&) {
+  ApiTestFuzzer::Fuzz();
+  return v8_num(239);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //// Tests
 
@@ -670,12 +682,112 @@ test_Handles()
 // from test-api.cc:150
 void
 test_ReceiverSignature()
-{ }
+{
+  v8::HandleScope scope;
+  LocalContext env;
+  v8::Handle<v8::FunctionTemplate> fun = v8::FunctionTemplate::New();
+  v8::Handle<v8::Signature> sig = v8::Signature::New(fun);
+  fun->PrototypeTemplate()->Set(
+      v8_str("m"),
+      v8::FunctionTemplate::New(IncrementingSignatureCallback,
+                                v8::Handle<Value>(),
+                                sig));
+  env->Global()->Set(v8_str("Fun"), fun->GetFunction());
+  signature_callback_count = 0;
+  CompileRun(
+      "var o = new Fun();"
+      "o.m();");
+  CHECK_EQ(1, signature_callback_count);
+  v8::Handle<v8::FunctionTemplate> sub_fun = v8::FunctionTemplate::New();
+  sub_fun->Inherit(fun);
+  env->Global()->Set(v8_str("SubFun"), sub_fun->GetFunction());
+  CompileRun(
+      "var o = new SubFun();"
+      "o.m();");
+  CHECK_EQ(2, signature_callback_count);
+
+  v8::TryCatch try_catch;
+  CompileRun(
+      "var o = { };"
+      "o.m = Fun.prototype.m;"
+      "o.m();");
+  CHECK_EQ(2, signature_callback_count);
+  CHECK(try_catch.HasCaught());
+  try_catch.Reset();
+  v8::Handle<v8::FunctionTemplate> unrel_fun = v8::FunctionTemplate::New();
+  sub_fun->Inherit(fun);
+  env->Global()->Set(v8_str("UnrelFun"), unrel_fun->GetFunction());
+  CompileRun(
+      "var o = new UnrelFun();"
+      "o.m = Fun.prototype.m;"
+      "o.m();");
+  CHECK_EQ(2, signature_callback_count);
+  CHECK(try_catch.HasCaught());
+}
 
 // from test-api.cc:196
 void
 test_ArgumentSignature()
-{ }
+{
+  v8::HandleScope scope;
+  LocalContext env;
+  v8::Handle<v8::FunctionTemplate> cons = v8::FunctionTemplate::New();
+  cons->SetClassName(v8_str("Cons"));
+  v8::Handle<v8::Signature> sig =
+      v8::Signature::New(v8::Handle<v8::FunctionTemplate>(), 1, &cons);
+  v8::Handle<v8::FunctionTemplate> fun =
+      v8::FunctionTemplate::New(SignatureCallback, v8::Handle<Value>(), sig);
+  env->Global()->Set(v8_str("Cons"), cons->GetFunction());
+  env->Global()->Set(v8_str("Fun1"), fun->GetFunction());
+
+  v8::Handle<Value> value1 = CompileRun("Fun1(4) == '';");
+  CHECK(value1->IsTrue());
+
+  v8::Handle<Value> value2 = CompileRun("Fun1(new Cons()) == '[object Cons]';");
+  CHECK(value2->IsTrue());
+
+  v8::Handle<Value> value3 = CompileRun("Fun1() == '';");
+  CHECK(value3->IsTrue());
+
+  v8::Handle<v8::FunctionTemplate> cons1 = v8::FunctionTemplate::New();
+  cons1->SetClassName(v8_str("Cons1"));
+  v8::Handle<v8::FunctionTemplate> cons2 = v8::FunctionTemplate::New();
+  cons2->SetClassName(v8_str("Cons2"));
+  v8::Handle<v8::FunctionTemplate> cons3 = v8::FunctionTemplate::New();
+  cons3->SetClassName(v8_str("Cons3"));
+
+  v8::Handle<v8::FunctionTemplate> args[3] = { cons1, cons2, cons3 };
+  v8::Handle<v8::Signature> wsig =
+      v8::Signature::New(v8::Handle<v8::FunctionTemplate>(), 3, args);
+  v8::Handle<v8::FunctionTemplate> fun2 =
+      v8::FunctionTemplate::New(SignatureCallback, v8::Handle<Value>(), wsig);
+
+  env->Global()->Set(v8_str("Cons1"), cons1->GetFunction());
+  env->Global()->Set(v8_str("Cons2"), cons2->GetFunction());
+  env->Global()->Set(v8_str("Cons3"), cons3->GetFunction());
+  env->Global()->Set(v8_str("Fun2"), fun2->GetFunction());
+  v8::Handle<Value> value4 = CompileRun(
+      "Fun2(new Cons1(), new Cons2(), new Cons3()) =="
+      "'[object Cons1],[object Cons2],[object Cons3]'");
+  CHECK(value4->IsTrue());
+
+  v8::Handle<Value> value5 = CompileRun(
+      "Fun2(new Cons1(), new Cons2(), 5) == '[object Cons1],[object Cons2],'");
+  CHECK(value5->IsTrue());
+
+  v8::Handle<Value> value6 = CompileRun(
+      "Fun2(new Cons3(), new Cons2(), new Cons1()) == ',[object Cons2],'");
+  CHECK(value6->IsTrue());
+
+  v8::Handle<Value> value7 = CompileRun(
+      "Fun2(new Cons1(), new Cons2(), new Cons3(), 'd') == "
+      "'[object Cons1],[object Cons2],[object Cons3],d';");
+  CHECK(value7->IsTrue());
+
+  v8::Handle<Value> value8 = CompileRun(
+      "Fun2(new Cons1(), new Cons2()) == '[object Cons1],[object Cons2]'");
+  CHECK(value8->IsTrue());
+}
 
 // from test-api.cc:258
 void
@@ -816,7 +928,45 @@ test_GlobalProperties()
 // from test-api.cc:776
 void
 test_FunctionTemplate()
-{ }
+{
+  v8::HandleScope scope;
+  LocalContext env;
+  {
+    Local<v8::FunctionTemplate> fun_templ =
+        v8::FunctionTemplate::New(handle_call);
+    Local<Function> fun = fun_templ->GetFunction();
+    env->Global()->Set(v8_str("obj"), fun);
+    Local<Script> script = v8_compile("obj()");
+    CHECK_EQ(102, script->Run()->Int32Value());
+  }
+  // Use SetCallHandler to initialize a function template, should work like the
+  // previous one.
+  {
+    Local<v8::FunctionTemplate> fun_templ = v8::FunctionTemplate::New();
+    fun_templ->SetCallHandler(handle_call);
+    Local<Function> fun = fun_templ->GetFunction();
+    env->Global()->Set(v8_str("obj"), fun);
+    Local<Script> script = v8_compile("obj()");
+    CHECK_EQ(102, script->Run()->Int32Value());
+  }
+  // Test constructor calls.
+  {
+    Local<v8::FunctionTemplate> fun_templ =
+        v8::FunctionTemplate::New(construct_call);
+    fun_templ->SetClassName(v8_str("funky"));
+    fun_templ->InstanceTemplate()->SetAccessor(v8_str("m"), Return239);
+    Local<Function> fun = fun_templ->GetFunction();
+    env->Global()->Set(v8_str("obj"), fun);
+    Local<Script> script = v8_compile("var s = new obj(); s.x");
+    CHECK_EQ(1, script->Run()->Int32Value());
+
+    Local<Value> result = v8_compile("(new obj()).toString()")->Run();
+    CHECK_EQ(v8_str("[object funky]"), result);
+
+    result = v8_compile("(new obj()).m")->Run();
+    CHECK_EQ(239, result->Int32Value());
+  }
+}
 
 // from test-api.cc:844
 void
@@ -1696,10 +1846,39 @@ void
 test_ExceptionOrder()
 { }
 
+v8::Handle<Value> ThrowValue(const v8::Arguments& args) {
+  ApiTestFuzzer::Fuzz();
+  CHECK_EQ(1, args.Length());
+  return v8::ThrowException(args[0]);
+}
+
 // from test-api.cc:2642
 void
 test_ThrowValues()
-{ }
+{
+  v8::HandleScope scope;
+  Local<ObjectTemplate> templ = ObjectTemplate::New();
+  templ->Set(v8_str("Throw"), v8::FunctionTemplate::New(ThrowValue));
+  LocalContext context(0, templ);
+  v8::Handle<v8::Array> result = v8::Handle<v8::Array>::Cast(CompileRun(
+    "function Run(obj) {"
+    "  try {"
+    "    Throw(obj);"
+    "  } catch (e) {"
+    "    return e;"
+    "  }"
+    "  return 'no exception';"
+    "}"
+    "[Run('str'), Run(1), Run(0), Run(null), Run(void 0)];"));
+  CHECK_EQ(5, result->Length());
+  CHECK(result->Get(v8::Integer::New(0))->IsString());
+  CHECK(result->Get(v8::Integer::New(1))->IsNumber());
+  CHECK_EQ(1, result->Get(v8::Integer::New(1))->Int32Value());
+  CHECK(result->Get(v8::Integer::New(2))->IsNumber());
+  CHECK_EQ(0, result->Get(v8::Integer::New(2))->Int32Value());
+  CHECK(result->Get(v8::Integer::New(3))->IsNull());
+  CHECK(result->Get(v8::Integer::New(4))->IsUndefined());
+}
 
 // from test-api.cc:2668
 void
@@ -2276,12 +2455,84 @@ test_Regress892105()
 // from test-api.cc:3619
 void
 test_UndetectableObject()
-{ }
+{
+  v8::HandleScope scope;
+  LocalContext env;
+
+  Local<v8::FunctionTemplate> desc =
+      v8::FunctionTemplate::New(0, v8::Handle<Value>());
+  desc->InstanceTemplate()->MarkAsUndetectable();  // undetectable
+
+  Local<v8::Object> obj = desc->GetFunction()->NewInstance();
+  env->Global()->Set(v8_str("undetectable"), obj);
+
+  ExpectString("undetectable.toString()", "[object Object]");
+  ExpectString("typeof undetectable", "undefined");
+  ExpectString("typeof(undetectable)", "undefined");
+  ExpectBoolean("typeof undetectable == 'undefined'", true);
+  ExpectBoolean("typeof undetectable == 'object'", false);
+  ExpectBoolean("if (undetectable) { true; } else { false; }", false);
+  ExpectBoolean("!undetectable", true);
+
+  ExpectObject("true&&undetectable", obj);
+  ExpectBoolean("false&&undetectable", false);
+  ExpectBoolean("true||undetectable", true);
+  ExpectObject("false||undetectable", obj);
+
+  ExpectObject("undetectable&&true", obj);
+  ExpectObject("undetectable&&false", obj);
+  ExpectBoolean("undetectable||true", true);
+  ExpectBoolean("undetectable||false", false);
+
+  ExpectBoolean("undetectable==null", true);
+  ExpectBoolean("null==undetectable", true);
+  ExpectBoolean("undetectable==undefined", true);
+  ExpectBoolean("undefined==undetectable", true);
+  ExpectBoolean("undetectable==undetectable", true);
+
+
+  ExpectBoolean("undetectable===null", false);
+  ExpectBoolean("null===undetectable", false);
+  ExpectBoolean("undetectable===undefined", false);
+  ExpectBoolean("undefined===undetectable", false);
+  ExpectBoolean("undetectable===undetectable", true);
+}
 
 // from test-api.cc:3664
 void
 test_ExtensibleOnUndetectable()
-{ }
+{
+  v8::HandleScope scope;
+  LocalContext env;
+
+  Local<v8::FunctionTemplate> desc =
+      v8::FunctionTemplate::New(0, v8::Handle<Value>());
+  desc->InstanceTemplate()->MarkAsUndetectable();  // undetectable
+
+  Local<v8::Object> obj = desc->GetFunction()->NewInstance();
+  env->Global()->Set(v8_str("undetectable"), obj);
+
+  Local<String> source = v8_str("undetectable.x = 42;"
+                                "undetectable.x");
+
+  Local<Script> script = Script::Compile(source);
+
+  CHECK_EQ(v8::Integer::New(42), script->Run());
+
+  ExpectBoolean("Object.isExtensible(undetectable)", true);
+
+  source = v8_str("Object.preventExtensions(undetectable);");
+  script = Script::Compile(source);
+  script->Run();
+  ExpectBoolean("Object.isExtensible(undetectable)", false);
+
+  source = v8_str("undetectable.y = 2000;");
+  script = Script::Compile(source);
+  v8::TryCatch try_catch;
+  Local<Value> result = script->Run();
+  CHECK(result.IsEmpty());
+  CHECK(try_catch.HasCaught());
+}
 
 // from test-api.cc:3699
 void
@@ -2494,7 +2745,14 @@ test_GetterHolders()
 // from test-api.cc:4499
 void
 test_PreInterceptorHolders()
-{ }
+{
+  v8::HandleScope scope;
+  v8::Handle<v8::ObjectTemplate> obj = ObjectTemplate::New();
+  obj->SetNamedPropertyHandler(PGetter2);
+  p_getter_count2 = 0;
+  RunHolderTest(obj);
+  CHECK_EQ(40, p_getter_count2);
+}
 
 // from test-api.cc:4509
 void
@@ -2665,12 +2923,62 @@ test_StringWrite()
 // from test-api.cc:4692
 void
 test_ToArrayIndex()
-{ }
+{
+  v8::HandleScope scope;
+  LocalContext context;
+
+  v8::Handle<String> str = v8_str("42");
+  v8::Handle<v8::Uint32> index = str->ToArrayIndex();
+  CHECK(!index.IsEmpty());
+  CHECK_EQ(42.0, index->Uint32Value());
+  str = v8_str("42asdf");
+  index = str->ToArrayIndex();
+  CHECK(index.IsEmpty());
+  str = v8_str("-42");
+  index = str->ToArrayIndex();
+  CHECK(index.IsEmpty());
+  str = v8_str("4294967295");
+  index = str->ToArrayIndex();
+  CHECK(!index.IsEmpty());
+  CHECK_EQ(4294967295.0, index->Uint32Value());
+  v8::Handle<v8::Number> num = v8::Number::New(1);
+  index = num->ToArrayIndex();
+  CHECK(!index.IsEmpty());
+  CHECK_EQ(1.0, index->Uint32Value());
+  num = v8::Number::New(-1);
+  index = num->ToArrayIndex();
+  CHECK(index.IsEmpty());
+  v8::Handle<v8::Object> obj = v8::Object::New();
+  index = obj->ToArrayIndex();
+  CHECK(index.IsEmpty());
+}
 
 // from test-api.cc:4723
 void
 test_ErrorConstruction()
-{ }
+{
+  v8::HandleScope scope;
+  LocalContext context;
+
+  v8::Handle<String> foo = v8_str("foo");
+  v8::Handle<String> message = v8_str("message");
+  v8::Handle<Value> range_error = v8::Exception::RangeError(foo);
+  CHECK(range_error->IsObject());
+  v8::Handle<v8::Object> range_obj = range_error.As<v8::Object>();
+  CHECK(range_error.As<v8::Object>()->Get(message)->Equals(foo));
+  v8::Handle<Value> reference_error = v8::Exception::ReferenceError(foo);
+  CHECK(reference_error->IsObject());
+  CHECK(reference_error.As<v8::Object>()->Get(message)->Equals(foo));
+  v8::Handle<Value> syntax_error = v8::Exception::SyntaxError(foo);
+  CHECK(syntax_error->IsObject());
+  CHECK(syntax_error.As<v8::Object>()->Get(message)->Equals(foo));
+  v8::Handle<Value> type_error = v8::Exception::TypeError(foo);
+  CHECK(type_error->IsObject());
+  CHECK(type_error.As<v8::Object>()->Get(message)->Equals(foo));
+  v8::Handle<Value> error = v8::Exception::Error(foo);
+  CHECK(error->IsObject());
+  CHECK(error.As<v8::Object>()->Get(message)->Equals(foo));
+}
 
 // from test-api.cc:4764
 void
@@ -2705,12 +3013,36 @@ test_ExceptionInNativeScript()
 // from test-api.cc:4914
 void
 test_CompilationErrorUsingTryCatchHandler()
-{ }
+{
+  v8::HandleScope scope;
+  LocalContext env;
+  v8::TryCatch try_catch;
+  Script::Compile(v8_str("This doesn't &*&@#$&*^ compile."));
+  CHECK_NE(NULL, *try_catch.Exception());
+  CHECK(try_catch.HasCaught());
+}
 
 // from test-api.cc:4924
 void
 test_TryCatchFinallyUsingTryCatchHandler()
-{ }
+{
+  v8::HandleScope scope;
+  LocalContext env;
+  v8::TryCatch try_catch;
+  Script::Compile(v8_str("try { throw ''; } catch (e) {}"))->Run();
+  CHECK(!try_catch.HasCaught());
+  Script::Compile(v8_str("try { throw ''; } finally {}"))->Run();
+  CHECK(try_catch.HasCaught());
+  try_catch.Reset();
+  Script::Compile(v8_str("(function() {"
+                         "try { throw ''; } finally { return; }"
+                         "})()"))->Run();
+  CHECK(!try_catch.HasCaught());
+  Script::Compile(v8_str("(function()"
+                         "  { try { throw ''; } finally { throw 0; }"
+                         "})()"))->Run();
+  CHECK(try_catch.HasCaught());
+}
 
 // from test-api.cc:4945
 void
@@ -2795,7 +3127,9 @@ test_AccessControlInterceptorIC()
 // from test-api.cc:6150
 void
 test_Version()
-{ }
+{
+  v8::V8::GetVersion();
+}
 
 // from test-api.cc:6161
 void
@@ -3887,7 +4221,37 @@ test_ApplyInterruption()
 // from test-api.cc:9905
 void
 test_ObjectClone()
-{ }
+{
+  v8::HandleScope scope;
+  LocalContext env;
+
+  const char* sample =
+    "var rv = {};"      \
+    "rv.alpha = 'hello';" \
+    "rv.beta = 123;"     \
+    "rv;";
+
+  // Create an object, verify basics.
+  Local<Value> val = CompileRun(sample);
+  CHECK(val->IsObject());
+  Local<v8::Object> obj = val.As<v8::Object>();
+  obj->Set(v8_str("gamma"), v8_str("cloneme"));
+
+  CHECK_EQ(v8_str("hello"), obj->Get(v8_str("alpha")));
+  CHECK_EQ(v8::Integer::New(123), obj->Get(v8_str("beta")));
+  CHECK_EQ(v8_str("cloneme"), obj->Get(v8_str("gamma")));
+
+  // Clone it.
+  Local<v8::Object> clone = obj->Clone();
+  CHECK_EQ(v8_str("hello"), clone->Get(v8_str("alpha")));
+  CHECK_EQ(v8::Integer::New(123), clone->Get(v8_str("beta")));
+  CHECK_EQ(v8_str("cloneme"), clone->Get(v8_str("gamma")));
+
+  // Set a property on the clone, verify each object.
+  clone->Set(v8_str("beta"), v8::Integer::New(456));
+  CHECK_EQ(v8::Integer::New(123), obj->Get(v8_str("beta")));
+  CHECK_EQ(v8::Integer::New(456), clone->Get(v8_str("beta")));
+}
 
 // from test-api.cc:9988
 void
@@ -4017,12 +4381,36 @@ test_ExternalArrayInfo()
 // from test-api.cc:11457
 void
 test_ScriptContextDependence()
-{ }
+{
+  v8::HandleScope scope;
+  LocalContext c1;
+  const char *source = "foo";
+  v8::Handle<v8::Script> dep = v8::Script::Compile(v8::String::New(source));
+  v8::Handle<v8::Script> indep = v8::Script::New(v8::String::New(source));
+  c1->Global()->Set(v8::String::New("foo"), v8::Integer::New(100));
+  CHECK_EQ(dep->Run()->Int32Value(), 100);
+  CHECK_EQ(indep->Run()->Int32Value(), 100);
+  LocalContext c2;
+  c2->Global()->Set(v8::String::New("foo"), v8::Integer::New(101));
+  CHECK_EQ(dep->Run()->Int32Value(), 100);
+  CHECK_EQ(indep->Run()->Int32Value(), 101);
+}
 
 // from test-api.cc:11473
 void
 test_StackTrace()
-{ }
+{
+  v8::HandleScope scope;
+  LocalContext context;
+  v8::TryCatch try_catch;
+  const char *source = "function foo() { FAIL.FAIL; }; foo();";
+  v8::Handle<v8::String> src = v8::String::New(source);
+  v8::Handle<v8::String> origin = v8::String::New("stack-trace-test");
+  v8::Script::New(src, origin)->Run();
+  CHECK(try_catch.HasCaught());
+  v8::String::Utf8Value stack(try_catch.StackTrace());
+  CHECK(strstr(*stack, "at foo (stack-trace-test") != NULL);
+}
 
 // from test-api.cc:11562
 void
@@ -4366,8 +4754,8 @@ test_DefinePropertyPostDetach()
 
 Test gTests[] = {
   TEST(test_Handles),
-  UNIMPLEMENTED_TEST(test_ReceiverSignature),
-  UNIMPLEMENTED_TEST(test_ArgumentSignature),
+  DISABLED_TEST(test_ReceiverSignature, 79),
+  DISABLED_TEST(test_ArgumentSignature, 79),
   TEST(test_HulIgennem),
   TEST(test_Access),
   TEST(test_AccessElement),
@@ -4385,7 +4773,7 @@ Test gTests[] = {
   UNIMPLEMENTED_TEST(test_ExternalStringWithDisposeHandling),
   UNIMPLEMENTED_TEST(test_StringConcat),
   TEST(test_GlobalProperties),
-  UNIMPLEMENTED_TEST(test_FunctionTemplate),
+  TEST(test_FunctionTemplate),
   UNIMPLEMENTED_TEST(test_ExternalWrap),
   UNIMPLEMENTED_TEST(test_FindInstanceInPrototypeChain),
   TEST(test_TinyInteger),
@@ -4432,7 +4820,7 @@ Test gTests[] = {
   UNIMPLEMENTED_TEST(test_ConstructCall),
   TEST(test_ConversionNumber),
   TEST(test_isNumberType),
-  DISABLED_TEST(test_ConversionException, 82),
+  TEST(test_ConversionException),
   UNIMPLEMENTED_TEST(test_APICatch),
   UNIMPLEMENTED_TEST(test_APIThrowTryCatch),
   UNIMPLEMENTED_TEST(test_TryCatchInTryFinally),
@@ -4442,13 +4830,13 @@ Test gTests[] = {
   UNIMPLEMENTED_TEST(test_ExternalScriptException),
   TEST(test_EvalInTryFinally),
   UNIMPLEMENTED_TEST(test_ExceptionOrder),
-  UNIMPLEMENTED_TEST(test_ThrowValues),
+  TEST(test_ThrowValues),
   TEST(test_CatchZero),
   TEST(test_CatchExceptionFromWith),
   TEST(test_TryCatchAndFinallyHidingException),
   TEST(test_TryCatchAndFinally),
   TEST(test_Equality),
-  DISABLED_TEST(test_MultiRun, 43),
+  TEST_THROWS(test_MultiRun),
   TEST(test_SimplePropertyRead),
   DISABLED_TEST(test_DefinePropertyOnAPIAccessor, 83),
   DISABLED_TEST(test_DefinePropertyOnDefineGetterSetter, 84),
@@ -4474,8 +4862,8 @@ Test gTests[] = {
   UNIMPLEMENTED_TEST(test_MultiContexts),
   UNIMPLEMENTED_TEST(test_FunctionPrototypeAcrossContexts),
   UNIMPLEMENTED_TEST(test_Regress892105),
-  UNIMPLEMENTED_TEST(test_UndetectableObject),
-  UNIMPLEMENTED_TEST(test_ExtensibleOnUndetectable),
+  DISABLED_TEST(test_UndetectableObject, 98),
+  DISABLED_TEST(test_ExtensibleOnUndetectable, 98),
   UNIMPLEMENTED_TEST(test_UndetectableString),
   TEST(test_GlobalObjectTemplate),
   UNIMPLEMENTED_TEST(test_SimpleExtensions),
@@ -4495,19 +4883,19 @@ Test gTests[] = {
   UNIMPLEMENTED_TEST(test_NoWeakRefCallbacksInScavenge),
   TEST(test_Arguments),
   DISABLED_TEST(test_Deleter, 70),
-  DISABLED_TEST(test_Enumerators, 71),
-  DISABLED_TEST(test_GetterHolders, 72),
-  UNIMPLEMENTED_TEST(test_PreInterceptorHolders),
+  UNWANTED_TEST(test_Enumerators),
+  TEST(test_GetterHolders),
+  DISABLED_TEST(test_PreInterceptorHolders, 97),
   TEST(test_ObjectInstantiation),
   DISABLED_TEST(test_StringWrite, 16),
-  UNIMPLEMENTED_TEST(test_ToArrayIndex),
-  UNIMPLEMENTED_TEST(test_ErrorConstruction),
+  TEST(test_ToArrayIndex),
+  TEST(test_ErrorConstruction),
   TEST(test_DeleteAccessor),
   UNIMPLEMENTED_TEST(test_TypeSwitch),
   UNIMPLEMENTED_TEST(test_ApiUncaughtException),
   UNIMPLEMENTED_TEST(test_ExceptionInNativeScript),
-  UNIMPLEMENTED_TEST(test_CompilationErrorUsingTryCatchHandler),
-  UNIMPLEMENTED_TEST(test_TryCatchFinallyUsingTryCatchHandler),
+  TEST(test_CompilationErrorUsingTryCatchHandler),
+  TEST(test_TryCatchFinallyUsingTryCatchHandler),
   UNIMPLEMENTED_TEST(test_SecurityHandler),
   UNIMPLEMENTED_TEST(test_SecurityChecks),
   UNIMPLEMENTED_TEST(test_SecurityChecksForPrototypeChain),
@@ -4524,8 +4912,8 @@ Test gTests[] = {
   UNIMPLEMENTED_TEST(test_AccessControlIC),
   UNIMPLEMENTED_TEST(test_AccessControlFlatten),
   UNIMPLEMENTED_TEST(test_AccessControlInterceptorIC),
-  UNIMPLEMENTED_TEST(test_Version),
-  DISABLED_TEST(test_InstanceProperties, 666),
+  TEST(test_Version),
+  TEST(test_InstanceProperties),
   DISABLED_TEST(test_GlobalObjectInstanceProperties, 666),
   DISABLED_TEST(test_CallKnownGlobalReceiver, 666),
   DISABLED_TEST(test_ShadowObject, 666),
@@ -4638,7 +5026,7 @@ Test gTests[] = {
   UNIMPLEMENTED_TEST(test_CrossContextNew),
   UNIMPLEMENTED_TEST(test_RegExpInterruption),
   UNIMPLEMENTED_TEST(test_ApplyInterruption),
-  UNIMPLEMENTED_TEST(test_ObjectClone),
+  TEST(test_ObjectClone),
   UNIMPLEMENTED_TEST(test_MorphCompositeStringTest),
   UNIMPLEMENTED_TEST(test_CompileExternalTwoByteSource),
   UNIMPLEMENTED_TEST(test_RegExpStringModification),
@@ -4664,8 +5052,8 @@ Test gTests[] = {
   UNIMPLEMENTED_TEST(test_ExternalFloatArray),
   UNIMPLEMENTED_TEST(test_ExternalArrays),
   UNIMPLEMENTED_TEST(test_ExternalArrayInfo),
-  UNIMPLEMENTED_TEST(test_ScriptContextDependence),
-  UNIMPLEMENTED_TEST(test_StackTrace),
+  TEST(test_ScriptContextDependence),
+  DISABLED_TEST(test_StackTrace, 99),
   UNIMPLEMENTED_TEST(test_CaptureStackTrace),
   UNIMPLEMENTED_TEST(test_CaptureStackTraceForUncaughtException),
   UNIMPLEMENTED_TEST(test_CaptureStackTraceForUncaughtExceptionAndSetters),

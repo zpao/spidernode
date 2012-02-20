@@ -26,7 +26,7 @@ String::New(const char* data,
 
 // static
 Local<String>
-String::New(const JSUint16* data,
+String::New(const uint16_t* data,
             int length)
 {
   JSString* str;
@@ -113,7 +113,7 @@ String::Utf8Length() const
 }
 
 int
-String::Write(JSUint16* buffer,
+String::Write(uint16_t* buffer,
               int start,
               int length,
               WriteHints hints) const
@@ -124,9 +124,9 @@ String::Write(JSUint16* buffer,
   if (!chars || internalLen < static_cast<size_t>(start)) {
     return 0;
   }
-  size_t bytes = std::min<size_t>(length, internalLen - start) * sizeof(JSUint16);
+  size_t bytes = std::min<size_t>(length, internalLen - start) * sizeof(uint16_t);
   if (length == -1) {
-    bytes = (internalLen - start) * sizeof(JSUint16);
+    bytes = (internalLen - start) * sizeof(uint16_t);
   }
   (void)memcpy(buffer, &chars[start], bytes);
 
@@ -141,7 +141,7 @@ String::WriteAscii(char* buffer,
 {
   size_t encodedLength = JS_GetStringEncodingLength(cx(),
                                                     *this);
-  char* tmp = cx()->array_new<char>(encodedLength);
+  char* tmp = array_new<char>(encodedLength);
   int written = WriteUtf8(tmp, encodedLength);
 
   // No easy way to convert UTF-8 to ASCII, so just drop characters that are
@@ -178,7 +178,7 @@ String::WriteAscii(char* buffer,
     buffer[i] = '\0';
   }
 
-  cx()->array_delete(tmp);
+  array_delete(tmp);
   return i;
 }
 
@@ -226,14 +226,14 @@ String::AsciiValue::AsciiValue(Handle<v8::Value> val)
   if (!str.IsEmpty()) {
     int len = str->Length();
     // Need space for the NULL terminator.
-    mStr = cx()->array_new<char>(len + 1);
+    mStr = array_new<char>(len + 1);
     mLength = str->WriteAscii(mStr, 0, len + 1);
   }
 }
 String::AsciiValue::~AsciiValue()
 {
   if (mStr)
-    cx()->array_delete(mStr);
+    array_delete(mStr);
 }
 
 String::Utf8Value::Utf8Value(Handle<v8::Value> val)
@@ -251,14 +251,14 @@ String::Utf8Value::Utf8Value(Handle<v8::Value> val)
   if (!str.IsEmpty()) {
     int len = str->Utf8Length();
     // Need space for the NULL terminator.
-    mStr = cx()->array_new<char>(len + 1);
+    mStr = array_new<char>(len + 1);
     mLength = str->WriteUtf8(mStr, len + 1) - 1;
   }
 }
 String::Utf8Value::~Utf8Value()
 {
   if (mStr) {
-    cx()->array_delete(mStr);
+    array_delete(mStr);
   }
 }
 

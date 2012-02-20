@@ -5,7 +5,6 @@ script regress-313080.js
 script regress-321547.js
 script regress-327534.js
 script regress-327897.js
-script regress-335051.js
 script regress-337226.js
 script regress-352846-01.js
 script regress-352846-02.js
@@ -24,3 +23,4 @@ script extensibility.js
 script regress-595207.js
 script json-stringify-dropping-xml-elements.js
 script stringify-xml.js
+script xml-as-proto.js

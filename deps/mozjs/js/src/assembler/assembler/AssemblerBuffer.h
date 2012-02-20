@@ -37,7 +37,6 @@
 #include <string.h>
 #include "assembler/jit/ExecutableAllocator.h"
 #include "assembler/wtf/Assertions.h"
-#include "jsstdint.h"
 
 namespace JSC {
 
@@ -137,14 +136,14 @@ namespace JSC {
          * The user must check for a NULL return value, which means
          * no code was generated, or there was an OOM.
          */
-        void* executableAllocAndCopy(ExecutableAllocator* allocator, ExecutablePool** poolp)
+        void* executableAllocAndCopy(ExecutableAllocator* allocator, ExecutablePool** poolp, CodeKind kind)
         {
             if (m_oom || m_size == 0) {
                 *poolp = NULL;
                 return 0;
             }
 
-            void* result = allocator->alloc(m_size, poolp);
+            void* result = allocator->alloc(m_size, poolp, kind);
             if (!result) {
                 *poolp = NULL;
                 return 0;
@@ -191,7 +190,11 @@ namespace JSC {
 
         void grow(int extraCapacity = 0)
         {
-            int newCapacity = m_capacity + m_capacity / 2 + extraCapacity;
+            /*
+             * If |extraCapacity| is zero (as it almost always is) this is an
+             * allocator-friendly doubling growth strategy.
+             */
+            int newCapacity = m_capacity + m_capacity + extraCapacity;
             char* newBuffer;
 
             if (m_buffer == m_inlineBuffer) {

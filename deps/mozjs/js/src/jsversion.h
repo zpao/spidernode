@@ -86,7 +86,6 @@
 #define JS_HAS_OBJ_PROTO_PROP   0       /* has o.__proto__ etc. */
 #endif
 #define JS_HAS_OBJ_WATCHPOINT   0       /* has o.watch and o.unwatch */
-#define JS_HAS_SHARP_VARS       0       /* has #n=, #n# for object literals */
 #define JS_HAS_XDR              0       /* has XDR API and internal support */
 #define JS_HAS_TOSOURCE         0       /* has Object/Array toSource method */
 #define JS_HAS_CATCH_GUARD      0       /* has exception handling catch guard */
@@ -96,7 +95,6 @@
 #define JS_HAS_FUN_EXPR_STMT    0       /* has function expression statement */
 #define JS_HAS_NO_SUCH_METHOD   0       /* has o.__noSuchMethod__ handler */
 #define JS_HAS_XML_SUPPORT      0       /* has ECMAScript for XML support */
-#define JS_HAS_ARRAY_EXTRAS     0       /* has indexOf and Lispy extras */
 #define JS_HAS_GENERATORS       0       /* has yield in generator function */
 #define JS_HAS_BLOCK_SCOPE      0       /* has block scope via let/arraycomp */
 #define JS_HAS_DESTRUCTURING    0       /* has [a,b] = ... or {p:a,q:b} = ... */
@@ -113,7 +111,6 @@
 #define JS_HAS_PERL_SUBSTR      1       /* has str.substr */
 #define JS_HAS_OBJ_PROTO_PROP   1       /* has o.__proto__ etc. */
 #define JS_HAS_OBJ_WATCHPOINT   1       /* has o.watch and o.unwatch */
-#define JS_HAS_SHARP_VARS       1       /* has #n=, #n# for object literals */
 #define JS_HAS_XDR              1       /* has XDR API and internal support */
 #define JS_HAS_TOSOURCE         1       /* has Object/Array toSource method */
 #define JS_HAS_CATCH_GUARD      1       /* has exception handling catch guard */
@@ -123,7 +120,6 @@
 #define JS_HAS_FUN_EXPR_STMT    1       /* has function expression statement */
 #define JS_HAS_NO_SUCH_METHOD   1       /* has o.__noSuchMethod__ handler */
 #define JS_HAS_XML_SUPPORT      0       /* has ECMAScript for XML support */
-#define JS_HAS_ARRAY_EXTRAS     0       /* has indexOf and Lispy extras */
 #define JS_HAS_GENERATORS       0       /* has yield in generator function */
 #define JS_HAS_BLOCK_SCOPE      0       /* has block scope via let/arraycomp */
 #define JS_HAS_DESTRUCTURING    0       /* has [a,b] = ... or {p:a,q:b} = ... */
@@ -136,7 +132,6 @@
 #define JS_HAS_PERL_SUBSTR      1       /* has str.substr */
 #define JS_HAS_OBJ_PROTO_PROP   1       /* has o.__proto__ etc. */
 #define JS_HAS_OBJ_WATCHPOINT   1       /* has o.watch and o.unwatch */
-#define JS_HAS_SHARP_VARS       1       /* has #n=, #n# for object literals */
 #define JS_HAS_XDR              1       /* has XDR API and internal support */
 #define JS_HAS_TOSOURCE         1       /* has Object/Array toSource method */
 #define JS_HAS_CATCH_GUARD      1       /* has exception handling catch guard */
@@ -146,7 +141,6 @@
 #define JS_HAS_FUN_EXPR_STMT    1       /* has function expression statement */
 #define JS_HAS_NO_SUCH_METHOD   1       /* has o.__noSuchMethod__ handler */
 #define JS_HAS_XML_SUPPORT      1       /* has ECMAScript for XML support */
-#define JS_HAS_ARRAY_EXTRAS     1       /* has indexOf and Lispy extras */
 #define JS_HAS_GENERATORS       0       /* has yield in generator function */
 #define JS_HAS_BLOCK_SCOPE      0       /* has block scope via let/arraycomp */
 #define JS_HAS_DESTRUCTURING    0       /* has [a,b] = ... or {p:a,q:b} = ... */
@@ -159,7 +153,6 @@
 #define JS_HAS_PERL_SUBSTR      1       /* has str.substr */
 #define JS_HAS_OBJ_PROTO_PROP   1       /* has o.__proto__ etc. */
 #define JS_HAS_OBJ_WATCHPOINT   1       /* has o.watch and o.unwatch */
-#define JS_HAS_SHARP_VARS       1       /* has #n=, #n# for object literals */
 #define JS_HAS_XDR              1       /* has XDR API and internal support */
 #define JS_HAS_TOSOURCE         1       /* has Object/Array toSource method */
 #define JS_HAS_CATCH_GUARD      1       /* has exception handling catch guard */
@@ -169,7 +162,6 @@
 #define JS_HAS_FUN_EXPR_STMT    1       /* has function expression statement */
 #define JS_HAS_NO_SUCH_METHOD   1       /* has o.__noSuchMethod__ handler */
 #define JS_HAS_XML_SUPPORT      1       /* has ECMAScript for XML support */
-#define JS_HAS_ARRAY_EXTRAS     1       /* has indexOf and Lispy extras */
 #define JS_HAS_GENERATORS       1       /* has yield in generator function */
 #define JS_HAS_BLOCK_SCOPE      1       /* has block scope via let/arraycomp */
 #define JS_HAS_DESTRUCTURING    1       /* has [a,b] = ... or {p:a,q:b} = ... */
@@ -182,7 +174,6 @@
 #define JS_HAS_PERL_SUBSTR      1       /* has str.substr */
 #define JS_HAS_OBJ_PROTO_PROP   1       /* has o.__proto__ etc. */
 #define JS_HAS_OBJ_WATCHPOINT   1       /* has o.watch and o.unwatch */
-#define JS_HAS_SHARP_VARS       1       /* has #n=, #n# for object literals */
 #define JS_HAS_XDR              1       /* has XDR API and internal support */
 #define JS_HAS_TOSOURCE         1       /* has Object/Array toSource method */
 #define JS_HAS_CATCH_GUARD      1       /* has exception handling catch guard */
@@ -192,7 +183,6 @@
 #define JS_HAS_FUN_EXPR_STMT    1       /* has function expression statement */
 #define JS_HAS_NO_SUCH_METHOD   1       /* has o.__noSuchMethod__ handler */
 #define JS_HAS_XML_SUPPORT      1       /* has ECMAScript for XML support */
-#define JS_HAS_ARRAY_EXTRAS     1       /* has indexOf and Lispy extras */
 #define JS_HAS_GENERATORS       1       /* has yield in generator function */
 #define JS_HAS_BLOCK_SCOPE      1       /* has block scope via let/arraycomp */
 #define JS_HAS_DESTRUCTURING    2       /* has [a,b] = ... or {p:a,q:b} = ... */
@@ -219,13 +209,3 @@
  * support likely to be made opt-in at some future time.
  */
 #define OLD_GETTER_SETTER_METHODS       1
-
-/*
- * Embedders: don't change this: it's a bake-until-ready hack only!
- *
- * NB: Changing this value requires adjusting the pass/fail state of a handful
- *     of tests in ecma_5/JSON/ which the old parser implemented incorrectly.
- *     Also make sure to rename JSONSourceParser to just JSONParser when the
- *     old parser is removed completely.
- */
-#define USE_OLD_AND_BUSTED_JSON_PARSER 0

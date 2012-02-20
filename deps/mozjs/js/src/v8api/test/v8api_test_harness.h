@@ -77,7 +77,8 @@ std::ostream&
 operator<<(std::ostream& o,
            const jsval& val)
 {
-  o << val.asBits;
+  o << val;
+  // o << val.asBits; TODO: find replacement for asBits
   return o;
 }
 #endif
@@ -165,12 +166,15 @@ struct Test
   void (*func)(void);
   const char* const name;
   bool disabled;
+  bool throws;
   int issue;
 };
 #define TEST(aName) \
-  {aName, #aName, false, 0}
+  {aName, #aName, false, false, 0}
+#define TEST_THROWS(aName) \
+  {aName, #aName, false, true, 0}
 #define DISABLED_TEST(aName, aIssueNumber) \
-  {aName, #aName, true, aIssueNumber}
+  {aName, #aName, true, false, aIssueNumber}
 #define UNIMPLEMENTED_TEST(aName) \
-  {aName, #aName, true, -1}
+  {aName, #aName, true, false, -1}
 #define UNWANTED_TEST(aName) UNIMPLEMENTED_TEST(aName)

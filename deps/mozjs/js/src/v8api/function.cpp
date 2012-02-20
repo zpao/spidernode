@@ -20,11 +20,11 @@ Local<Object> Function::NewInstance() const {
 }
 
 Local<Object> Function::NewInstance(int argc, Handle<Value> argv[]) const {
-  jsval *values = cx()->array_new<jsval>(argc);
+  jsval *values = array_new<jsval>(argc);
   for (int i = 0; i < argc; i++)
     values[i] = argv[i]->native();
   Object o(JS_New(cx(), JSVAL_TO_OBJECT(mVal), argc, values));
-  cx()->array_delete(values);
+  array_delete(values);
   if (!o) {
     TryCatch::CheckForException();
     return Local<Object>();
@@ -34,17 +34,17 @@ Local<Object> Function::NewInstance(int argc, Handle<Value> argv[]) const {
 }
 
 Local<Value> Function::Call(Handle<Object> recv, int argc, Handle<Value> argv[]) const {
-  jsval *values = cx()->array_new<jsval>(argc);
+  jsval *values = array_new<jsval>(argc);
   for (int i = 0; i < argc; i++)
     values[i] = argv[i]->native();
   jsval rval;
   if (!JS_CallFunctionValue(cx(), **recv, mVal, argc, values, &rval)) {
     TryCatch::CheckForException();
-    cx()->array_delete(values);
+    array_delete(values);
     return Local<Value>();
   }
   Value v(rval);
-  cx()->array_delete(values);
+  array_delete(values);
   return Local<Value>::New(&v);
 }
 void Function::SetName(Handle<String> name) {

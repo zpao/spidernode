@@ -45,8 +45,7 @@ the JavaScript specification. There are also some supporting functions. */
 #include "pcre_internal.h"
 
 #include <limits.h>
-#include "yarr/jswtfbridge.h"
-#include "yarr/wtf/ASCIICType.h"
+#include "yarr/ASCIICType.h"
 #include "jsarena.h"
 #include "jscntxt.h"
 
@@ -196,7 +195,7 @@ struct MatchFrame {
 
     /* Extract the bracket data after the current opcode/link at |instructionPtr| into the locals. */
     void extractBrackets(const unsigned char *instructionPtr) {
-        uint16 bracketMess = get2ByteValue(instructionPtr + 1 + LINK_SIZE);
+        uint16_t bracketMess = get2ByteValue(instructionPtr + 1 + LINK_SIZE);
         locals.minBracket = (bracketMess >> 8) & 0xff;
         locals.limitBracket = (bracketMess & 0xff);
         JS_ASSERT(locals.minBracket <= locals.limitBracket);
@@ -603,7 +602,7 @@ RECURSE:
                 
             BEGIN_OPCODE(ASSERT):
                 {
-                    uint16 bracketMess = get2ByteValue(stack.currentFrame->args.instructionPtr + 1 + LINK_SIZE);
+                    uint16_t bracketMess = get2ByteValue(stack.currentFrame->args.instructionPtr + 1 + LINK_SIZE);
                     LOCALS(minBracket) = (bracketMess >> 8) & 0xff;
                     LOCALS(limitBracket) = bracketMess & 0xff;
                     JS_ASSERT(LOCALS(minBracket) <= LOCALS(limitBracket));

@@ -5,7 +5,7 @@ using namespace internal;
 
 JS_STATIC_ASSERT(sizeof(Array) == sizeof(GCReference));
 
-JSUint32
+uint32_t
 Array::Length() const
 {
   jsuint length;
@@ -17,7 +17,7 @@ Array::Length() const
 }
 
 Local<Object>
-Array::CloneElementAt(JSUint32 index)
+Array::CloneElementAt(uint32_t index)
 {
   Local<Value> toBeCloned = Get(index);
   if (!toBeCloned->IsObject()) {

@@ -46,7 +46,6 @@
 #include <string.h>
 #include <time.h>
 
-#include "jsstdint.h"
 #include "jstypes.h"
 #include "jsutil.h"
 
@@ -116,7 +115,7 @@ ComputeLocalTime(time_t local, struct tm *ptm)
 /*
  * get the difference in seconds between this time zone and UTC (GMT)
  */
-JSInt32
+int32_t
 PRMJ_LocalGMTDifference()
 {
 #if defined(XP_WIN)
@@ -162,9 +161,9 @@ PRMJ_LocalGMTDifference()
 
 #ifdef HAVE_SYSTEMTIMETOFILETIME
 
-static const JSInt64 win2un = JSLL_INIT(0x19DB1DE, 0xD53E8000);
+static const int64_t win2un = 0x19DB1DED53E8000;
 
-#define FILETIME2INT64(ft) (((JSInt64)ft.dwHighDateTime) << 32LL | (JSInt64)ft.dwLowDateTime)
+#define FILETIME2INT64(ft) (((int64_t)ft.dwHighDateTime) << 32LL | (int64_t)ft.dwLowDateTime)
 
 #endif
 
@@ -192,7 +191,7 @@ typedef struct CalibrationData {
     long double timer_offset; /* The high res 'epoch' */
 
     /* The last high res time that we returned since recalibrating */
-    JSInt64 last;
+    int64_t last;
 
     JSBool calibrated;
 
@@ -219,7 +218,7 @@ NowCalibrate()
         }
     }
     if (calibration.freq > 0.0) {
-        JSInt64 calibrationDelta = 0;
+        int64_t calibrationDelta = 0;
 
         /* By wrapping a timeBegin/EndPeriod pair of calls around this loop,
            the loop seems to take much less time (1 ms vs 15ms) on Vista. */
@@ -293,41 +292,27 @@ static PRCallOnceType calibrationOnce = { 0 };
 
 
 #if defined(XP_OS2)
-JSInt64
+int64_t
 PRMJ_Now(void)
 {
-    JSInt64 s, us, ms2us, s2us;
     struct timeb b;
-
     ftime(&b);
-    JSLL_UI2L(ms2us, PRMJ_USEC_PER_MSEC);
-    JSLL_UI2L(s2us, PRMJ_USEC_PER_SEC);
-    JSLL_UI2L(s, b.time);
-    JSLL_UI2L(us, b.millitm);
-    JSLL_MUL(us, us, ms2us);
-    JSLL_MUL(s, s, s2us);
-    JSLL_ADD(s, s, us);
-    return s;
+    return (int64_t(b.time) * PRMJ_USEC_PER_SEC) + (int64_t(b.millitm) * PRMJ_USEC_PER_MSEC);
 }
 
 #elif defined(XP_UNIX)
-JSInt64
+int64_t
 PRMJ_Now(void)
 {
     struct timeval tv;
-    JSInt64 s, us, s2us;
 
 #ifdef _SVID_GETTOD   /* Defined only on Solaris, see Solaris <sys/types.h> */
     gettimeofday(&tv);
 #else
     gettimeofday(&tv, 0);
 #endif /* _SVID_GETTOD */
-    JSLL_UI2L(s2us, PRMJ_USEC_PER_SEC);
-    JSLL_UI2L(s, tv.tv_sec);
-    JSLL_UI2L(us, tv.tv_usec);
-    JSLL_MUL(s, s, s2us);
-    JSLL_ADD(s, s, us);
-    return s;
+
+    return int64_t(tv.tv_sec) * PRMJ_USEC_PER_SEC + int64_t(tv.tv_usec);
 }
 
 #else
@@ -399,7 +384,7 @@ def PRMJ_Now():
 // 10 seems to be the number of calls to load with a blank homepage.
 int CALIBRATION_DELAY_COUNT = 10;
 
-JSInt64
+int64_t
 PRMJ_Now(void)
 {
     static int nCalls = 0;
@@ -408,7 +393,7 @@ PRMJ_Now(void)
     LARGE_INTEGER now;
     JSBool calibrated = JS_FALSE;
     JSBool needsCalibration = JS_FALSE;
-    JSInt64 returnedTime;
+    int64_t returnedTime;
     long double cachedOffset = 0.0;
 
     /* To avoid regressing startup time (where high resolution is likely
@@ -471,7 +456,7 @@ PRMJ_Now(void)
 
             /* On some dual processor/core systems, we might get an earlier time
                so we cache the last time that we returned */
-            calibration.last = JS_MAX(calibration.last,(JSInt64)highresTime);
+            calibration.last = JS_MAX(calibration.last, int64_t(highresTime));
             returnedTime = calibration.last;
             MUTEX_UNLOCK(&calibration.data_lock);
 
@@ -509,7 +494,7 @@ PRMJ_Now(void)
                        behavior for this call. It's possible that in the
                        future, the user will want the high resolution timer, so
                        we don't disable it entirely. */
-                    returnedTime = (JSInt64)lowresTime;
+                    returnedTime = int64_t(lowresTime);
                     needsCalibration = JS_FALSE;
                 } else {
                     /* It is possible that when we recalibrate, we will return a
@@ -525,12 +510,12 @@ PRMJ_Now(void)
                 }
             } else {
                 /* No detectable clock skew */
-                returnedTime = (JSInt64)highresTime;
+                returnedTime = int64_t(highresTime);
                 needsCalibration = JS_FALSE;
             }
         } else {
             /* No high resolution timer is available, so fall back */
-            returnedTime = (JSInt64)lowresTime;
+            returnedTime = int64_t(lowresTime);
         }
     } while (needsCalibration);
 
@@ -672,8 +657,8 @@ PRMJ_FormatTime(char *buf, int buflen, const char *fmt, PRMJTime *prtm)
     return result;
 }
 
-JSInt64
-DSTOffsetCache::computeDSTOffsetMilliseconds(int64 localTimeSeconds)
+int64_t
+DSTOffsetCache::computeDSTOffsetMilliseconds(int64_t localTimeSeconds)
 {
     JS_ASSERT(localTimeSeconds >= 0);
     JS_ASSERT(localTimeSeconds <= MAX_UNIX_TIMET);
@@ -691,13 +676,13 @@ DSTOffsetCache::computeDSTOffsetMilliseconds(int64 localTimeSeconds)
     if (!ComputeLocalTime(static_cast<time_t>(localTimeSeconds), &tm))
         return 0;
 
-    JSInt32 base = PRMJ_LocalGMTDifference();
+    int32_t base = PRMJ_LocalGMTDifference();
 
-    int32 dayoff = int32((localTimeSeconds - base) % (SECONDS_PER_HOUR * 24));
-    int32 tmoff = tm.tm_sec + (tm.tm_min * SECONDS_PER_MINUTE) +
+    int32_t dayoff = int32_t((localTimeSeconds - base) % (SECONDS_PER_HOUR * 24));
+    int32_t tmoff = tm.tm_sec + (tm.tm_min * SECONDS_PER_MINUTE) +
         (tm.tm_hour * SECONDS_PER_HOUR);
 
-    JSInt32 diff = tmoff - dayoff;
+    int32_t diff = tmoff - dayoff;
 
     if (diff < 0)
         diff += SECONDS_PER_DAY;
@@ -705,13 +690,12 @@ DSTOffsetCache::computeDSTOffsetMilliseconds(int64 localTimeSeconds)
     return diff * MILLISECONDS_PER_SECOND;
 }
 
-JSInt64
-DSTOffsetCache::getDSTOffsetMilliseconds(JSInt64 localTimeMilliseconds, JSContext *cx)
+int64_t
+DSTOffsetCache::getDSTOffsetMilliseconds(int64_t localTimeMilliseconds, JSContext *cx)
 {
     sanityCheck();
-    noteOffsetCalculation();
 
-    JSInt64 localTimeSeconds = localTimeMilliseconds / MILLISECONDS_PER_SECOND;
+    int64_t localTimeSeconds = localTimeMilliseconds / MILLISECONDS_PER_SECOND;
 
     if (localTimeSeconds > MAX_UNIX_TIMET) {
         localTimeSeconds = MAX_UNIX_TIMET;
@@ -728,13 +712,11 @@ DSTOffsetCache::getDSTOffsetMilliseconds(JSInt64 localTimeMilliseconds, JSContex
 
     if (rangeStartSeconds <= localTimeSeconds &&
         localTimeSeconds <= rangeEndSeconds) {
-        noteCacheHit();
         return offsetMilliseconds;
     }
 
     if (oldRangeStartSeconds <= localTimeSeconds &&
         localTimeSeconds <= oldRangeEndSeconds) {
-        noteCacheHit();
         return oldOffsetMilliseconds;
     }
 
@@ -743,55 +725,47 @@ DSTOffsetCache::getDSTOffsetMilliseconds(JSInt64 localTimeMilliseconds, JSContex
     oldRangeEndSeconds = rangeEndSeconds;
 
     if (rangeStartSeconds <= localTimeSeconds) {
-        JSInt64 newEndSeconds = JS_MIN(rangeEndSeconds + RANGE_EXPANSION_AMOUNT, MAX_UNIX_TIMET);
+        int64_t newEndSeconds = JS_MIN(rangeEndSeconds + RANGE_EXPANSION_AMOUNT, MAX_UNIX_TIMET);
         if (newEndSeconds >= localTimeSeconds) {
-            JSInt64 endOffsetMilliseconds = computeDSTOffsetMilliseconds(newEndSeconds);
+            int64_t endOffsetMilliseconds = computeDSTOffsetMilliseconds(newEndSeconds);
             if (endOffsetMilliseconds == offsetMilliseconds) {
-                noteCacheMissIncrease();
                 rangeEndSeconds = newEndSeconds;
                 return offsetMilliseconds;
             }
 
             offsetMilliseconds = computeDSTOffsetMilliseconds(localTimeSeconds);
             if (offsetMilliseconds == endOffsetMilliseconds) {
-                noteCacheMissIncreasingOffsetChangeUpper();
                 rangeStartSeconds = localTimeSeconds;
                 rangeEndSeconds = newEndSeconds;
             } else {
-                noteCacheMissIncreasingOffsetChangeExpand();
                 rangeEndSeconds = localTimeSeconds;
             }
             return offsetMilliseconds;
         }
 
-        noteCacheMissLargeIncrease();
         offsetMilliseconds = computeDSTOffsetMilliseconds(localTimeSeconds);
         rangeStartSeconds = rangeEndSeconds = localTimeSeconds;
         return offsetMilliseconds;
     }
 
-    JSInt64 newStartSeconds = JS_MAX(rangeStartSeconds - RANGE_EXPANSION_AMOUNT, 0);
+    int64_t newStartSeconds = JS_MAX(rangeStartSeconds - RANGE_EXPANSION_AMOUNT, 0);
     if (newStartSeconds <= localTimeSeconds) {
-        JSInt64 startOffsetMilliseconds = computeDSTOffsetMilliseconds(newStartSeconds);
+        int64_t startOffsetMilliseconds = computeDSTOffsetMilliseconds(newStartSeconds);
         if (startOffsetMilliseconds == offsetMilliseconds) {
-            noteCacheMissDecrease();
             rangeStartSeconds = newStartSeconds;
             return offsetMilliseconds;
         }
 
         offsetMilliseconds = computeDSTOffsetMilliseconds(localTimeSeconds);
         if (offsetMilliseconds == startOffsetMilliseconds) {
-            noteCacheMissDecreasingOffsetChangeLower();
             rangeStartSeconds = newStartSeconds;
             rangeEndSeconds = localTimeSeconds;
         } else {
-            noteCacheMissDecreasingOffsetChangeExpand();
             rangeStartSeconds = localTimeSeconds;
         }
         return offsetMilliseconds;
     }
 
-    noteCacheMissLargeDecrease();
     rangeStartSeconds = rangeEndSeconds = localTimeSeconds;
     offsetMilliseconds = computeDSTOffsetMilliseconds(localTimeSeconds);
     return offsetMilliseconds;
@@ -807,46 +781,4 @@ DSTOffsetCache::sanityCheck()
                  rangeStartSeconds >= 0 && rangeEndSeconds >= 0);
     JS_ASSERT_IF(rangeStartSeconds != INT64_MIN,
                  rangeStartSeconds <= MAX_UNIX_TIMET && rangeEndSeconds <= MAX_UNIX_TIMET);
-
-#ifdef JS_METER_DST_OFFSET_CACHING
-    JS_ASSERT(totalCalculations ==
-              hit +
-              missIncreasing + missDecreasing +
-              missIncreasingOffsetChangeExpand + missIncreasingOffsetChangeUpper +
-              missDecreasingOffsetChangeExpand + missDecreasingOffsetChangeLower +
-              missLargeIncrease + missLargeDecrease);
-#endif
 }
-
-#ifdef JS_METER_DST_OFFSET_CACHING
-void
-DSTOffsetCache::dumpStats()
-{
-    if (!getenv("JS_METER_DST_OFFSET_CACHING"))
-        return;
-    FILE *fp = fopen("/tmp/dst-offset-cache.stats", "a");
-    if (!fp)
-        return;
-    typedef unsigned long UL;
-    fprintf(fp,
-            "hit:\n"
-            "  in range: %lu\n"
-            "misses:\n"
-            "  increase range end:                 %lu\n"
-            "  decrease range start:               %lu\n"
-            "  increase, offset change, expand:    %lu\n"
-            "  increase, offset change, new range: %lu\n"
-            "  decrease, offset change, expand:    %lu\n"
-            "  decrease, offset change, new range: %lu\n"
-            "  large increase:                     %lu\n"
-            "  large decrease:                     %lu\n"
-            "total: %lu\n\n",
-            UL(hit),
-            UL(missIncreasing), UL(missDecreasing),
-            UL(missIncreasingOffsetChangeExpand), UL(missIncreasingOffsetChangeUpper),
-            UL(missDecreasingOffsetChangeExpand), UL(missDecreasingOffsetChangeLower),
-            UL(missLargeIncrease), UL(missLargeDecrease),
-            UL(totalCalculations));
-    fclose(fp);
-}
-#endif

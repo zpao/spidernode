@@ -28,13 +28,14 @@
 
 #include <stddef.h> // for ptrdiff_t
 #include <limits>
-#include "assembler/wtf/Assertions.h"
 
+#include "jsalloc.h"
 #include "jsapi.h"
-#include "jshashtable.h"
 #include "jsprvtd.h"
-#include "jsvector.h"
-#include "jslock.h"
+
+#include "assembler/wtf/Assertions.h"
+#include "js/HashTable.h"
+#include "js/Vector.h"
 
 #if WTF_CPU_SPARC
 #ifdef linux  // bugzilla 502369
@@ -52,16 +53,16 @@ extern  "C" void sync_instruction_memory(caddr_t v, u_int len);
 #endif
 #endif
 
-#if WTF_PLATFORM_IPHONE
+#if WTF_OS_IOS
 #include <libkern/OSCacheControl.h>
 #include <sys/mman.h>
 #endif
 
-#if WTF_PLATFORM_SYMBIAN
+#if WTF_OS_SYMBIAN
 #include <e32std.h>
 #endif
 
-#if WTF_CPU_MIPS && WTF_PLATFORM_LINUX
+#if WTF_CPU_MIPS && WTF_OS_LINUX
 #include <sys/cachectl.h>
 #endif
 
@@ -81,6 +82,8 @@ namespace JSC {
 
   class ExecutableAllocator;
 
+  enum CodeKind { METHOD_CODE, REGEXP_CODE };
+
   // These are reference-counted. A new one starts with a count of 1. 
   class ExecutablePool {
 
@@ -90,7 +93,7 @@ private:
     struct Allocation {
         char* pages;
         size_t size;
-#if WTF_PLATFORM_SYMBIAN
+#if WTF_OS_SYMBIAN
         RChunk* chunk;
 #endif
     };
@@ -102,6 +105,10 @@ private:
 
     // Reference count for automatic reclamation.
     unsigned m_refCount;
+ 
+    // Number of bytes currently used for Method and Regexp JIT code.
+    size_t m_mjitCodeMethod;
+    size_t m_mjitCodeRegexp;
 
 public:
     // Flag for downstream use, whether to try to release references to this pool.
@@ -114,7 +121,8 @@ public:
     void release(bool willDestroy = false)
     { 
         JS_ASSERT(m_refCount != 0);
-        JS_ASSERT_IF(willDestroy, m_refCount = 1);
+        // XXX: disabled, see bug 654820.
+        //JS_ASSERT_IF(willDestroy, m_refCount == 1);
         if (--m_refCount == 0) {
             js::UnwantedForeground::delete_(this);
         }
@@ -132,16 +140,22 @@ private:
 
     ExecutablePool(ExecutableAllocator* allocator, Allocation a)
       : m_allocator(allocator), m_freePtr(a.pages), m_end(m_freePtr + a.size), m_allocation(a),
-        m_refCount(1), m_destroy(false), m_gcNumber(0)
+        m_refCount(1), m_mjitCodeMethod(0), m_mjitCodeRegexp(0), m_destroy(false), m_gcNumber(0)
     { }
 
     ~ExecutablePool();
 
-    void* alloc(size_t n)
+    void* alloc(size_t n, CodeKind kind)
     {
         JS_ASSERT(n <= available());
         void *result = m_freePtr;
         m_freePtr += n;
+
+        if ( kind == REGEXP_CODE )
+            m_mjitCodeRegexp += n;
+        else
+            m_mjitCodeMethod += n;
+
         return result;
     }
     
@@ -151,11 +165,23 @@ private:
     }
 };
 
+enum AllocationBehavior
+{
+    AllocationCanRandomize,
+    AllocationDeterministic
+};
+
 class ExecutableAllocator {
+    typedef void (*DestroyCallback)(void* addr, size_t size);
     enum ProtectionSetting { Writable, Executable };
+    DestroyCallback destroyCallback;
+
+    void initSeed();
 
 public:
-    ExecutableAllocator()
+    explicit ExecutableAllocator(AllocationBehavior allocBehavior)
+      : destroyCallback(NULL),
+        allocBehavior(allocBehavior)
     {
         if (!pageSize) {
             pageSize = determinePageSize();
@@ -170,6 +196,10 @@ public:
             largeAllocSize = pageSize * 16;
         }
 
+#if WTF_OS_WINDOWS
+        initSeed();
+#endif
+
         JS_ASSERT(m_smallPools.empty());
     }
 
@@ -177,13 +207,14 @@ public:
     {
         for (size_t i = 0; i < m_smallPools.length(); i++)
             m_smallPools[i]->release(/* willDestroy = */true);
-        JS_ASSERT(m_pools.empty());     // if this asserts we have a pool leak
+        // XXX: temporarily disabled because it fails;  see bug 654820.
+        //JS_ASSERT(m_pools.empty());     // if this asserts we have a pool leak
     }
 
     // alloc() returns a pointer to some memory, and also (by reference) a
     // pointer to reference-counted pool. The caller owns a reference to the
     // pool; i.e. alloc() increments the count before returning the object.
-    void* alloc(size_t n, ExecutablePool** poolp)
+    void* alloc(size_t n, ExecutablePool** poolp, CodeKind type)
     {
         // Round 'n' up to a multiple of word size; if all allocations are of
         // word sized quantities, then all subsequent allocations will be
@@ -200,22 +231,35 @@ public:
 
         // This alloc is infallible because poolForSize() just obtained
         // (found, or created if necessary) a pool that had enough space.
-        void *result = (*poolp)->alloc(n);
+        void *result = (*poolp)->alloc(n, type);
         JS_ASSERT(result);
         return result;
     }
 
     void releasePoolPages(ExecutablePool *pool) {
         JS_ASSERT(pool->m_allocation.pages);
+        if (destroyCallback)
+            destroyCallback(pool->m_allocation.pages, pool->m_allocation.size);
         systemRelease(pool->m_allocation);
         m_pools.remove(m_pools.lookup(pool));   // this asserts if |pool| is not in m_pools
     }
 
-    size_t getCodeSize() const;
+    void sizeOfCode(size_t *method, size_t *regexp, size_t *unused) const;
+
+    void setDestroyCallback(DestroyCallback destroyCallback) {
+        this->destroyCallback = destroyCallback;
+    }
+
+    void setRandomize(bool enabled) {
+        allocBehavior = enabled ? AllocationCanRandomize : AllocationDeterministic;
+    }
 
 private:
     static size_t pageSize;
     static size_t largeAllocSize;
+#if WTF_OS_WINDOWS
+    static int64_t rngSeed;
+#endif
 
     static const size_t OVERSIZE_ALLOCATION = size_t(-1);
 
@@ -238,8 +282,9 @@ private:
     }
 
     // On OOM, this will return an Allocation where pages is NULL.
-    static ExecutablePool::Allocation systemAlloc(size_t n);
+    ExecutablePool::Allocation systemAlloc(size_t n);
     static void systemRelease(const ExecutablePool::Allocation& alloc);
+    void *computeRandomAllocationAddress();
 
     ExecutablePool* createPool(size_t n)
     {
@@ -267,6 +312,7 @@ private:
         return pool;
     }
 
+public:
     ExecutablePool* poolForSize(size_t n)
     {
 #ifndef DEBUG_STRESS_JSC_ALLOCATOR
@@ -325,7 +371,6 @@ private:
         return pool;
     }
 
-public:
 #if ENABLE_ASSEMBLER_WX_EXCLUSIVE
     static void makeWritable(void* start, size_t size)
     {
@@ -356,7 +401,7 @@ public:
         //
         // Modify "start" and "end" to avoid GCC 4.3.0-4.4.2 bug in
         // mips_expand_synci_loop that may execute synci one more time.
-        // "start" points to the fisrt byte of the cache line.
+        // "start" points to the first byte of the cache line.
         // "end" points to the last byte of the line before the last cache line.
         // Because size is always a multiple of 4, this is safe to set
         // "end" to the last byte.
@@ -372,13 +417,13 @@ public:
         _flush_cache(reinterpret_cast<char*>(code), size, BCACHE);
 #endif
     }
-#elif WTF_CPU_ARM_THUMB2 && WTF_PLATFORM_IPHONE
+#elif WTF_CPU_ARM && WTF_OS_IOS
     static void cacheFlush(void* code, size_t size)
     {
         sys_dcache_flush(code, size);
         sys_icache_invalidate(code, size);
     }
-#elif WTF_CPU_ARM_THUMB2 && WTF_PLATFORM_LINUX
+#elif WTF_CPU_ARM_THUMB2 && WTF_IOS
     static void cacheFlush(void* code, size_t size)
     {
         asm volatile (
@@ -394,14 +439,14 @@ public:
             : "r" (code), "r" (reinterpret_cast<char*>(code) + size)
             : "r0", "r1", "r2");
     }
-#elif WTF_PLATFORM_SYMBIAN
+#elif WTF_OS_SYMBIAN
     static void cacheFlush(void* code, size_t size)
     {
         User::IMB_Range(code, static_cast<char*>(code) + size);
     }
-#elif WTF_CPU_ARM_TRADITIONAL && WTF_PLATFORM_LINUX && WTF_COMPILER_RVCT
+#elif WTF_CPU_ARM_TRADITIONAL && WTF_OS_LINUX && WTF_COMPILER_RVCT
     static __asm void cacheFlush(void* code, size_t size);
-#elif WTF_CPU_ARM_TRADITIONAL && (WTF_PLATFORM_LINUX || WTF_PLATFORM_ANDROID) && WTF_COMPILER_GCC
+#elif WTF_CPU_ARM_TRADITIONAL && (WTF_OS_LINUX || WTF_OS_ANDROID) && WTF_COMPILER_GCC
     static void cacheFlush(void* code, size_t size)
     {
         asm volatile (
@@ -443,6 +488,7 @@ private:
     typedef js::HashSet<ExecutablePool *, js::DefaultHasher<ExecutablePool *>, js::SystemAllocPolicy>
             ExecPoolHashSet;
     ExecPoolHashSet m_pools;    // All pools, just for stats purposes.
+    AllocationBehavior allocBehavior;
 
     static size_t determinePageSize();
 };

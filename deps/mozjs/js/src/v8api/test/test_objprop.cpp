@@ -46,7 +46,7 @@ test_obj_getprop()
   context.Dispose();
 }
 
-static JSInt32 test_val = 1;
+static int32_t test_val = 1;
 
 static Handle<Value> ReadTestVal(Local<String> propname, const AccessorInfo &info) {
   do_check_true(!propname.IsEmpty());
@@ -86,8 +86,107 @@ test_obj_defprop() {
 
   do_check_true(!result.IsEmpty());
   do_check_true(result->IsInt32());
-  JSInt32 i = result->Int32Value();
+  int32_t i = result->Int32Value();
   do_check_eq(12, i);
+  context.Dispose();
+}
+
+static Handle<Value> ReadExn(Local<String> propname, const AccessorInfo &info) {
+  return ThrowException(Integer::New(9));
+}
+
+static void WriteExn(Local<String> propname, Local<Value> v, const AccessorInfo &info) {
+  ThrowException(Integer::New(4));
+}
+
+void
+test_obj_propexn() {
+  HandleScope handle_scope;
+  Persistent<Context> context = Context::New();
+
+  Context::Scope context_scope(context);
+
+  Handle<Object> obj = Object::New();
+  obj->SetAccessor(String::New("myprop"), ReadExn, WriteExn);
+  Local<Object> global = context->Global();
+  global->Set(String::New("testobj"), obj);
+
+  Handle<String> source = String::New("var n = 0;"
+                                      "try { testobj.myprop; } catch (e) { n += e; };"
+                                      "try { testobj.myprop = (n+9); } catch (e) { n += e; }; n");
+
+  // Compile the source code.
+  Handle<Script> script = Script::Compile(source);
+
+  TryCatch trycatch;
+  // Run the script to get the result.
+  Handle<Value> result = script->Run();
+
+  do_check_false(result.IsEmpty());
+  do_check_true(result->IsInt32());
+  do_check_false(trycatch.HasCaught());
+  int32_t i = result->Int32Value();
+  do_check_eq(13, i);
+  context.Dispose();
+}
+
+Handle<Value> NamedGetterThrows(Local<String> property, const AccessorInfo &info) {
+  return ThrowException(Integer::New(1));
+}
+Handle<Value> NamedSetterThrows(Local<String> property, Local<Value> value, const AccessorInfo &info) {
+  return ThrowException(Integer::New(2));
+}
+Handle<Boolean> NamedDeleterThrows(Local<String> property, const AccessorInfo &info) {
+  ThrowException(Integer::New(3));
+  return True();
+}
+
+Handle<Value> IndexedGetterThrows(uint32_t index, const AccessorInfo &info) {
+  return ThrowException(Integer::New(4));
+}
+Handle<Value> IndexedSetterThrows(uint32_t index, Local<Value> value, const AccessorInfo &info) {
+  return ThrowException(Integer::New(5));
+}
+
+Handle<Boolean> IndexedDeleterThrows(uint32_t index, const AccessorInfo &info) {
+  ThrowException(Integer::New(6));
+  return True();
+}
+
+void
+test_obj_tmplexn() {
+  HandleScope scope;
+
+  Persistent<Context> context = Context::New();
+  Context::Scope context_scope(context);
+
+  Handle<ObjectTemplate> tmpl = ObjectTemplate::New();
+  tmpl->SetNamedPropertyHandler(NamedGetterThrows, NamedSetterThrows, 0, NamedDeleterThrows);
+  tmpl->SetIndexedPropertyHandler(IndexedGetterThrows, IndexedSetterThrows, 0, IndexedDeleterThrows);
+  Handle<Object> obj = tmpl->NewInstance();
+  Local<Object> global = context->Global();
+  global->Set(String::New("testobj"), obj);
+
+  Handle<String> source = String::New("var n = 0;"
+                                      "try { testobj.myprop; } catch (e) { n += e; };"
+                                      "try { testobj.myprop = (n+9); } catch (e) { n += e; }"
+                                      "try { delete testobj.myprop; } catch (e) { n += e; };"
+                                      "try { testobj[4]; } catch (e) { n += e; };"
+                                      "try { testobj[5] = (n+9); } catch (e) { n += e; }"
+                                      "try { delete testobj[6]; } catch (e) { n += e; }; n");
+
+  // Compile the source code.
+  Handle<Script> script = Script::Compile(source);
+
+  TryCatch trycatch;
+  // Run the script to get the result.
+  Handle<Value> result = script->Run();
+
+  do_check_false(result.IsEmpty());
+  do_check_true(result->IsInt32());
+  do_check_false(trycatch.HasCaught());
+  int32_t i = result->Int32Value();
+  do_check_eq(i, 21);
   context.Dispose();
 }
 
@@ -98,6 +197,8 @@ Test gTests[] = {
   TEST(test_obj_setprop),
   TEST(test_obj_getprop),
   TEST(test_obj_defprop),
+  TEST(test_obj_propexn),
+  TEST(test_obj_tmplexn),
 };
 
 const char* file = __FILE__;

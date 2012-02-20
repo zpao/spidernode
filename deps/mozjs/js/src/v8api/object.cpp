@@ -1,6 +1,6 @@
 #include "v8-internal.h"
-#include "jstl.h"
-#include "jshashtable.h"
+// #include "jstl.h"
+// #include "jshashtable.h"
 #include "jsobj.h"
 #include "jstypedarray.h"
 #include "jsproxy.h"
@@ -34,7 +34,7 @@ typedef js::HashMap<JSObject*,Object::PrivateData*, js::DefaultHasher<JSObject*>
 static ObjectPrivateDataMap *gPrivateDataMap = 0;
 static ObjectPrivateDataMap& privateDataMap() {
   if (!gPrivateDataMap) {
-    gPrivateDataMap = cx()->new_<ObjectPrivateDataMap>();
+    gPrivateDataMap = new_<ObjectPrivateDataMap>();
     gPrivateDataMap->init(11);
   }
   return *gPrivateDataMap;
@@ -67,49 +67,45 @@ internal::DestroyObjectInternals()
     r.popFront();
   }
 
-  cx()->delete_(gPrivateDataMap);
+  delete_(gPrivateDataMap);
 }
 
 JSBool Object::JSAPIPropertyGetter(JSContext* cx, uintN argc, jsval* vp) {
+  ApiExceptionBoundary boundary;
   HandleScope scope;
   JSObject* fnObj = JSVAL_TO_OBJECT(JS_CALLEE(cx, vp));
-  jsval accessorOwner;
-  (void) JS_GetReservedSlot(cx, fnObj, 0, &accessorOwner);
+  jsval accessorOwner = js::GetFunctionNativeReserved(fnObj, 0);
   JS_ASSERT(JSVAL_IS_OBJECT(accessorOwner));
   Object o(JSVAL_TO_OBJECT(accessorOwner));
 
-  jsval name;
-  (void) JS_GetReservedSlot(cx, fnObj, 1, &name);
+  jsval name = js::GetFunctionNativeReserved(fnObj, 1);
   jsid id;
   (void) JS_ValueToId(cx, name, &id);
 
   AccessorStorage::PropertyData data = o.GetHiddenStore().properties.get(id);
-  AccessorInfo info(data.data.get(), JS_THIS_OBJECT(cx, vp));
+  AccessorInfo info(data.data.get(), JS_THIS_OBJECT(cx, vp), o);
   Handle<Value> result = data.getter(String::FromJSID(id), info);
   JS_SET_RVAL(cx, vp, result->native());
-  // XXX: this is usually correct
-  return JS_TRUE;
+  return boundary.noExceptionOccured();
 }
 
 JSBool Object::JSAPIPropertySetter(JSContext* cx, uintN argc, jsval* vp) {
+  ApiExceptionBoundary boundary;
   HandleScope scope;
   JSObject* fnObj = JSVAL_TO_OBJECT(JS_CALLEE(cx, vp));
-  jsval accessorOwner;
-  (void) JS_GetReservedSlot(cx, fnObj, 0, &accessorOwner);
+  jsval accessorOwner = js::GetFunctionNativeReserved(fnObj, 0);
   JS_ASSERT(JSVAL_IS_OBJECT(accessorOwner));
   Object o(JSVAL_TO_OBJECT(accessorOwner));
 
-  jsval name;
-  (void) JS_GetReservedSlot(cx, fnObj, 1, &name);
+  jsval name = js::GetFunctionNativeReserved(fnObj, 1);
   jsid id;
   (void) JS_ValueToId(cx, name, &id);
 
   AccessorStorage::PropertyData data = o.GetHiddenStore().properties.get(id);
-  AccessorInfo info(data.data.get(), JS_THIS_OBJECT(cx, vp));
+  AccessorInfo info(data.data.get(), JS_THIS_OBJECT(cx, vp), o);
   Value value(*JS_ARGV(cx, vp));
   data.setter(String::FromJSID(id), &value, info);
-  // XXX: this is usually correct
-  return JS_TRUE;
+  return boundary.noExceptionOccured();
 }
 
 bool
@@ -119,14 +115,13 @@ Object::Set(Handle<Value> key,
   // TODO: use String::Value
   String::AsciiValue k(key);
   jsval v = value->native();
-
+  
   if (!JS_SetProperty(cx(), *this, *k, &v)) {
     TryCatch::CheckForException();
     return false;
   }
 
-  // Can't set attributes on indexed properties
-  if (!key->ToUint32().IsEmpty())
+  if (key->IsUint32())
     return true;
 
   uintN js_attribs = 0;
@@ -145,10 +140,10 @@ Object::Set(Handle<Value> key,
 }
 
 bool
-Object::Set(JSUint32 index,
+Object::Set(uint32_t index,
             Handle<Value> value)
 {
-  if (index > JSUint32(std::numeric_limits<jsint>::max())) {
+  if (index > uint32_t(std::numeric_limits<jsint>::max())) {
     return false;
   }
 
@@ -183,9 +178,9 @@ Object::Get(Handle<Value> key) {
 }
 
 Local<Value>
-Object::Get(JSUint32 index)
+Object::Get(uint32_t index)
 {
-  if (index > JSUint32(std::numeric_limits<jsint>::max())) {
+  if (index > uint32_t(std::numeric_limits<jsint>::max())) {
     return Local<Value>();
   }
 
@@ -212,9 +207,9 @@ Object::Has(Handle<String> key)
 }
 
 bool
-Object::Has(JSUint32 index)
+Object::Has(uint32_t index)
 {
-  if (index > JSUint32(std::numeric_limits<jsint>::max())) {
+  if (index > uint32_t(std::numeric_limits<jsint>::max())) {
     return false;
   }
 
@@ -241,9 +236,9 @@ Object::Delete(Handle<String> key)
 }
 
 bool
-Object::Delete(JSUint32 index)
+Object::Delete(uint32_t index)
 {
-  if (index > JSUint32(std::numeric_limits<jsint>::max())) {
+  if (index > uint32_t(std::numeric_limits<jsint>::max())) {
     return false;
   }
 
@@ -276,20 +271,22 @@ Object::SetAccessor(Handle<String> name,
 
   jsid propid;
   JS_ValueToId(cx(), name->native(), &propid);
-  JSFunction* getterFn = JS_NewFunction(cx(), JSAPIPropertyGetter, 0, 0, NULL, NULL);
+  JSFunction* getterFn =
+      js::NewFunctionWithReserved(cx(), JSAPIPropertyGetter, 0, 0, NULL, NULL);
   if (!getterFn)
     return false;
   JSObject *getterObj = JS_GetFunctionObject(getterFn);
 
-  JSFunction* setterFn = JS_NewFunction(cx(), JSAPIPropertySetter, 1, 0, NULL, NULL);
+  JSFunction* setterFn =
+      js::NewFunctionWithReserved(cx(), JSAPIPropertySetter, 1, 0, NULL, NULL);
   if (!setterFn)
     return false;
   JSObject *setterObj = JS_GetFunctionObject(setterFn);
 
-  JS_SetReservedSlot(cx(), getterObj, 0, native());
-  JS_SetReservedSlot(cx(), getterObj, 1, name->native());
-  JS_SetReservedSlot(cx(), setterObj, 0, native());
-  JS_SetReservedSlot(cx(), setterObj, 1, name->native());
+  js::SetFunctionNativeReserved(getterObj, 0, native());
+  js::SetFunctionNativeReserved(getterObj, 1, name->native());
+  js::SetFunctionNativeReserved(setterObj, 0, native());
+  js::SetFunctionNativeReserved(setterObj, 1, name->native());
 
   uintN attributes = JSPROP_GETTER | JSPROP_SETTER | JSPROP_SHARED;
   if (!JS_DefinePropertyById(cx(), *this, propid,
@@ -327,7 +324,7 @@ Object::GetPropertyNames()
 Local<Value>
 Object::GetPrototype()
 {
-  Value v(OBJECT_TO_JSVAL(JS_GetPrototype(cx(), *this)));
+  Value v(OBJECT_TO_JSVAL(JS_GetPrototype(*this)));
   return Local<Value>::New(&v);
 }
 
@@ -352,7 +349,7 @@ Object::FindInstanceInPrototypeChain(Handle<FunctionTemplate> tmpl)
 Local<String>
 Object::ObjectProtoToString()
 {
-  Object proto(JS_GetPrototype(cx(), *this));
+  Object proto(JS_GetPrototype(*this));
   Handle<Function> toString = proto.Get(String::New("toString")).As<Function>();
   if (toString.IsEmpty()) {
     TryCatch::CheckForException();
@@ -371,7 +368,7 @@ Object::GetConstructorName()
 int
 Object::InternalFieldCount()
 {
-  JSClass *cls = JS_GET_CLASS(cx(), *this);
+  JSClass *cls = JS_GetClass(*this);
   if (!cls)
     return -1;
   return JSCLASS_RESERVED_SLOTS(cls);
@@ -380,25 +377,39 @@ Object::InternalFieldCount()
 Local<Value>
 Object::GetInternalField(int index)
 {
-  Value v;
-  if (!JS_GetReservedSlot(cx(), *this, index, &v.native())) {
-    return Local<Value>();
+  jsval v = JSVAL_VOID;
+  if (JS_ObjectIsFunction(cx(), *this)) {
+    v = js::GetFunctionNativeReserved(*this, index);
   }
-  return Local<Value>::New(&v);
+  else {
+    v = JS_GetReservedSlot(*this, index);
+  }
+  // TODO: verify that it's ok to simply remove this. It should be, as creating
+  // a Value with a void jsval seems to be fine.
+//  if (JSVAL_IS_VOID(v)) {
+//    return Local<Value>();
+//  }
+  Value value(v);
+  return Local<Value>::New(&value);
 }
 
 void
 Object::SetInternalField(int index,
                          Handle<Value> value)
 {
-  (void) JS_SetReservedSlot(cx(), *this, index, value->native());
+  if (JS_ObjectIsFunction(cx(), *this)) {
+    js::SetFunctionNativeReserved(*this, index, value->native());
+  }
+  else {
+    (void) JS_SetReservedSlot(*this, index, value->native());
+  }
 }
 
 void*
 Object::GetPointerFromInternalField(int index)
 {
-  jsval v;
-  if (!JS_GetReservedSlot(cx(), *this, index, &v)) {
+  jsval v = JS_GetReservedSlot(*this, index);
+  if (JSVAL_IS_VOID(v)) {
     return NULL;
   }
   // XXX: this assumes there was a ptr there
@@ -410,7 +421,7 @@ Object::SetPointerInInternalField(int index,
                                   void* value)
 {
   jsval v = PRIVATE_TO_JSVAL(value);
-  (void) JS_SetReservedSlot(cx(), *this, index, v);
+  (void) JS_SetReservedSlot(*this, index, v);
 }
 
 bool
@@ -427,9 +438,9 @@ Object::HasRealNamedProperty(Handle<String> key)
 }
 
 bool
-Object::HasRealIndexedProperty(JSUint32 index)
+Object::HasRealIndexedProperty(uint32_t index)
 {
-  if (index > JSUint32(std::numeric_limits<jsint>::max())) {
+  if (index > uint32_t(std::numeric_limits<jsint>::max())) {
     return false;
   }
 
@@ -482,7 +493,7 @@ int
 Object::GetIdentityHash()
 {
   JSObject *obj = *this;
-  return reinterpret_cast<JSIntPtr>(obj);
+  return reinterpret_cast<intptr_t>(obj);
 }
 
 Object::PrivateData&
@@ -493,7 +504,7 @@ Object::GetHiddenStore()
   if (p.found()) {
     pd = p->value;
   } else {
-    pd = cx()->new_<PrivateData>();
+    pd = new_<PrivateData>();
     ObjectPrivateDataMap::AddPtr slot = privateDataMap().lookupForAdd(*this);
     privateDataMap().add(slot, *this, pd);
   }
@@ -552,7 +563,7 @@ Object::Clone()
 }
 
 void
-Object::SetIndexedPropertiesToPixelData(JSUint8* data,
+Object::SetIndexedPropertiesToPixelData(uint8_t* data,
                                         int length)
 {
   UNIMPLEMENTEDAPI();
@@ -564,7 +575,7 @@ Object::HasIndexedPropertiesInPixelData()
   UNIMPLEMENTEDAPI(false);
 }
 
-JSUint8*
+uint8_t*
 Object::GetIndexedPropertiesPixelData()
 {
   UNIMPLEMENTEDAPI(NULL);
@@ -579,11 +590,11 @@ Object::GetIndexedPropertiesPixelDataLength()
 static JSObject* grabTypedArray(JSObject* obj) {
   if (js_IsTypedArray(obj))
     return obj;
-  if (!obj->isObjectProxy())
+  if (!js::IsObjectProxy(obj))
     return NULL;
-  jsid name = INTERNED_STRING_TO_JSID(JS_InternString(cx(), "rawArray"));
+  jsid name = INTERNED_STRING_TO_JSID(cx(), JS_InternString(cx(), "rawArray"));
   js::Value v;
-  js::JSProxy::get(cx(), obj, obj, name, &v);
+  js::Proxy::get(cx(), obj, obj, name, &v);
   if (v.isObjectOrNull())
     return v.toObjectOrNull();
   return NULL;
@@ -598,15 +609,32 @@ Object::SetIndexedPropertiesToExternalArrayData(void* data,
   JS_ASSERT (array_type == GetIndexedPropertiesExternalArrayDataType());
   if (number_of_elements < 0)
     return;
-  js::TypedArray* arr = js::TypedArray::fromJSObject(grabTypedArray(*this));
-  // Hardcoded for bytes now
-  size_t elemSize = arr->slotWidth();
+  // At this point I'm going to cheat. If it's a typed array already, then I'll create 
+  // a new one from this one.
+
+  // We're going to create a new buffer because that's how we do.
+  // Previously we added the ability to manipulate a buffer directly. That's not
+  // cool, so what we'll do is create a new buffer. If this is already a TypedArray,
+  // then we'll just create a new TypedArray and replace this*. If we're working
+  // with a Proxy, then we need to re-set
+//  JSObject* arr = grabTypedArray(*this);
+  size_t elemSize = js::TypedArray::slotWidth(array_type);
   size_t bufferSize = elemSize * number_of_elements;
-  js::ArrayBuffer* buffer = arr->buffer;
-  buffer->freeStorage(cx());
-  buffer->data = data;
-  buffer->byteLength = bufferSize;
-  buffer->isExternal = true;
+  // create the typed array buffer
+  JSObject* newBuf = js::ArrayBuffer::create(cx(), bufferSize, reinterpret_cast<uint8_t*>(data));
+    
+  // create the new typed array
+  JSObject* newArr = js_CreateTypedArrayWithBuffer(cx(), array_type, newBuf, 0, number_of_elements);
+
+  if (js_IsTypedArray(*this)) {
+    *this = newArr;
+  }
+  else if (js::IsProxy(*this)) {
+//    js::Value* vp;
+//    vp->setObject(*newArr);
+//    js::Proxy::set(cx(), *this, *this, proxyProperty(), JS_TRUE, vp);
+    UNIMPLEMENTEDAPI();
+  }
 }
 
 bool
@@ -619,10 +647,7 @@ void*
 Object::GetIndexedPropertiesExternalArrayData()
 {
   JS_ASSERT(HasIndexedPropertiesInExternalArrayData());
-  js::TypedArray* arr = js::TypedArray::fromJSObject(grabTypedArray(*this));
-  // XXX: take arr->byteOffset into account?
-  return arr->data;
-
+  return JS_GetTypedArrayData(grabTypedArray(*this));
 }
 
 ExternalArrayType
@@ -636,8 +661,7 @@ int
 Object::GetIndexedPropertiesExternalArrayDataLength()
 {
   JS_ASSERT(HasIndexedPropertiesInExternalArrayData());
-  js::TypedArray* arr = js::TypedArray::fromJSObject(grabTypedArray(*this));
-  return arr->byteLength;
+  return JS_GetTypedArrayByteLength(grabTypedArray(*this));
 }
 
 Object::Object(JSObject *obj) :

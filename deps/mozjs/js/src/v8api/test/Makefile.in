@@ -15,6 +15,7 @@ CPP_UNIT_TESTS = \
   test_script_run_void.cpp \
   test_String.cpp \
   test_objprop.cpp \
+  test_value.cpp \
   test_trycatch.cpp \
   $(NULL)
 

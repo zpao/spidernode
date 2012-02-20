@@ -75,15 +75,25 @@ NOMD_CCFLAGS	= $(CCC_ONLY_FLAGS) $(OPTIMIZER) $(NOMD_OS_CFLAGS)\
 LDFLAGS		= $(OS_LDFLAGS)
 
 # Enable profile-guided optimization
+ifndef NO_PROFILE_GUIDED_OPTIMIZE
 ifdef MOZ_PROFILE_GENERATE
 CFLAGS += $(PROFILE_GEN_CFLAGS)
 LDFLAGS += $(PROFILE_GEN_LDFLAGS)
+DLLFLAGS += $(PROFILE_GEN_LDFLAGS)
+ifeq (WINNT,$(OS_ARCH))
+AR_FLAGS += -LTCG
+endif
 endif # MOZ_PROFILE_GENERATE
 
 ifdef MOZ_PROFILE_USE
 CFLAGS += $(PROFILE_USE_CFLAGS)
 LDFLAGS += $(PROFILE_USE_LDFLAGS)
+DLLFLAGS += $(PROFILE_USE_LDFLAGS)
+ifeq (WINNT,$(OS_ARCH))
+AR_FLAGS += -LTCG
+endif
 endif # MOZ_PROFILE_USE
+endif # NO_PROFILE_GUIDED_OPTIMIZE
 
 define MAKE_OBJDIR
 if test ! -d $(@D); then rm -rf $(@D); $(NSINSTALL) -D $(@D); fi
@@ -173,3 +183,19 @@ RELEASE_DIR = $(MOD_DEPTH)/dist/release/$(MOD_NAME)
 RELEASE_INCLUDE_DIR = $(RELEASE_DIR)/$(BUILD_NUMBER)/$(OBJDIR_NAME)/include
 RELEASE_BIN_DIR = $(RELEASE_DIR)/$(BUILD_NUMBER)/$(OBJDIR_NAME)/bin
 RELEASE_LIB_DIR = $(RELEASE_DIR)/$(BUILD_NUMBER)/$(OBJDIR_NAME)/lib
+
+# autoconf.mk sets OBJ_SUFFIX to an error to avoid use before including
+# this file
+OBJ_SUFFIX := $(_OBJ_SUFFIX)
+
+# PGO builds with GCC build objects with instrumentation in a first pass,
+# then objects optimized, without instrumentation, in a second pass. If
+# we overwrite the ojects from the first pass with those from the second,
+# we end up not getting instrumentation data for better optimization on
+# incremental builds. As a consequence, we use a different object suffix
+# for the first pass.
+ifdef MOZ_PROFILE_GENERATE
+ifdef NS_USE_GCC
+OBJ_SUFFIX := i_o
+endif
+endif

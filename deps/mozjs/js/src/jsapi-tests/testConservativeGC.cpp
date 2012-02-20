@@ -1,13 +1,14 @@
 #include "tests.h"
 #include "jsobj.h"
-#include "jsstr.h"
+#include "vm/String.h"
 
 BEGIN_TEST(testConservativeGC)
 {
     jsval v2;
     EVAL("({foo: 'bar'});", &v2);
     CHECK(JSVAL_IS_OBJECT(v2));
-    JSObject objCopy = *JSVAL_TO_OBJECT(v2);
+    char objCopy[sizeof(JSObject)];
+    js_memcpy(&objCopy, JSVAL_TO_OBJECT(v2), sizeof(JSObject));
 
     jsval v3;
     EVAL("String(Math.PI);", &v3);
@@ -18,7 +19,8 @@ BEGIN_TEST(testConservativeGC)
     EVAL("({foo2: 'bar2'});", &tmp);
     CHECK(JSVAL_IS_OBJECT(tmp));
     JSObject *obj2 = JSVAL_TO_OBJECT(tmp);
-    JSObject obj2Copy = *obj2;
+    char obj2Copy[sizeof(JSObject)];
+    js_memcpy(&obj2Copy, obj2, sizeof(JSObject));
 
     EVAL("String(Math.sqrt(3));", &tmp);
     CHECK(JSVAL_IS_STRING(tmp));
@@ -36,10 +38,10 @@ BEGIN_TEST(testConservativeGC)
 
     JS_GC(cx);
 
-    checkObjectFields(&objCopy, JSVAL_TO_OBJECT(v2));
+    checkObjectFields((JSObject *)objCopy, JSVAL_TO_OBJECT(v2));
     CHECK(!memcmp(&strCopy, JSVAL_TO_STRING(v3), sizeof(strCopy)));
 
-    checkObjectFields(&obj2Copy, obj2);
+    checkObjectFields((JSObject *)obj2Copy, obj2);
     CHECK(!memcmp(&str2Copy, str2, sizeof(str2Copy)));
 
     return true;
@@ -47,13 +49,9 @@ BEGIN_TEST(testConservativeGC)
 
 bool checkObjectFields(JSObject *savedCopy, JSObject *obj)
 {
-    /*
-     * The GC can change the shape and shrink dslots so we update them before
-     * doing memcmp.
-     */
-    savedCopy->objShape = obj->objShape;
-    savedCopy->slots = obj->slots;
-    CHECK(!memcmp(savedCopy, obj, sizeof(*obj)));
+    /* Ignore fields which are unstable across GCs. */
+    CHECK(savedCopy->lastProperty() == obj->lastProperty());
+    CHECK(savedCopy->getProto() == obj->getProto());
     return true;
 }
 

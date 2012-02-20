@@ -41,12 +41,14 @@
 #ifndef StringObject_h___
 #define StringObject_h___
 
+#include "mozilla/Attributes.h"
+
 #include "jsobj.h"
 #include "jsstr.h"
 
 namespace js {
 
-class StringObject : public ::JSObject
+class StringObject : public JSObject
 {
     static const uintN PRIMITIVE_THIS_SLOT = 0;
     static const uintN LENGTH_SLOT = 1;
@@ -80,7 +82,7 @@ class StringObject : public ::JSObject
     void setStringThis(JSString *str) {
         JS_ASSERT(getSlot(PRIMITIVE_THIS_SLOT).isUndefined());
         setSlot(PRIMITIVE_THIS_SLOT, StringValue(str));
-        setSlot(LENGTH_SLOT, Int32Value(int32(str->length())));
+        setSlot(LENGTH_SLOT, Int32Value(int32_t(str->length())));
     }
 
     /* For access to init, as String.prototype is special. */
@@ -92,11 +94,11 @@ class StringObject : public ::JSObject
      * encodes the initial length property. Return the shape after changing
      * this String object's last property to it.
      */
-    const js::Shape *assignInitialShape(JSContext *cx);
+    Shape *assignInitialShape(JSContext *cx);
 
   private:
-    StringObject();
-    StringObject &operator=(const StringObject &so);
+    StringObject() MOZ_DELETE;
+    StringObject &operator=(const StringObject &so) MOZ_DELETE;
 };
 
 } // namespace js

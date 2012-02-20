@@ -1,7 +1,8 @@
 #ifndef v8_v8_internal_h__
 #define v8_v8_internal_h__
 #include "v8.h"
-#include "jscntxt.h"
+#include "jsapi.h"
+#include "jsfriendapi.h"
 
 namespace v8 {
 namespace internal {
@@ -15,13 +16,26 @@ extern JSClass global_class;
 JSContext *cx();
 bool disposed();
 
+class ApiExceptionBoundary {
+public:
+  ApiExceptionBoundary();
+  ~ApiExceptionBoundary();
+
+  bool noExceptionOccured();
+};
+
 void TraceObjectInternals(JSTracer* tracer, void*);
 void DestroyObjectInternals();
 
 ////////////////////////////////////////////////////////////////////////////////
-//// Tracing helpers
+//// Tracing and memory management helpers
 
 void traceValue(JSTracer* tracer, jsval val);
+void* malloc_(size_t nbytes);
+void free_(void* p);
+
+JS_DECLARE_NEW_METHODS(malloc_, extern JS_ALWAYS_INLINE)
+JS_DECLARE_DELETE_METHODS(free_, extern JS_ALWAYS_INLINE)
 
 template <typename T>
 class Traced {
@@ -32,11 +46,11 @@ public:
     *this = h;
   }
   Traced(const Traced<T> &t) :
-    mPtr(t.mPtr ? cx()->new_<T>(*t.mPtr) : NULL)
+    mPtr(t.mPtr ? new_<T>(*t.mPtr) : NULL)
   {
   }
   ~Traced() {
-    cx()->delete_(mPtr);
+    delete_(mPtr);
   }
 
   operator bool() const {
@@ -49,21 +63,21 @@ public:
 
   Traced<T> &operator=(const Traced<T> &other) {
     if (!other.mPtr) {
-      cx()->delete_(mPtr);
+      delete_(mPtr);
       mPtr = NULL;
     } else if (mPtr) {
       *mPtr = *other.mPtr;
     } else {
-      mPtr = cx()->new_<T>(*other.mPtr);
+      mPtr = new_<T>(*other.mPtr);
     }
     return *this;
   }
   void operator=(Handle<T> h) {
-    cx()->delete_(mPtr);
+    delete_(mPtr);
     if (h.IsEmpty()) {
       mPtr = NULL;
     } else {
-      mPtr = cx()->new_<T>(**h);
+      mPtr = new_<T>(**h);
     }
   }
   Local<T> get() {
@@ -77,6 +91,9 @@ public:
 private:
   T* mPtr;
 };
+
+bool IsFunctionTemplate(Handle<Value> v);
+bool IsObjectTemplate(Handle<Value> v);
 
 ////////////////////////////////////////////////////////////////////////////////
 //// Accessor Storage
