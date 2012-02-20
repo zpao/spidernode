@@ -43,7 +43,7 @@
 
 #include "mozilla/jsipc/PObjectWrapperParent.h"
 #include "jsapi.h"
-#include "jsvalue.h"
+#include "jsclass.h"
 #include "nsAutoJSValHolder.h"
 
 namespace mozilla {
@@ -68,6 +68,10 @@ public:
     {}
 
     JSObject* GetJSObject(JSContext* cx) const;
+
+    JSObject* GetJSObjectOrNull() const {
+        return mObj;
+    }
 
     jsval GetJSVal(JSContext* cx) const {
         return OBJECT_TO_JSVAL(GetJSObject(cx));
@@ -133,8 +137,7 @@ private:
     static bool jsval_from_JSVariant(JSContext* cx, const JSVariant& from,
                                      jsval* to);
     static bool
-    JSObject_to_PObjectWrapperParent(JSContext* cx, JSObject* from,
-                                     PObjectWrapperParent** to);
+    JSObject_to_PObjectWrapperParent(JSObject* from, PObjectWrapperParent** to);
     static bool
     JSObject_from_PObjectWrapperParent(JSContext* cx,
                                        const PObjectWrapperParent* from,

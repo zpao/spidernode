@@ -136,6 +136,36 @@ test_Exception()
   context.Dispose();
 }
 
+Handle<Value> CallFoo(const Arguments& args) {
+  HandleScope scope;
+  do_check_eq(1, args.Length());
+  do_check_true(args[0]->IsFunction());
+  Handle<Function> fn = args[0].As<Function>();
+  return fn->Call(fn, 0, NULL);
+}
+
+void
+test_NestedException()
+{
+  HandleScope handle_scope;
+
+  Persistent<Context> context = Context::New();
+  Handle<Script> script = Script::New(String::New("function bar() { throw 9; }; try { foo(bar); 4 } catch (e) { e }"));
+
+  Context::Scope scope(context);
+  TryCatch trycatch;
+
+  Handle<FunctionTemplate> tmpl = FunctionTemplate::New(CallFoo);
+  context->Global()->Set(String::NewSymbol("foo"), tmpl->GetFunction());
+
+  Handle<Value> v = script->Run();
+  do_check_true(!v.IsEmpty());
+  do_check_true(!trycatch.HasCaught());
+  do_check_eq(9, v->Int32Value());
+
+  context.Dispose();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //// Test Harness
 
@@ -144,7 +174,8 @@ Test gTests[] = {
   TEST(test_V8DocExample),
   TEST(test_Constructor),
   TEST(test_Name),
-  TEST(test_Exception)
+  TEST(test_Exception),
+  TEST(test_NestedException),
 };
 
 const char* file = __FILE__;

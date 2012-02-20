@@ -41,6 +41,7 @@
 #include "TrampolineCompiler.h"
 #include "StubCalls.h"
 #include "assembler/assembler/LinkBuffer.h"
+#include "assembler/jit/ExecutableAllocator.h"
 
 namespace js {
 namespace mjit {
@@ -93,14 +94,14 @@ TrampolineCompiler::compileTrampoline(Trampolines::TrampolinePtr *where,
 
     Label entry = masm.label();
     CHECK_RESULT(generator(masm));
-    JS_ASSERT(entry.isValid());
+    JS_ASSERT(entry.isSet());
 
     bool ok;
-    JSC::LinkBuffer buffer(&masm, execAlloc, poolp, &ok);
+    JSC::LinkBuffer buffer(&masm, execAlloc, poolp, &ok, JSC::METHOD_CODE);
     if (!ok) 
         return false;
     masm.finalize(buffer);
-    uint8 *result = (uint8*)buffer.finalizeCodeAddendum().dataLocation();
+    uint8_t *result = (uint8_t*)buffer.finalizeCodeAddendum().dataLocation();
     *where = JS_DATA_TO_FUNC_PTR(Trampolines::TrampolinePtr, result + masm.distanceOf(entry));
 
     return true;
@@ -109,18 +110,19 @@ TrampolineCompiler::compileTrampoline(Trampolines::TrampolinePtr *where,
 /*
  * This is shamelessly copied from emitReturn, but with several changes:
  * - There was always at least one inline call.
- * - We don't know if there is a call object, so we always check.
+ * - We don't know if there are activation objects or a script with nesting
+ *   state whose active frames need adjustment, so we always stub the epilogue.
  * - We don't know where we came from, so we don't know frame depth or PC.
  * - There is no stub buffer.
  */
 bool
 TrampolineCompiler::generateForceReturn(Assembler &masm)
 {
-    /* if (hasArgsObj() || hasCallObj()) stubs::PutActivationObjects() */
-    Jump noActObjs = masm.branchTest32(Assembler::Zero, FrameFlagsAddress(),
-                                       Imm32(StackFrame::HAS_CALL_OBJ | StackFrame::HAS_ARGS_OBJ));
-    masm.fallibleVMCall(JS_FUNC_TO_DATA_PTR(void *, stubs::PutActivationObjects), NULL, 0);
-    noActObjs.linkTo(masm.label(), &masm);
+    /* The JSStackFrame register may have been clobbered while returning, reload it. */
+    masm.loadPtr(FrameAddress(VMFrame::offsetOfFp), JSFrameReg);
+
+    /* Perform the frame epilogue. */
+    masm.fallibleVMCall(true, JS_FUNC_TO_DATA_PTR(void *, stubs::AnyFrameEpilogue), NULL, NULL, 0);
 
     /* Store any known return value */
     masm.loadValueAsComponents(UndefinedValue(), JSReturnReg_Type, JSReturnReg_Data);

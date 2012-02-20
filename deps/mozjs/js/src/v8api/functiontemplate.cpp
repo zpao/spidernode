@@ -6,19 +6,17 @@ using namespace internal;
 JS_STATIC_ASSERT(sizeof(FunctionTemplate) == sizeof(GCReference));
 
 namespace {
-const int kInstanceSlot = 0;
-const int kDataSlot = 1;
-const int kCallbackSlot = 2;
-const int kCallbackParitySlot = 3;
-const int kCachedFunction = 4;
-const int kFunctionName = 5;
-const int kFunctionTemplateSlots = 6;
 
 struct PrivateData {
   AttributeStorage attributes;
+  Traced<ObjectTemplate> instanceTemplate;
+  InvocationCallback callback;
+  Traced<Value> callbackData;
+  Traced<String> name;
+  Traced<Function> cachedFunction;
 
-  static PrivateData* Get(JSContext* cx, JSObject* obj) {
-    return reinterpret_cast<PrivateData*>(JS_GetPrivate(cx, obj));
+  static PrivateData* Get(JSObject* obj) {
+    return reinterpret_cast<PrivateData*>(JS_GetPrivate(obj));
   }
 };
 
@@ -29,7 +27,7 @@ ft_SetProperty(JSContext* cx,
                JSBool strict,
                jsval* vp)
 {
-  PrivateData* data = PrivateData::Get(cx, obj);
+  PrivateData* data = PrivateData::Get(obj);
   JS_ASSERT(data);
 
   Value v(*vp);
@@ -56,26 +54,25 @@ ft_SetProperty(JSContext* cx,
 
 void
 ft_Trace(JSTracer* tracer, JSObject* obj) {
-  PrivateData* data = PrivateData::Get(tracer->context, obj);
+  PrivateData* data = PrivateData::Get(obj);
   JS_ASSERT(data);
   data->attributes.trace(tracer);
+  data->instanceTemplate.trace(tracer);
+  data->callbackData.trace(tracer);
+  data->name.trace(tracer);
+  data->cachedFunction.trace(tracer);
 }
 
 void
-ft_finalize(JSContext* cx,
-            JSObject* obj)
+ft_finalize(JSContext* cx, JSObject* obj)
 {
-  PrivateData* data = PrivateData::Get(cx, obj);
-  cx->delete_(data);
+  PrivateData* data = PrivateData::Get(obj);
+  delete_(data);
 }
 
-
-} // anonymous namespace
-
-JSClass FunctionTemplate::sFunctionTemplateClass = {
+JSClass gFunctionTemplateClass = {
   "FunctionTemplate", // name
-  JSCLASS_HAS_PRIVATE |
-  JSCLASS_HAS_RESERVED_SLOTS(kFunctionTemplateSlots), // flags
+  JSCLASS_HAS_PRIVATE, // flags
   JS_PropertyStub, // addProperty
   JS_PropertyStub, // delProperty
   JS_PropertyStub, // getProperty
@@ -93,10 +90,26 @@ JSClass FunctionTemplate::sFunctionTemplateClass = {
   ft_Trace, // trace
 };
 
+
+} // anonymous namespace
+
+namespace internal {
+bool IsFunctionTemplate(Handle<Value> v) {
+  if (v.IsEmpty())
+    return false;
+  Handle<Object> o = v->ToObject();
+  if (o.IsEmpty())
+    return false;
+  JSObject *obj = **o;
+  return &gFunctionTemplateClass == JS_GetClass(obj);
+}
+}
+
 FunctionTemplate::FunctionTemplate() :
-  Template(&sFunctionTemplateClass)
+  Template(&gFunctionTemplateClass)
 {
-  JS_SetPrivate(cx(), JSVAL_TO_OBJECT(mVal), cx()->new_<PrivateData>());
+  PrivateData* data = new_<PrivateData>();
+  JS_SetPrivate(JSVAL_TO_OBJECT(mVal), data);
 
   Handle<ObjectTemplate> protoTemplate = ObjectTemplate::New();
   Set("prototype", protoTemplate);
@@ -104,10 +117,8 @@ FunctionTemplate::FunctionTemplate() :
   Local<ObjectTemplate> instanceTemplate = ObjectTemplate::New();
   instanceTemplate->SetPrototype(protoTemplate);
 
-  InternalObject().SetInternalField(kInstanceSlot, Handle<Object>(&instanceTemplate->InternalObject()));
-  InternalObject().SetInternalField(kDataSlot, v8::Undefined());
-  InternalObject().SetPointerInInternalField(kCallbackSlot, NULL);
-  InternalObject().SetPointerInInternalField(kCallbackParitySlot, NULL);
+  data->instanceTemplate = instanceTemplate;
+  data->callback = NULL;
 }
 
 JSBool
@@ -115,26 +126,19 @@ FunctionTemplate::CallCallback(JSContext* cx,
                                uintN argc,
                                jsval* vp)
 {
-  Object fnTemplateObj(JSVAL_TO_OBJECT(JS_CALLEE(cx, vp)));
-  Handle<Object> ftData = fnTemplateObj.GetInternalField(0).As<Object>();
-  Handle<ObjectTemplate> instanceTemplate =
-    reinterpret_cast<ObjectTemplate*>(*ftData->GetInternalField(kInstanceSlot));
-  JSIntPtr maskedCallback = reinterpret_cast<JSIntPtr>(
-    ftData->GetPointerFromInternalField(kCallbackSlot)
-  );
-  JSIntPtr residual = reinterpret_cast<JSIntPtr>(
-    ftData->GetPointerFromInternalField(kCallbackParitySlot)
-  );
-  InvocationCallback callback = reinterpret_cast<InvocationCallback>(
-    maskedCallback | (residual >> 1)
-  );
-  Local<Value> data = ftData->GetInternalField(kDataSlot);
+  ApiExceptionBoundary boundary;
+  HandleScope scope;
+  Object fn(JSVAL_TO_OBJECT(JS_CALLEE(cx, vp)));
+  PrivateData* pd = PrivateData::Get(**fn.GetInternalField(0).As<Object>());
+  Handle<ObjectTemplate> instanceTemplate = pd->instanceTemplate.get();
+  InvocationCallback callback = pd->callback;
+  Local<Value> data = pd->callbackData.get();
 
   JSObject* thiz = NULL;
   bool isConstructing = JS_IsConstructing(cx, vp);
   if (isConstructing) {
     thiz = **instanceTemplate->NewInstance();
-    Handle<Value> proto = fnTemplateObj.Get(String::NewSymbol("prototype"));
+    Handle<Value> proto = fn.Get(String::NewSymbol("prototype"));
     if (!proto.IsEmpty() && proto->IsObject()) {
       Handle<Object> o = proto->ToObject();
       (void) JS_SetPrototype(cx, thiz, **o);
@@ -156,17 +160,7 @@ FunctionTemplate::CallCallback(JSContext* cx,
   else {
     JS_SET_RVAL(cx, vp, ret->native());
   }
-  return !JS_IsExceptionPending(cx);
-}
-
-bool FunctionTemplate::IsFunctionTemplate(Handle<Value> v) {
-  if (v.IsEmpty())
-    return false;
-  Handle<Object> o = v->ToObject();
-  if (o.IsEmpty())
-    return false;
-  JSObject *obj = **o;
-  return &sFunctionTemplateClass == JS_GET_CLASS(cx(), obj);
+  return boundary.noExceptionOccured();
 }
 
 // static
@@ -186,16 +180,18 @@ Local<Function>
 FunctionTemplate::GetFunction(JSObject* parent)
 {
   HandleScope scope;
-  Local<Function> fn = InternalObject().GetInternalField(kCachedFunction).As<Function>();
+  PrivateData* pd = PrivateData::Get(InternalObject());
+  Local<Function> fn = pd->cachedFunction.get();
   if (!fn.IsEmpty()) {
     return scope.Close(Local<Function>::New(fn));
   }
-  Handle<Value> name = InternalObject().GetInternalField(kFunctionName);
+  Handle<Value> name = pd->name.get();
   if (name.IsEmpty())
     name = String::Empty();
   String::AsciiValue fnName(name);
   JSFunction* func =
-    JS_NewFunction(cx(), CallCallback, 0, JSFUN_CONSTRUCTOR, NULL, *fnName);
+      js::NewFunctionWithReserved(cx(), CallCallback, 0, JSFUN_CONSTRUCTOR,
+                                  NULL, *fnName);
   JSObject* obj = JS_GetFunctionObject(func);
   Object o(obj);
   Local<String> prototypeStr = String::NewSymbol("prototype");
@@ -203,18 +199,17 @@ FunctionTemplate::GetFunction(JSObject* parent)
   Local<Value> thiz = Local<Value>::New(&InternalObject());
   o.SetInternalField(0, thiz);
   fn = Local<Function>::New(reinterpret_cast<Function*>(&o));
-  InternalObject().SetInternalField(kCachedFunction, fn);
+  pd->cachedFunction = fn;
 
-  PrivateData* pd = PrivateData::Get(cx(), InternalObject());
   // Set all attributes that were added with Template::Set on the object.
   AttributeStorage::Range attributes = pd->attributes.all();
   while (!attributes.empty()) {
     AttributeStorage::Entry& entry = attributes.front();
     Handle<Value> v = entry.value.get();
-    if (FunctionTemplate::IsFunctionTemplate(v)) {
+    if (IsFunctionTemplate(v)) {
       FunctionTemplate *tmpl = reinterpret_cast<FunctionTemplate*>(*v);
       v = tmpl->GetFunction(parent);
-    } else if (ObjectTemplate::IsObjectTemplate(v)) {
+    } else if (IsObjectTemplate(v)) {
       ObjectTemplate *tmpl = reinterpret_cast<ObjectTemplate*>(*v);
       v = tmpl->NewInstance(parent);
     }
@@ -229,25 +224,16 @@ void
 FunctionTemplate::SetCallHandler(InvocationCallback callback,
                                  Handle<Value> data)
 {
-  JSIntPtr ptrcallback = reinterpret_cast<JSIntPtr>(callback);
-  InternalObject().SetPointerInInternalField(kCallbackSlot, reinterpret_cast<void*>(ptrcallback & ~0x1));
-  InternalObject().SetPointerInInternalField(kCallbackParitySlot, reinterpret_cast<void*>((ptrcallback & 0x1) << 1));
-
-  if (data.IsEmpty()) {
-    // XXX: this is not correct
-    InternalObject().SetInternalField(kDataSlot, v8::Undefined());
-  } else {
-    InternalObject().SetInternalField(kDataSlot, data);
-  }
+  PrivateData* pd = PrivateData::Get(InternalObject());
+  pd->callback = callback;
+  pd->callbackData = data;
 }
 
 Local<ObjectTemplate>
 FunctionTemplate::InstanceTemplate()
 {
-  Local<Value> instance = InternalObject().GetInternalField(kInstanceSlot);
-  if (instance.IsEmpty())
-    return Local<ObjectTemplate>();
-  return Local<ObjectTemplate>(reinterpret_cast<ObjectTemplate*>(*instance));
+  PrivateData* pd = PrivateData::Get(InternalObject());
+  return pd->instanceTemplate.get();
 }
 
 void
@@ -269,7 +255,9 @@ FunctionTemplate::PrototypeTemplate()
 void
 FunctionTemplate::SetClassName(Handle<String> name)
 {
-  InternalObject().SetInternalField(kFunctionName, name);
+  PrivateData* pd = PrivateData::Get(InternalObject());
+  pd->name = name;
+  pd->instanceTemplate->SetObjectName(name);
 }
 
 void

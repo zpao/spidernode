@@ -31,10 +31,10 @@ static inline void check_ne_helper(const char* aFile, int aLine,
   }
 }
 
-// JSInt64s
+// int64_ts
 static inline void check_eq_helper(const char* aFile, int aLine,
-                                   JSInt64 aExpected,
-                                   JSInt64 aActual)
+                                   int64_t aExpected,
+                                   int64_t aActual)
 {
   if (aExpected == aActual) {
     gPassedTests++;
@@ -47,8 +47,8 @@ static inline void check_eq_helper(const char* aFile, int aLine,
   }
 }
 static inline void check_ne_helper(const char* aFile, int aLine,
-                                   JSInt64 aExpected,
-                                   JSInt64 aActual)
+                                   int64_t aExpected,
+                                   int64_t aActual)
 {
   if (aExpected != aActual) {
     gPassedTests++;
@@ -177,6 +177,7 @@ void check_eq_helper(const char* aFile, int aLine,
     fail(temp.str().c_str());
   }
 }
+
 void check_ne_helper(const char* aFile, int aLine,
                      v8::Handle<v8::Value> aExpected,
                      v8::Handle<v8::Value> aActual)
@@ -197,6 +198,16 @@ void check_ne_helper(const char* aFile, int aLine,
     temp << " at line " << aLine;
     fail(temp.str().c_str());
   }
+}
+
+// Some tests use raw pointers...
+void check_ne_helper(const char* aFile, int aLine,
+                     intptr_t aExpected,
+                     v8::Value* aActual)
+{
+  int64_t actual = reinterpret_cast<intptr_t>(aActual);
+  int64_t expected = aExpected;
+  check_ne_helper(aFile, aLine, expected, actual);
 }
 
 // mixed

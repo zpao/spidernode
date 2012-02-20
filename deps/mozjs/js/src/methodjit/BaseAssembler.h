@@ -42,7 +42,6 @@
 #define jsjaeger_baseassembler_h__
 
 #include "jscntxt.h"
-#include "jstl.h"
 #include "assembler/assembler/MacroAssemblerCodeRef.h"
 #include "assembler/assembler/MacroAssembler.h"
 #include "assembler/assembler/LinkBuffer.h"
@@ -56,45 +55,13 @@
 namespace js {
 namespace mjit {
 
-class MaybeRegisterID {
-    typedef JSC::MacroAssembler::RegisterID RegisterID;
-
-  public:
-    MaybeRegisterID()
-      : reg_(Registers::ReturnReg), set(false)
-    { }
-
-    MaybeRegisterID(RegisterID reg)
-      : reg_(reg), set(true)
-    { }
-
-    inline RegisterID reg() const { JS_ASSERT(set); return reg_; }
-    inline void setReg(const RegisterID r) { reg_ = r; set = true; }
-    inline bool isSet() const { return set; }
-
-    MaybeRegisterID & operator =(const MaybeRegisterID &other) {
-        set = other.set;
-        reg_ = other.reg_;
-        return *this;
-    }
-
-    MaybeRegisterID & operator =(RegisterID r) {
-        setReg(r);
-        return *this;
-    }
-
-  private:
-    RegisterID reg_;
-    bool set;
-};
-
-// Represents an int32 property name in generated code, which must be either
+// Represents an int32_t property name in generated code, which must be either
 // a RegisterID or a constant value.
 struct Int32Key {
     typedef JSC::MacroAssembler::RegisterID RegisterID;
 
     MaybeRegisterID reg_;
-    int32 index_;
+    int32_t index_;
 
     Int32Key() : index_(0) { }
 
@@ -103,13 +70,13 @@ struct Int32Key {
         key.reg_ = reg;
         return key;
     }
-    static Int32Key FromConstant(int32 index) {
+    static Int32Key FromConstant(int32_t index) {
         Int32Key key;
         key.index_ = index;
         return key;
     }
 
-    int32 index() const {
+    int32_t index() const {
         JS_ASSERT(!reg_.isSet());
         return index_;
     }
@@ -118,28 +85,9 @@ struct Int32Key {
     bool isConstant() const { return !reg_.isSet(); }
 };
 
-class MaybeJump {
-    typedef JSC::MacroAssembler::Jump Jump;
-  public:
-    MaybeJump()
-      : set(false)
-    { }
-
-    inline Jump getJump() const { JS_ASSERT(set); return jump; }
-    inline Jump get() const { JS_ASSERT(set); return jump; }
-    inline void setJump(const Jump &j) { jump = j; set = true; }
-    inline bool isSet() const { return set; }
-
-    inline MaybeJump &operator=(Jump j) { setJump(j); return *this; }
-
-  private:
-    Jump jump;
-    bool set;
-};
-
 struct FrameAddress : JSC::MacroAssembler::Address
 {
-    FrameAddress(int32 offset)
+    FrameAddress(int32_t offset)
       : Address(JSC::MacroAssembler::stackPointerRegister, offset)
     { }
 };
@@ -152,10 +100,10 @@ struct ImmIntPtr : public JSC::MacroAssembler::ImmPtr
 };
 
 struct StackMarker {
-    uint32 base;
-    uint32 bytes;
+    uint32_t base;
+    uint32_t bytes;
 
-    StackMarker(uint32 base, uint32 bytes)
+    StackMarker(uint32_t base, uint32_t bytes)
       : base(base), bytes(bytes)
     { }
 };
@@ -171,32 +119,29 @@ class Assembler : public ValueAssembler
         JSC::FunctionPtr fun;
     };
 
-    /* Need a temp reg that is not ArgReg1. */
-#if defined(JS_CPU_X86) || defined(JS_CPU_X64)
-    static const RegisterID ClobberInCall = JSC::X86Registers::ecx;
-#elif defined(JS_CPU_ARM)
-    static const RegisterID ClobberInCall = JSC::ARMRegisters::r2;
-#elif defined(JS_CPU_SPARC)
-    static const RegisterID ClobberInCall = JSC::SparcRegisters::l1;
-#endif
+    struct DoublePatch {
+        double d;
+        DataLabelPtr label;
+    };
 
     /* :TODO: OOM */
     Label startLabel;
     Vector<CallPatch, 64, SystemAllocPolicy> callPatches;
+    Vector<DoublePatch, 16, SystemAllocPolicy> doublePatches;
 
     // Registers that can be clobbered during a call sequence.
     Registers   availInCall;
 
     // Extra number of bytes that can be used for storing structs/references
     // across calls.
-    uint32      extraStackSpace;
+    uint32_t    extraStackSpace;
 
     // Calling convention used by the currently in-progress call.
     Registers::CallConvention callConvention;
 
     // Amount of stack space reserved for the currently in-progress call. This
     // includes alignment and parameters.
-    uint32      stackAdjust;
+    uint32_t    stackAdjust;
 
     // Debug flag to make sure calls do not nest.
 #ifdef DEBUG
@@ -206,6 +151,7 @@ class Assembler : public ValueAssembler
   public:
     Assembler()
       : callPatches(SystemAllocPolicy()),
+        availInCall(0),
         extraStackSpace(0),
         stackAdjust(0)
 #ifdef DEBUG
@@ -215,53 +161,56 @@ class Assembler : public ValueAssembler
         startLabel = label();
     }
 
-    /* Total number of floating-point registers. */
-    static const uint32 TotalFPRegisters = FPRegisters::TotalFPRegisters;
-
     /* Register pair storing returned type/data for calls. */
 #if defined(JS_CPU_X86) || defined(JS_CPU_X64)
-static const JSC::MacroAssembler::RegisterID JSReturnReg_Type  = JSC::X86Registers::ecx;
-static const JSC::MacroAssembler::RegisterID JSReturnReg_Data  = JSC::X86Registers::edx;
+static const JSC::MacroAssembler::RegisterID JSReturnReg_Type  = JSC::X86Registers::edi;
+static const JSC::MacroAssembler::RegisterID JSReturnReg_Data  = JSC::X86Registers::esi;
 static const JSC::MacroAssembler::RegisterID JSParamReg_Argc   = JSC::X86Registers::ecx;
 #elif defined(JS_CPU_ARM)
-static const JSC::MacroAssembler::RegisterID JSReturnReg_Type  = JSC::ARMRegisters::r2;
-static const JSC::MacroAssembler::RegisterID JSReturnReg_Data  = JSC::ARMRegisters::r1;
+static const JSC::MacroAssembler::RegisterID JSReturnReg_Type  = JSC::ARMRegisters::r5;
+static const JSC::MacroAssembler::RegisterID JSReturnReg_Data  = JSC::ARMRegisters::r4;
 static const JSC::MacroAssembler::RegisterID JSParamReg_Argc   = JSC::ARMRegisters::r1;
 #elif defined(JS_CPU_SPARC)
-static const JSC::MacroAssembler::RegisterID JSReturnReg_Type = JSC::SparcRegisters::i0;
-static const JSC::MacroAssembler::RegisterID JSReturnReg_Data = JSC::SparcRegisters::i1;
-static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegisters::i2;
+static const JSC::MacroAssembler::RegisterID JSReturnReg_Type = JSC::SparcRegisters::l2;
+static const JSC::MacroAssembler::RegisterID JSReturnReg_Data = JSC::SparcRegisters::l3;
+static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegisters::l4;
+#elif defined(JS_CPU_MIPS)
+static const JSC::MacroAssembler::RegisterID JSReturnReg_Type = JSC::MIPSRegisters::a0;
+static const JSC::MacroAssembler::RegisterID JSReturnReg_Data = JSC::MIPSRegisters::a2;
+static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::MIPSRegisters::a1;
 #endif
 
     size_t distanceOf(Label l) {
         return differenceBetween(startLabel, l);
     }
 
-    void load32FromImm(void *ptr, RegisterID reg) {
-        load32(ptr, reg);
+    void loadPtrFromImm(void *ptr, RegisterID reg) {
+        loadPtr(ptr, reg);
     }
 
     void loadShape(RegisterID obj, RegisterID shape) {
-        load32(Address(obj, offsetof(JSObject, objShape)), shape);
+        loadPtr(Address(obj, JSObject::offsetOfShape()), shape);
+    }
+
+    Jump guardShape(RegisterID objReg, const Shape *shape) {
+        return branchPtr(NotEqual, Address(objReg, JSObject::offsetOfShape()), ImmPtr(shape));
     }
 
     Jump guardShape(RegisterID objReg, JSObject *obj) {
-        return branch32(NotEqual, Address(objReg, offsetof(JSObject, objShape)),
-                        Imm32(obj->shape()));
-    }
-
-    Jump testFunction(Condition cond, RegisterID fun) {
-        return branchPtr(cond, Address(fun, offsetof(JSObject, clasp)),
-                         ImmPtr(&js_FunctionClass));
+        return guardShape(objReg, obj->lastProperty());
     }
 
     /*
      * Finds and returns the address of a known object and slot.
      */
-    Address objSlotRef(JSObject *obj, RegisterID reg, uint32 slot) {
-        move(ImmPtr(&obj->slots), reg);
-        loadPtr(reg, reg);
-        return Address(reg, slot * sizeof(Value));
+    Address objSlotRef(JSObject *obj, RegisterID reg, uint32_t slot) {
+        move(ImmPtr(obj), reg);
+        if (obj->isFixedSlot(slot)) {
+            return Address(reg, JSObject::getFixedSlotOffset(slot));
+        } else {
+            loadPtr(Address(reg, JSObject::offsetOfSlots()), reg);
+            return Address(reg, obj->dynamicSlotIndex(slot) * sizeof(Value));
+        }
     }
 
 #ifdef JS_CPU_X86
@@ -269,7 +218,79 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
         m_assembler.cdq();
         m_assembler.idivl_r(reg);
     }
+
+    void fastLoadDouble(RegisterID lo, RegisterID hi, FPRegisterID fpReg) {
+        JS_ASSERT(fpReg != Registers::FPConversionTemp);
+        if (MacroAssemblerX86Common::getSSEState() >= HasSSE4_1) {
+            m_assembler.movd_rr(lo, fpReg);
+            m_assembler.pinsrd_rr(hi, fpReg);
+        } else {
+            m_assembler.movd_rr(lo, fpReg);
+            m_assembler.movd_rr(hi, Registers::FPConversionTemp);
+            m_assembler.unpcklps_rr(Registers::FPConversionTemp, fpReg);
+        }
+    }
 #endif
+
+    /*
+     * Move a register pair which may indicate either an int32_t or double into fpreg,
+     * converting to double in the int32_t case.
+     */
+    void moveInt32OrDouble(RegisterID data, RegisterID type, Address address, FPRegisterID fpreg)
+    {
+#ifdef JS_CPU_X86
+        fastLoadDouble(data, type, fpreg);
+        Jump notInteger = testInt32(Assembler::NotEqual, type);
+        convertInt32ToDouble(data, fpreg);
+        notInteger.linkTo(label(), this);
+#else
+        Jump notInteger = testInt32(Assembler::NotEqual, type);
+        convertInt32ToDouble(data, fpreg);
+        Jump fallthrough = jump();
+        notInteger.linkTo(label(), this);
+
+        /* Store the components, then read it back out as a double. */
+        storeValueFromComponents(type, data, address);
+        loadDouble(address, fpreg);
+
+        fallthrough.linkTo(label(), this);
+#endif
+    }
+
+    /*
+     * Move a memory address which contains either an int32_t or double into fpreg,
+     * converting to double in the int32_t case.
+     */
+    template <typename T>
+    void moveInt32OrDouble(T address, FPRegisterID fpreg)
+    {
+        Jump notInteger = testInt32(Assembler::NotEqual, address);
+        convertInt32ToDouble(payloadOf(address), fpreg);
+        Jump fallthrough = jump();
+        notInteger.linkTo(label(), this);
+        loadDouble(address, fpreg);
+        fallthrough.linkTo(label(), this);
+    }
+
+    /* Ensure that an in-memory address is definitely a double. */
+    void ensureInMemoryDouble(Address address)
+    {
+        Jump notInteger = testInt32(Assembler::NotEqual, address);
+        convertInt32ToDouble(payloadOf(address), Registers::FPConversionTemp);
+        storeDouble(Registers::FPConversionTemp, address);
+        notInteger.linkTo(label(), this);
+    }
+
+    void negateDouble(FPRegisterID fpreg)
+    {
+#if defined JS_CPU_X86 || defined JS_CPU_X64
+        static const uint64_t DoubleNegMask = 0x8000000000000000ULL;
+        loadDouble(&DoubleNegMask, Registers::FPConversionTemp);
+        xorDouble(Registers::FPConversionTemp, fpreg);
+#elif defined JS_CPU_ARM || defined JS_CPU_SPARC || defined JS_CPU_MIPS
+        negDouble(fpreg, fpreg);
+#endif
+    }
 
     /* Prepare for a call that might THROW. */
     void *getFallibleCallTarget(void *fun) {
@@ -290,6 +311,24 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
         moveWithPatch(Imm32(intptr_t(fun)), JSC::ARMRegisters::ip);
 
         return JS_FUNC_TO_DATA_PTR(void *, JaegerStubVeneer);
+#elif defined(JS_CPU_SPARC)
+        /*
+         * We can simulate the situation in jited code to let call return to a
+         * target address located on stack without veneer. We record the return
+         * address and jump to that address after call return to jited code. The
+         * reason we take veneer back is jited code maybe released when
+         * exceptions happened. That will make the call have no chance to return
+         * back to jited code.
+         */
+        moveWithPatch(Imm32(intptr_t(fun)), JSC::SparcRegisters::i0);
+        return JS_FUNC_TO_DATA_PTR(void *, JaegerStubVeneer);
+#elif defined(JS_CPU_MIPS)
+        /*
+         * For MIPS, we need to call JaegerStubVeneer by passing
+         * the real target address in v0.
+         */
+        moveWithPatch(Imm32(intptr_t(fun)), JSC::MIPSRegisters::v0);
+        return JS_FUNC_TO_DATA_PTR(void *, JaegerStubVeneer);
 #else
         /*
          * Architectures that push the return address to an easily-determined
@@ -300,7 +339,7 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
 #endif
     }
 
-    static inline uint32 align(uint32 bytes, uint32 alignment) {
+    static inline uint32_t align(uint32_t bytes, uint32_t alignment) {
         return (alignment - (bytes % alignment)) % alignment;
     }
 
@@ -310,7 +349,7 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
     // boundary.
     //
     // Returns an offset that can be used to index into this stack 
-    StackMarker allocStack(uint32 bytes, uint32 alignment = 4) {
+    StackMarker allocStack(uint32_t bytes, uint32_t alignment = 4) {
         bytes += align(bytes + extraStackSpace, alignment);
         subPtr(Imm32(bytes), stackPointerRegister);
         extraStackSpace += bytes;
@@ -330,10 +369,14 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
         pop(reg);
     }
 
-    static const uint32 StackAlignment = 16;
+#if defined JS_CPU_MIPS
+    static const uint32_t StackAlignment = 8;
+#else
+    static const uint32_t StackAlignment = 16;
+#endif
 
-    static inline uint32 alignForCall(uint32 stackBytes) {
-#if defined(JS_CPU_X86) || defined(JS_CPU_X64)
+    static inline uint32_t alignForCall(uint32_t stackBytes) {
+#if defined(JS_CPU_X86) || defined(JS_CPU_X64) || defined(JS_CPU_MIPS)
         // If StackAlignment is a power of two, % is just two shifts.
         // 16 - (x % 16) gives alignment, extra % 16 handles total == 0.
         return align(stackBytes, StackAlignment);
@@ -353,11 +396,11 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
     // the constant is provided here in order to appropriately adjust the
     // stack.
 #ifdef _WIN64
-    static const uint32 ReturnStackAdjustment = 32;
+    static const uint32_t ReturnStackAdjustment = 32;
 #elif defined(JS_CPU_X86) && defined(JS_NO_FASTCALL)
-    static const uint32 ReturnStackAdjustment = 16;
+    static const uint32_t ReturnStackAdjustment = 16;
 #else
-    static const uint32 ReturnStackAdjustment = 0;
+    static const uint32_t ReturnStackAdjustment = 0;
 #endif
 
     void throwInJIT() {
@@ -369,17 +412,17 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
 
     // Windows x64 requires extra space in between calls.
 #ifdef _WIN64
-    static const uint32 ShadowStackSpace = 32;
+    static const uint32_t ShadowStackSpace = 32;
 #elif defined(JS_CPU_SPARC)
-    static const uint32 ShadowStackSpace = 92;
+    static const uint32_t ShadowStackSpace = 92;
 #else
-    static const uint32 ShadowStackSpace = 0;
+    static const uint32_t ShadowStackSpace = 0;
 #endif
 
 #if defined(JS_CPU_SPARC)
-    static const uint32 BaseStackSpace = 104;
+    static const uint32_t BaseStackSpace = 104;
 #else
-    static const uint32 BaseStackSpace = 0;
+    static const uint32_t BaseStackSpace = 0;
 #endif
 
     // Prepare the stack for a call sequence. This must be called AFTER all
@@ -391,11 +434,11 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
     // Attempts to perform loads, nested calls, or anything that can clobber
     // a register, is asking for breaking on some platform or some situation.
     // Be careful to limit to storeArg() during setupABICall.
-    void setupABICall(Registers::CallConvention convention, uint32 generalArgs) {
+    void setupABICall(Registers::CallConvention convention, uint32_t generalArgs) {
         JS_ASSERT(!callIsAligned);
 
-        uint32 numArgRegs = Registers::numArgRegs(convention);
-        uint32 pushCount = (generalArgs > numArgRegs)
+        uint32_t numArgRegs = Registers::numArgRegs(convention);
+        uint32_t pushCount = (generalArgs > numArgRegs)
                            ? generalArgs - numArgRegs
                            : 0;
 
@@ -404,7 +447,7 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
 
         // Find the total number of bytes the stack will have been adjusted by,
         // in order to compute alignment.
-        uint32 total = (pushCount * sizeof(void *)) +
+        uint32_t total = (pushCount * sizeof(void *)) +
                        extraStackSpace;
 
         stackAdjust = (pushCount * sizeof(void *)) +
@@ -426,7 +469,7 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
     }
 
     // Computes an interior pointer into VMFrame during a call.
-    Address vmFrameOffset(uint32 offs) {
+    Address vmFrameOffset(uint32_t offs) {
         return Address(stackPointerRegister, stackAdjust + extraStackSpace + offs);
     }
 
@@ -446,18 +489,18 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
     // This is an internal function only for use inside a setupABICall(),
     // callWithABI() sequence, and only for arguments known to fit in
     // registers.
-    Address addressOfArg(uint32 i) {
-        uint32 numArgRegs = Registers::numArgRegs(callConvention);
+    Address addressOfArg(uint32_t i) {
+        uint32_t numArgRegs = Registers::numArgRegs(callConvention);
         JS_ASSERT(i >= numArgRegs);
 
         // Note that shadow space is for the callee to spill, and thus it must
         // be skipped when writing its arguments.
-        int32 spOffset = ((i - numArgRegs) * sizeof(void *)) + ShadowStackSpace;
+        int32_t spOffset = ((i - numArgRegs) * sizeof(void *)) + ShadowStackSpace;
         return Address(stackPointerRegister, spOffset);
     }
 
     // Push an argument for a call.
-    void storeArg(uint32 i, RegisterID reg) {
+    void storeArg(uint32_t i, RegisterID reg) {
         JS_ASSERT(callIsAligned);
         RegisterID to;
         if (Registers::regForArg(callConvention, i, &to)) {
@@ -471,7 +514,7 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
 
     // This variant can clobber temporary registers. However, it will NOT
     // clobber any registers that have already been set via storeArg().
-    void storeArg(uint32 i, Address address) {
+    void storeArg(uint32_t i, Address address) {
         JS_ASSERT(callIsAligned);
         RegisterID to;
         if (Registers::regForArg(callConvention, i, &to)) {
@@ -479,7 +522,7 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
             availInCall.takeRegUnchecked(to);
         } else if (!availInCall.empty()) {
             // Memory-to-memory, and there is a temporary register free.
-            RegisterID reg = availInCall.takeAnyReg();
+            RegisterID reg = availInCall.takeAnyReg().reg();
             loadPtr(address, reg);
             storeArg(i, reg);
             availInCall.putReg(reg);
@@ -493,7 +536,7 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
 
     // This variant can clobber temporary registers. However, it will NOT
     // clobber any registers that have already been set via storeArg().
-    void storeArgAddr(uint32 i, Address address) {
+    void storeArgAddr(uint32_t i, Address address) {
         JS_ASSERT(callIsAligned);
         RegisterID to;
         if (Registers::regForArg(callConvention, i, &to)) {
@@ -501,7 +544,7 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
             availInCall.takeRegUnchecked(to);
         } else if (!availInCall.empty()) {
             // Memory-to-memory, and there is a temporary register free.
-            RegisterID reg = availInCall.takeAnyReg();
+            RegisterID reg = availInCall.takeAnyReg().reg();
             lea(address, reg);
             storeArg(i, reg);
             availInCall.putReg(reg);
@@ -513,14 +556,14 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
         }
     }
 
-    void storeArg(uint32 i, Imm32 imm) {
+    void storeArg(uint32_t i, ImmPtr imm) {
         JS_ASSERT(callIsAligned);
         RegisterID to;
         if (Registers::regForArg(callConvention, i, &to)) {
             move(imm, to);
             availInCall.takeRegUnchecked(to);
         } else {
-            store32(imm, addressOfArg(i));
+            storePtr(imm, addressOfArg(i));
         }
     }
 
@@ -530,6 +573,16 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
     //
     // After callWithABI(), the call state is reset, so a new call may begin.
     Call callWithABI(void *fun, bool canThrow) {
+#ifdef JS_CPU_ARM
+        // the repatcher requires that these instructions are adjacent in
+        // memory, make sure that they are in fact adjacent.
+        // Theoretically, this requires only 12 bytes of space, however
+        // there are at least a couple of off-by-one errors that I've noticed
+        // that make 12 insufficent.  In case 16 is also insufficent, I've bumped
+        // it to 20.
+        ensureSpace(20);
+        int initFlushCount = flushCount();
+#endif
         // [Bug 614953]: This can only be made conditional once the ARM back-end
         // is able to distinguish and patch both call sequences. Other
         // architecutres are unaffected regardless.
@@ -544,7 +597,9 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
 
         Call cl = call();
         callPatches.append(CallPatch(cl, fun));
-
+#ifdef JS_CPU_ARM
+        JS_ASSERT(initFlushCount == flushCount());
+#endif
         if (stackAdjust)
             addPtr(Imm32(stackAdjust), stackPointerRegister);
 
@@ -571,9 +626,11 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
     }
 
 
-#define STUB_CALL_TYPE(type)                                                \
-    Call callWithVMFrame(type stub, jsbytecode *pc, uint32 fd) {            \
-        return fallibleVMCall(JS_FUNC_TO_DATA_PTR(void *, stub), pc, fd);   \
+#define STUB_CALL_TYPE(type)                                                  \
+    Call callWithVMFrame(bool inlining, type stub, jsbytecode *pc,            \
+                         DataLabelPtr *pinlined, uint32_t fd) {               \
+        return fallibleVMCall(inlining, JS_FUNC_TO_DATA_PTR(void *, stub),    \
+                              pc, pinlined, fd);                              \
     }
 
     STUB_CALL_TYPE(JSObjStub);
@@ -583,7 +640,7 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
 
 #undef STUB_CALL_TYPE
 
-    void setupInfallibleVMFrame(int32 frameDepth) {
+    void setupFrameDepth(int32_t frameDepth) {
         // |frameDepth < 0| implies ic::SplatApplyArgs has been called which
         // means regs.sp has already been set in the VMFrame.
         if (frameDepth >= 0) {
@@ -591,9 +648,13 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
             // regs->sp = sp
             addPtr(Imm32(sizeof(StackFrame) + frameDepth * sizeof(jsval)),
                    JSFrameReg,
-                   ClobberInCall);
-            storePtr(ClobberInCall, FrameAddress(offsetof(VMFrame, regs.sp)));
+                   Registers::ClobberInCall);
+            storePtr(Registers::ClobberInCall, FrameAddress(VMFrame::offsetOfRegsSp()));
         }
+    }
+
+    void setupInfallibleVMFrame(int32_t frameDepth) {
+        setupFrameDepth(frameDepth);
 
         // The JIT has moved Arg1 already, and we've guaranteed to not clobber
         // it. Move ArgReg0 into place now. setupFallibleVMFrame will not
@@ -601,31 +662,73 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
         move(MacroAssembler::stackPointerRegister, Registers::ArgReg0);
     }
 
-    void setupFallibleVMFrame(jsbytecode *pc, int32 frameDepth) {
+    void setupFallibleVMFrame(bool inlining, jsbytecode *pc,
+                              DataLabelPtr *pinlined, int32_t frameDepth) {
         setupInfallibleVMFrame(frameDepth);
 
         /* regs->fp = fp */
         storePtr(JSFrameReg, FrameAddress(VMFrame::offsetOfFp));
 
         /* PC -> regs->pc :( */
-        storePtr(ImmPtr(pc),
-                 FrameAddress(offsetof(VMFrame, regs) + offsetof(FrameRegs, pc)));
+        storePtr(ImmPtr(pc), FrameAddress(VMFrame::offsetOfRegsPc()));
+
+        if (inlining) {
+            /* inlined -> regs->inlined :( */
+            DataLabelPtr ptr = storePtrWithPatch(ImmPtr(NULL),
+                                                 FrameAddress(VMFrame::offsetOfInlined));
+            if (pinlined)
+                *pinlined = ptr;
+        }
+
+        restoreStackBase();
+    }
+
+    void setupFallibleABICall(bool inlining, jsbytecode *pc, int32_t frameDepth) {
+        setupFrameDepth(frameDepth);
+
+        /* Store fp and pc */
+        storePtr(JSFrameReg, FrameAddress(VMFrame::offsetOfFp));
+        storePtr(ImmPtr(pc), FrameAddress(VMFrame::offsetOfRegsPc()));
+
+        if (inlining) {
+            /* ABI calls cannot be made from inlined frames. */
+            storePtr(ImmPtr(NULL), FrameAddress(VMFrame::offsetOfInlined));
+        }
+    }
+
+    void restoreStackBase() {
+#if defined(JS_CPU_X86)
+        /*
+         * We use the %ebp base stack pointer on x86 to store the JSStackFrame.
+         * Restore this before calling so that debuggers can construct a
+         * coherent stack if we crash outside of JIT code.
+         */
+        JS_STATIC_ASSERT(JSFrameReg == JSC::X86Registers::ebp);
+        move(JSC::X86Registers::esp, JSFrameReg);
+        addPtr(Imm32(VMFrame::STACK_BASE_DIFFERENCE), JSFrameReg);
+#endif
     }
 
     // An infallible VM call is a stub call (taking a VMFrame & and one
     // optional parameter) that does not need |pc| and |fp| updated, since
     // the call is guaranteed to not fail. However, |sp| is always coherent.
-    Call infallibleVMCall(void *ptr, int32 frameDepth) {
+    Call infallibleVMCall(void *ptr, int32_t frameDepth) {
         setupInfallibleVMFrame(frameDepth);
         return wrapVMCall(ptr);
     }
 
     // A fallible VM call is a stub call (taking a VMFrame & and one optional
     // parameter) that needs the entire VMFrame to be coherent, meaning that
-    // |pc| and |fp| are guaranteed to be up-to-date.
-    Call fallibleVMCall(void *ptr, jsbytecode *pc, int32 frameDepth) {
-        setupFallibleVMFrame(pc, frameDepth);
-        return wrapVMCall(ptr);
+    // |pc|, |inlined| and |fp| are guaranteed to be up-to-date.
+    Call fallibleVMCall(bool inlining, void *ptr, jsbytecode *pc,
+                        DataLabelPtr *pinlined, int32_t frameDepth) {
+        setupFallibleVMFrame(inlining, pc, pinlined, frameDepth);
+        Call call = wrapVMCall(ptr);
+
+        // Restore the frame pointer from the VM.
+        loadPtr(FrameAddress(VMFrame::offsetOfFp), JSFrameReg);
+
+        return call;
     }
 
     Call wrapVMCall(void *ptr) {
@@ -649,10 +752,26 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
         return callWithABI(ptr, true);
     }
 
-    void finalize(JSC::LinkBuffer &linker) {
+    // Constant doubles can't be directly moved into a register, we need to put
+    // them in memory and load them back with.
+    void slowLoadConstantDouble(double d, FPRegisterID fpreg) {
+        DoublePatch patch;
+        patch.d = d;
+        patch.label = loadDouble(NULL, fpreg);
+        doublePatches.append(patch);
+    }
+
+    size_t numDoubles() { return doublePatches.length(); }
+
+    void finalize(JSC::LinkBuffer &linker, double *doubleVec = NULL) {
         for (size_t i = 0; i < callPatches.length(); i++) {
             CallPatch &patch = callPatches[i];
             linker.link(patch.call, JSC::FunctionPtr(patch.fun));
+        }
+        for (size_t i = 0; i < doublePatches.length(); i++) {
+            DoublePatch &patch = doublePatches[i];
+            doubleVec[i] = patch.d;
+            linker.patch(patch.label, &doubleVec[i]);
         }
     }
 
@@ -661,13 +780,27 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
         Jump holeCheck;
     };
 
-    Jump guardArrayCapacity(RegisterID objReg, const Int32Key &key) {
-        Address capacity(objReg, offsetof(JSObject, capacity));
+    // Guard an extent (capacity, length or initialized length) on an array or typed array.
+    Jump guardArrayExtent(int offset, RegisterID reg,
+                          const Int32Key &key, Condition cond) {
+        Address extent(reg, offset);
+        if (key.isConstant())
+            return branch32(cond, extent, Imm32(key.index()));
+        return branch32(cond, extent, key.reg());
+    }
+
+    Jump guardElementNotHole(RegisterID elements, const Int32Key &key) {
+        Jump jmp;
+
         if (key.isConstant()) {
-            JS_ASSERT(key.index() >= 0);
-            return branch32(BelowOrEqual, capacity, Imm32(key.index()));
+            Address slot(elements, key.index() * sizeof(Value));
+            jmp = guardNotHole(slot);
+        } else {
+            BaseIndex slot(elements, key.reg(), JSVAL_SCALE);
+            jmp = guardNotHole(slot);
         }
-        return branch32(BelowOrEqual, capacity, key.reg());
+
+        return jmp;
     }
 
     // Load a jsval from an array slot, given a key. |objReg| is clobbered.
@@ -675,34 +808,102 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
                                      RegisterID typeReg, RegisterID dataReg) {
         JS_ASSERT(objReg != typeReg);
 
-        FastArrayLoadFails fails;
-        fails.rangeCheck = guardArrayCapacity(objReg, key);
+        RegisterID elementsReg = objReg;
+        loadPtr(Address(objReg, JSObject::offsetOfElements()), elementsReg);
 
-        RegisterID dslotsReg = objReg;
-        loadPtr(Address(objReg, offsetof(JSObject, slots)), dslotsReg);
+        FastArrayLoadFails fails;
+        fails.rangeCheck = guardArrayExtent(ObjectElements::offsetOfInitializedLength(),
+                                            objReg, key, BelowOrEqual);
 
         // Load the slot out of the array.
         if (key.isConstant()) {
-            Address slot(objReg, key.index() * sizeof(Value));
-            fails.holeCheck = fastArrayLoadSlot(slot, typeReg, dataReg);
+            Address slot(elementsReg, key.index() * sizeof(Value));
+            fails.holeCheck = fastArrayLoadSlot(slot, true, typeReg, dataReg);
         } else {
-            BaseIndex slot(objReg, key.reg(), JSVAL_SCALE);
-            fails.holeCheck = fastArrayLoadSlot(slot, typeReg, dataReg);
+            BaseIndex slot(elementsReg, key.reg(), JSVAL_SCALE);
+            fails.holeCheck = fastArrayLoadSlot(slot, true, typeReg, dataReg);
         }
 
         return fails;
     }
 
-    void loadObjClass(RegisterID objReg, RegisterID destReg) {
-        loadPtr(Address(objReg, offsetof(JSObject, clasp)), destReg);
+    void storeKey(const Int32Key &key, Address address) {
+        if (key.isConstant())
+            store32(Imm32(key.index()), address);
+        else
+            store32(key.reg(), address);
+    }
+
+    void bumpKey(Int32Key &key, int32_t delta) {
+        if (key.isConstant())
+            key.index_ += delta;
+        else
+            add32(Imm32(delta), key.reg());
+    }
+
+    void loadFrameActuals(JSFunction *fun, RegisterID reg) {
+        /* Bias for the case where there was an arguments overflow. */
+        load32(Address(JSFrameReg, StackFrame::offsetOfNumActual()), reg);
+        add32(Imm32(fun->nargs + 2), reg);
+        Jump overflowArgs = branchTest32(Assembler::NonZero,
+                                         Address(JSFrameReg, StackFrame::offsetOfFlags()),
+                                         Imm32(StackFrame::OVERFLOW_ARGS));
+        move(Imm32(fun->nargs), reg);
+        overflowArgs.linkTo(label(), this);
+        lshiftPtr(Imm32(3), reg);
+        negPtr(reg);
+        addPtr(JSFrameReg, reg);
+    }
+
+    void loadBaseShape(RegisterID obj, RegisterID dest) {
+        loadPtr(Address(obj, JSObject::offsetOfShape()), dest);
+        loadPtr(Address(dest, Shape::offsetOfBase()), dest);
+    }
+
+    void loadObjClass(RegisterID obj, RegisterID dest) {
+        loadBaseShape(obj, dest);
+        loadPtr(Address(dest, BaseShape::offsetOfClass()), dest);
     }
 
     Jump testClass(Condition cond, RegisterID claspReg, js::Class *clasp) {
         return branchPtr(cond, claspReg, ImmPtr(clasp));
     }
 
-    Jump testObjClass(Condition cond, RegisterID objReg, js::Class *clasp) {
-        return branchPtr(cond, Address(objReg, offsetof(JSObject, clasp)), ImmPtr(clasp));
+    Jump testObjClass(Condition cond, RegisterID obj, RegisterID temp, js::Class *clasp) {
+        loadBaseShape(obj, temp);
+        return branchPtr(cond, Address(temp, BaseShape::offsetOfClass()), ImmPtr(clasp));
+    }
+
+    Jump testFunction(Condition cond, RegisterID fun, RegisterID temp) {
+        return testObjClass(cond, fun, temp, &js::FunctionClass);
+    }
+
+    void branchValue(Condition cond, RegisterID reg, int32_t value, RegisterID result)
+    {
+        if (Registers::maskReg(result) & Registers::SingleByteRegs) {
+            set32(cond, reg, Imm32(value), result);
+        } else {
+            Jump j = branch32(cond, reg, Imm32(value));
+            move(Imm32(0), result);
+            Jump skip = jump();
+            j.linkTo(label(), this);
+            move(Imm32(1), result);
+            skip.linkTo(label(), this);
+        }
+    }
+
+    void branchValue(Condition cond, RegisterID lreg, RegisterID rreg, RegisterID result)
+    {
+        if (Registers::maskReg(result) & Registers::SingleByteRegs) {
+            set32(cond, lreg, rreg, result);
+        } else {
+            Jump j = branch32(cond, lreg, rreg);
+            move(Imm32(0), result);
+            Jump skip = jump();
+            j.linkTo(label(), this);
+            move(Imm32(1), result);
+            skip.linkTo(label(), this);
+        }
     }
 
     void rematPayload(const StateRemat &remat, RegisterID reg) {
@@ -712,32 +913,485 @@ static const JSC::MacroAssembler::RegisterID JSParamReg_Argc  = JSC::SparcRegist
             move(remat.reg(), reg);
     }
 
-    void loadDynamicSlot(RegisterID objReg, uint32 slot,
+    void loadDynamicSlot(RegisterID objReg, uint32_t index,
                          RegisterID typeReg, RegisterID dataReg) {
-        loadPtr(Address(objReg, offsetof(JSObject, slots)), dataReg);
-        loadValueAsComponents(Address(dataReg, slot * sizeof(Value)), typeReg, dataReg);
+        loadPtr(Address(objReg, JSObject::offsetOfSlots()), dataReg);
+        loadValueAsComponents(Address(dataReg, index * sizeof(Value)), typeReg, dataReg);
     }
 
     void loadObjProp(JSObject *obj, RegisterID objReg,
                      const js::Shape *shape,
                      RegisterID typeReg, RegisterID dataReg)
     {
-        if (shape->isMethod())
-            loadValueAsComponents(ObjectValue(shape->methodObject()), typeReg, dataReg);
-        else if (obj->hasSlotsArray())
-            loadDynamicSlot(objReg, shape->slot, typeReg, dataReg);
+        if (obj->isFixedSlot(shape->slot()))
+            loadInlineSlot(objReg, shape->slot(), typeReg, dataReg);
         else
-            loadInlineSlot(objReg, shape->slot, typeReg, dataReg);
+            loadDynamicSlot(objReg, obj->dynamicSlotIndex(shape->slot()), typeReg, dataReg);
     }
 
-    static uint32 maskAddress(Address address) {
+#ifdef JS_METHODJIT_TYPED_ARRAY
+    // Load a value from a typed array's packed data vector into dataReg.
+    // This function expects the following combinations of typeReg, dataReg and tempReg:
+    // 1) for all INT arrays other than UINT32:
+    //    - dataReg is a GP-register
+    //    - typeReg is optional
+    //    - tempReg is not set
+    // 2) for UINT32:
+    //    - dataReg is either a FP-register or a GP-register
+    //    - typeReg is set if dataReg is a GP-register
+    //    - tempReg is set if dataReg is a FP-register
+    // 3) for FLOAT32 and FLOAT64:
+    //    - dataReg is either a FP-register or a GP-register
+    //    - typeReg is set if dataReg is a GP-register
+    //    - tempReg is not set
+    template <typename T>
+    void loadFromTypedArray(int atype, T address, MaybeRegisterID typeReg,
+                            AnyRegisterID dataReg, MaybeRegisterID tempReg)
+    {
+        // If dataReg is an FP-register we don't use typeReg.
+        JS_ASSERT_IF(dataReg.isFPReg(), !typeReg.isSet());
+
+        // We only need tempReg for Uint32Array and only if dataReg is an FP-register.
+        JS_ASSERT_IF(atype != js::TypedArray::TYPE_UINT32 || dataReg.isReg(), !tempReg.isSet());
+
+        switch (atype) {
+          case js::TypedArray::TYPE_INT8:
+            load8SignExtend(address, dataReg.reg());
+            if (typeReg.isSet())
+                move(ImmType(JSVAL_TYPE_INT32), typeReg.reg());
+            break;
+          case js::TypedArray::TYPE_UINT8:
+          case js::TypedArray::TYPE_UINT8_CLAMPED:
+            load8ZeroExtend(address, dataReg.reg());
+            if (typeReg.isSet())
+                move(ImmType(JSVAL_TYPE_INT32), typeReg.reg());
+            break;
+          case js::TypedArray::TYPE_INT16:
+            load16SignExtend(address, dataReg.reg());
+            if (typeReg.isSet())
+                move(ImmType(JSVAL_TYPE_INT32), typeReg.reg());
+            break;
+          case js::TypedArray::TYPE_UINT16:
+            load16(address, dataReg.reg());
+            if (typeReg.isSet())
+                move(ImmType(JSVAL_TYPE_INT32), typeReg.reg());
+            break;
+          case js::TypedArray::TYPE_INT32:
+            load32(address, dataReg.reg());
+            if (typeReg.isSet())
+                move(ImmType(JSVAL_TYPE_INT32), typeReg.reg());
+            break;
+          case js::TypedArray::TYPE_UINT32:
+          {
+            // For Uint32Array the result is either int32_t or double.
+            // If dataReg is a GP-register, load a double or int32_t into dataReg/typeReg.
+            // If dataReg is a FP-register, load the value as double.
+            if (dataReg.isReg()) {
+                load32(address, dataReg.reg());
+                move(ImmType(JSVAL_TYPE_INT32), typeReg.reg());
+                Jump safeInt = branch32(Assembler::Below, dataReg.reg(), Imm32(0x80000000));
+                convertUInt32ToDouble(dataReg.reg(), Registers::FPConversionTemp);
+                breakDouble(Registers::FPConversionTemp, typeReg.reg(), dataReg.reg());
+                safeInt.linkTo(label(), this);
+            } else {
+                load32(address, tempReg.reg());
+                convertUInt32ToDouble(tempReg.reg(), dataReg.fpreg());
+            }
+            break;
+          }
+          case js::TypedArray::TYPE_FLOAT32:
+          case js::TypedArray::TYPE_FLOAT64:
+          {
+            FPRegisterID fpreg = dataReg.isReg()
+                               ? Registers::FPConversionTemp
+                               : dataReg.fpreg();
+            if (atype == js::TypedArray::TYPE_FLOAT32)
+                loadFloat(address, fpreg);
+            else
+                loadDouble(address, fpreg);
+            // Make sure NaN gets canonicalized. If dataReg is not an FP-register
+            // we have to use loadStaticDouble as we were probably called from an
+            // IC and we can't use slowLoadConstantDouble.
+            Jump notNaN = branchDouble(Assembler::DoubleEqual, fpreg, fpreg);
+            if (dataReg.isReg())
+                loadStaticDouble(&js_NaN, Registers::FPConversionTemp, dataReg.reg());
+            else
+                slowLoadConstantDouble(js_NaN, fpreg);
+            notNaN.linkTo(label(), this);
+            if (dataReg.isReg())
+                breakDouble(Registers::FPConversionTemp, typeReg.reg(), dataReg.reg());
+            break;
+          }
+        }
+    }
+
+    void loadFromTypedArray(int atype, RegisterID objReg, Int32Key key,
+                            MaybeRegisterID typeReg, AnyRegisterID dataReg,
+                            MaybeRegisterID tempReg)
+    {
+        int shift = TypedArray::slotWidth(atype);
+
+        if (key.isConstant()) {
+            Address addr(objReg, key.index() * shift);
+            loadFromTypedArray(atype, addr, typeReg, dataReg, tempReg);
+        } else {
+            Assembler::Scale scale = Assembler::TimesOne;
+            switch (shift) {
+              case 2:
+                scale = Assembler::TimesTwo;
+                break;
+              case 4:
+                scale = Assembler::TimesFour;
+                break;
+              case 8:
+                scale = Assembler::TimesEight;
+                break;
+            }
+            BaseIndex addr(objReg, key.reg(), scale);
+            loadFromTypedArray(atype, addr, typeReg, dataReg, tempReg);
+        }
+    }
+
+    template <typename S, typename T>
+    void storeToTypedIntArray(int atype, S src, T address)
+    {
+        switch (atype) {
+          case js::TypedArray::TYPE_INT8:
+          case js::TypedArray::TYPE_UINT8:
+          case js::TypedArray::TYPE_UINT8_CLAMPED:
+            store8(src, address);
+            break;
+          case js::TypedArray::TYPE_INT16:
+          case js::TypedArray::TYPE_UINT16:
+            store16(src, address);
+            break;
+          case js::TypedArray::TYPE_INT32:
+          case js::TypedArray::TYPE_UINT32:
+            store32(src, address);
+            break;
+          default:
+            JS_NOT_REACHED("unknown int array type");
+        }
+    }
+
+    template <typename S, typename T>
+    void storeToTypedFloatArray(int atype, S src, T address)
+    {
+        if (atype == js::TypedArray::TYPE_FLOAT32)
+            storeFloat(src, address);
+        else
+            storeDouble(src, address);
+    }
+
+    template <typename T>
+    void storeToTypedArray(int atype, ValueRemat vr, T address)
+    {
+        if (atype == js::TypedArray::TYPE_FLOAT32 || atype == js::TypedArray::TYPE_FLOAT64) {
+            if (vr.isConstant())
+                storeToTypedFloatArray(atype, ImmDouble(vr.value().toDouble()), address);
+            else
+                storeToTypedFloatArray(atype, vr.fpReg(), address);
+        } else {
+            if (vr.isConstant())
+                storeToTypedIntArray(atype, Imm32(vr.value().toInt32()), address);
+            else
+                storeToTypedIntArray(atype, vr.dataReg(), address);
+        }
+    }
+
+    void storeToTypedArray(int atype, RegisterID objReg, Int32Key key, ValueRemat vr)
+    {
+        int shift = TypedArray::slotWidth(atype);
+        if (key.isConstant()) {
+            Address addr(objReg, key.index() * shift);
+            storeToTypedArray(atype, vr, addr);
+        } else {
+            Assembler::Scale scale = Assembler::TimesOne;
+            switch (shift) {
+            case 2:
+                scale = Assembler::TimesTwo;
+                break;
+            case 4:
+                scale = Assembler::TimesFour;
+                break;
+            case 8:
+                scale = Assembler::TimesEight;
+                break;
+            }
+            BaseIndex addr(objReg, key.reg(), scale);
+            storeToTypedArray(atype, vr, addr);
+        }
+    }
+
+    void clampInt32ToUint8(RegisterID reg)
+    {
+        Jump j = branch32(Assembler::GreaterThanOrEqual, reg, Imm32(0));
+        move(Imm32(0), reg);
+        Jump done = jump();
+        j.linkTo(label(), this);
+        j = branch32(Assembler::LessThanOrEqual, reg, Imm32(255));
+        move(Imm32(255), reg);
+        j.linkTo(label(), this);
+        done.linkTo(label(), this);
+    }
+
+    // Inline version of js_TypedArray_uint8_clamp_double.
+    void clampDoubleToUint8(FPRegisterID fpReg, FPRegisterID fpTemp, RegisterID reg)
+    {
+        JS_ASSERT(fpTemp != Registers::FPConversionTemp);
+
+        // <= 0 or NaN ==> 0
+        zeroDouble(fpTemp);
+        Jump positive = branchDouble(Assembler::DoubleGreaterThan, fpReg, fpTemp);
+        move(Imm32(0), reg);
+        Jump done1 = jump();
+
+        // Add 0.5 and truncate.
+        positive.linkTo(label(), this);
+        slowLoadConstantDouble(0.5, fpTemp);
+        addDouble(fpReg, fpTemp);
+        Jump notInt = branchTruncateDoubleToInt32(fpTemp, reg);
+
+        // > 255 ==> 255
+        Jump inRange = branch32(Assembler::BelowOrEqual, reg, Imm32(255));
+        notInt.linkTo(label(), this);
+        move(Imm32(255), reg);
+        Jump done2 = jump();
+
+        // Check if we had a tie.
+        inRange.linkTo(label(), this);
+        convertInt32ToDouble(reg, Registers::FPConversionTemp);
+        Jump done3 = branchDouble(Assembler::DoubleNotEqual, fpTemp, Registers::FPConversionTemp);
+
+        // It was a tie. Mask out the ones bit to get an even value.
+        // See js_TypedArray_uint8_clamp_double for the reasoning behind this.
+        and32(Imm32(~1), reg);
+
+        done1.linkTo(label(), this);
+        done2.linkTo(label(), this);
+        done3.linkTo(label(), this);
+    }
+#endif /* JS_METHODJIT_TYPED_ARRAY */
+
+    Address objPropAddress(JSObject *obj, RegisterID objReg, uint32_t slot)
+    {
+        if (obj->isFixedSlot(slot))
+            return Address(objReg, JSObject::getFixedSlotOffset(slot));
+        loadPtr(Address(objReg, JSObject::offsetOfSlots()), objReg);
+        return Address(objReg, obj->dynamicSlotIndex(slot) * sizeof(Value));
+    }
+
+    static uint32_t maskAddress(Address address) {
         return Registers::maskReg(address.base);
     }
 
-    static uint32 maskAddress(BaseIndex address) {
+    static uint32_t maskAddress(BaseIndex address) {
         return Registers::maskReg(address.base) |
                Registers::maskReg(address.index);
     }
+
+    /*
+     * Generate code testing whether an in memory value at address has a type
+     * in the specified set. Updates mismatches with any failure jumps. Assumes
+     * that no temporary (caller save) registers are live.
+     */
+    bool generateTypeCheck(JSContext *cx, Address address,
+                           types::TypeSet *types, Vector<Jump> *mismatches)
+    {
+        if (types->unknown())
+            return true;
+
+        Vector<Jump> matches(cx);
+
+        if (types->hasType(types::Type::DoubleType())) {
+            /* Type sets containing double also contain int. */
+            if (!matches.append(testNumber(Assembler::Equal, address)))
+                return false;
+        } else if (types->hasType(types::Type::Int32Type())) {
+            if (!matches.append(testInt32(Assembler::Equal, address)))
+                return false;
+        }
+
+        if (types->hasType(types::Type::UndefinedType())) {
+            if (!matches.append(testUndefined(Assembler::Equal, address)))
+                return false;
+        }
+
+        if (types->hasType(types::Type::BooleanType())) {
+            if (!matches.append(testBoolean(Assembler::Equal, address)))
+                return false;
+        }
+
+        if (types->hasType(types::Type::StringType())) {
+            if (!matches.append(testString(Assembler::Equal, address)))
+                return false;
+        }
+
+        if (types->hasType(types::Type::NullType())) {
+            if (!matches.append(testNull(Assembler::Equal, address)))
+                return false;
+        }
+
+        unsigned count = 0;
+        if (types->hasType(types::Type::AnyObjectType())) {
+            if (!matches.append(testObject(Assembler::Equal, address)))
+                return false;
+        } else {
+            count = types->getObjectCount();
+        }
+
+        if (count != 0) {
+            if (!mismatches->append(testObject(Assembler::NotEqual, address)))
+                return false;
+            RegisterID reg = Registers::ArgReg1;
+
+            loadPayload(address, reg);
+
+            for (unsigned i = 0; i < count; i++) {
+                if (JSObject *object = types->getSingleObject(i)) {
+                    if (!matches.append(branchPtr(Assembler::Equal, reg, ImmPtr(object))))
+                        return false;
+                }
+            }
+
+            loadPtr(Address(reg, JSObject::offsetOfType()), reg);
+
+            for (unsigned i = 0; i < count; i++) {
+                if (types::TypeObject *object = types->getTypeObject(i)) {
+                    if (!matches.append(branchPtr(Assembler::Equal, reg, ImmPtr(object))))
+                        return false;
+                }
+            }
+        }
+
+        if (!mismatches->append(jump()))
+            return false;
+
+        for (unsigned i = 0; i < matches.length(); i++)
+            matches[i].linkTo(label(), this);
+
+        return true;
+    }
+
+    /*
+     * Get a free object for the specified GC kind in compartment, writing it
+     * to result and filling it in according to templateObject. Returns a jump
+     * taken if a free thing was not retrieved.
+     */
+    Jump getNewObject(JSContext *cx, RegisterID result, JSObject *templateObject)
+    {
+        gc::AllocKind allocKind = templateObject->getAllocKind();
+
+        JS_ASSERT(allocKind >= gc::FINALIZE_OBJECT0 && allocKind <= gc::FINALIZE_OBJECT_LAST);
+        int thingSize = (int)gc::Arena::thingSize(allocKind);
+
+        JS_ASSERT(cx->typeInferenceEnabled());
+        JS_ASSERT(!templateObject->hasDynamicSlots());
+        JS_ASSERT(!templateObject->hasDynamicElements());
+
+#ifdef JS_GC_ZEAL
+        if (cx->runtime->needZealousGC())
+            return jump();
+#endif
+
+        /*
+         * Inline FreeSpan::allocate. Only the case where the current freelist
+         * span is not empty is handled.
+         */
+        gc::FreeSpan *list = const_cast<gc::FreeSpan *>
+                             (cx->compartment->arenas.getFreeList(allocKind));
+        loadPtr(&list->first, result);
+
+        Jump jump = branchPtr(Assembler::BelowOrEqual, AbsoluteAddress(&list->last), result);
+
+        addPtr(Imm32(thingSize), result);
+        storePtr(result, &list->first);
+
+        /*
+         * Fill in the blank object. Order doesn't matter here, from here
+         * everything is infallible. Note that this bakes GC thing pointers
+         * into the code without explicitly pinning them. With type inference
+         * enabled, JIT code is collected on GC except when analysis or
+         * compilation is active, in which case type objects won't be collected
+         * but other things may be. The shape held by templateObject *must* be
+         * pinned against GC either by the script or by some type object.
+         */
+
+        int elementsOffset = JSObject::offsetOfFixedElements();
+
+        /*
+         * Write out the elements pointer before readjusting the result register,
+         * as for dense arrays we will need to get the address of the fixed
+         * elements first.
+         */
+        if (templateObject->isDenseArray()) {
+            JS_ASSERT(!templateObject->getDenseArrayInitializedLength());
+            addPtr(Imm32(-thingSize + elementsOffset), result);
+            storePtr(result, Address(result, -elementsOffset + JSObject::offsetOfElements()));
+            addPtr(Imm32(-elementsOffset), result);
+        } else {
+            addPtr(Imm32(-thingSize), result);
+            storePtr(ImmPtr(emptyObjectElements), Address(result, JSObject::offsetOfElements()));
+        }
+
+        storePtr(ImmPtr(templateObject->lastProperty()), Address(result, JSObject::offsetOfShape()));
+        storePtr(ImmPtr(templateObject->type()), Address(result, JSObject::offsetOfType()));
+        storePtr(ImmPtr(NULL), Address(result, JSObject::offsetOfSlots()));
+
+        if (templateObject->isDenseArray()) {
+            /* Fill in the elements header. */
+            store32(Imm32(templateObject->getDenseArrayCapacity()),
+                    Address(result, elementsOffset + ObjectElements::offsetOfCapacity()));
+            store32(Imm32(templateObject->getDenseArrayInitializedLength()),
+                    Address(result, elementsOffset + ObjectElements::offsetOfInitializedLength()));
+            store32(Imm32(templateObject->getArrayLength()),
+                    Address(result, elementsOffset + ObjectElements::offsetOfLength()));
+        } else {
+            /*
+             * Fixed slots of non-array objects are required to be initialized;
+             * Use the values currently in the template object.
+             */
+            for (unsigned i = 0; i < templateObject->slotSpan(); i++) {
+                storeValue(templateObject->getFixedSlot(i),
+                           Address(result, JSObject::getFixedSlotOffset(i)));
+            }
+        }
+
+        if (templateObject->hasPrivate()) {
+            uint32_t nfixed = templateObject->numFixedSlots();
+            storePtr(ImmPtr(templateObject->getPrivate()),
+                     Address(result, JSObject::getPrivateDataOffset(nfixed)));
+        }
+
+        return jump;
+    }
+
+    /* Add the value stored in 'value' to the accumulator 'counter'. */
+    void addCounter(const double *value, double *counter, RegisterID scratch)
+    {
+        loadDouble(value, Registers::FPConversionTemp);
+        move(ImmPtr(counter), scratch);
+        addDouble(Address(scratch), Registers::FPConversionTemp);
+        storeDouble(Registers::FPConversionTemp, Address(scratch));
+    }
+
+    /* Add one to the accumulator 'counter'. */
+    void bumpCounter(double *counter, RegisterID scratch)
+    {
+        addCounter(&oneDouble, counter, scratch);
+    }
+
+    /* Bump the stub call count for script/pc if they are being counted. */
+    void bumpStubCounter(JSScript *script, jsbytecode *pc, RegisterID scratch)
+    {
+        if (script->pcCounters) {
+            OpcodeCounts counts = script->getCounts(pc);
+            double *counter = &counts.get(OpcodeCounts::BASE_METHODJIT_STUBS);
+            bumpCounter(counter, scratch);
+        }
+    }
+
+    static const double oneDouble;
 };
 
 /* Return f<true> if the script is strict mode code, f<false> otherwise. */
@@ -761,7 +1415,7 @@ class PreserveRegisters {
     typedef JSC::MacroAssembler::RegisterID RegisterID;
 
     Assembler   &masm;
-    uint32      count;
+    uint32_t    count;
     RegisterID  regs[JSC::MacroAssembler::TotalRegisters];
 
   public:
@@ -772,7 +1426,7 @@ class PreserveRegisters {
         JS_ASSERT(!count);
 
         while (!mask.empty()) {
-            RegisterID reg = mask.takeAnyReg();
+            RegisterID reg = mask.takeAnyReg().reg();
             regs[count++] = reg;
             masm.saveReg(reg);
         }

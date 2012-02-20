@@ -18,7 +18,7 @@ TestAboutToBeFinalizedCallback(JSContext *cx, JSGCStatus status)
         for (jsuint i = 0; i != checkPointersLength; ++i) {
             void *p = checkPointers[i];
             JS_ASSERT(p);
-            if (JS_IsAboutToBeFinalized(cx, p))
+            if (JS_IsAboutToBeFinalized(p))
                 checkPointers[i] = NULL;
         }
     }
@@ -60,7 +60,7 @@ BEGIN_TEST(testIsAboutToBeFinalized_bug528645)
             --checkPointersStaticStrings;
         }
     }
-    CHECK(checkPointersStaticStrings == 0);
+    CHECK_EQUAL(checkPointersStaticStrings, 0);
 
     free(checkPointers);
     checkPointers = NULL;

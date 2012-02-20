@@ -55,9 +55,9 @@ class MathCache
     MathCache();
 
     uintN hash(double x) {
-        union { double d; struct { uint32 one, two; } s; } u = { x };
-        uint32 hash32 = u.s.one ^ u.s.two;
-        uint16 hash16 = (uint16)(hash32 ^ (hash32 >> 16));
+        union { double d; struct { uint32_t one, two; } s; } u = { x };
+        uint32_t hash32 = u.s.one ^ u.s.two;
+        uint16_t hash16 = uint16_t(hash32 ^ (hash32 >> 16));
         return (hash16 & (Size - 1)) ^ (hash16 >> (16 - SizeLog2));
     }
 
@@ -81,8 +81,6 @@ class MathCache
 /*
  * JS math functions.
  */
-
-extern js::Class js_MathClass;
 
 extern JSObject *
 js_InitMathClass(JSContext *cx, JSObject *obj);
@@ -111,13 +109,16 @@ js_math_min(JSContext *cx, uintN argc, js::Value *vp);
 extern JSBool
 js_math_round(JSContext *cx, uintN argc, js::Value *vp);
 
+extern JSBool
+js_math_sqrt(JSContext *cx, uintN argc, js::Value *vp);
+
+extern JSBool
+js_math_pow(JSContext *cx, uintN argc, js::Value *vp);
+
 extern jsdouble
 js_math_ceil_impl(jsdouble x);
 
 extern jsdouble
 js_math_floor_impl(jsdouble x);
-
-extern jsdouble
-js_math_round_impl(jsdouble x);
 
 #endif /* jsmath_h___ */

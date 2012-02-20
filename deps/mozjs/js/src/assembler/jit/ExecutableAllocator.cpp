@@ -27,6 +27,8 @@
 
 #if ENABLE_ASSEMBLER
 
+#include "prmjtime.h"
+
 namespace JSC {
 
 size_t ExecutableAllocator::pageSize = 0;
@@ -37,15 +39,19 @@ ExecutablePool::~ExecutablePool()
     m_allocator->releasePoolPages(this);
 }
 
-size_t
-ExecutableAllocator::getCodeSize() const
+void
+ExecutableAllocator::sizeOfCode(size_t *method, size_t *regexp, size_t *unused) const
 {
-    size_t n = 0;
+    *method = 0;
+    *regexp = 0;
+    *unused = 0;
+
     for (ExecPoolHashSet::Range r = m_pools.all(); !r.empty(); r.popFront()) {
         ExecutablePool* pool = r.front();
-        n += pool->m_allocation.size;
+        *method += pool->m_mjitCodeMethod;
+        *regexp += pool->m_mjitCodeRegexp;
+        *unused += pool->m_allocation.size - pool->m_mjitCodeMethod - pool->m_mjitCodeRegexp;
     }
-    return n;
 }
 
 }

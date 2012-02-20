@@ -2,8 +2,7 @@
 #include "jsfun.h"
 #include "jscntxt.h"
 
-// For TRACING_ENABLED
-#include "jstracer.h"
+#include "jsobjinlines.h"
 
 #ifdef MOZ_TRACE_JSCALLS
 
@@ -21,8 +20,7 @@ funcTransition(const JSFunction *,
     if (entering > 0) {
         ++depth;
         ++enters;
-        if (! JS_ON_TRACE(cx))
-            ++interpreted;
+        ++interpreted;
     } else {
         --depth;
         ++leaves;
@@ -61,46 +59,47 @@ BEGIN_TEST(testFuncCallback_bug507012)
 
     // Check whether JS_Execute() tracking works
     EXEC("42");
-    CHECK(enters == 1 && leaves == 1 && depth == 0);
+    CHECK_EQUAL(enters, 1);
+    CHECK_EQUAL(leaves, 1);
+    CHECK_EQUAL(depth, 0);
     interpreted = enters = leaves = depth = 0;
 
     // Check whether the basic function tracking works
     EXEC("f(1)");
-    CHECK(enters == 1+1 && leaves == 1+1 && depth == 0);
+    CHECK_EQUAL(enters, 1+1);
+    CHECK_EQUAL(leaves, 1+1);
+    CHECK_EQUAL(depth, 0);
 
     // Can we switch to a different callback?
     enters = 777;
     JS_SetFunctionCallback(cx, funcTransition2);
     EXEC("f(1)");
-    CHECK(called2 && enters == 777);
+    CHECK(called2);
+    CHECK_EQUAL(enters, 777);
 
     // Check whether we can turn off function tracing
     JS_SetFunctionCallback(cx, NULL);
     EXEC("f(1)");
-    CHECK(enters == 777);
+    CHECK_EQUAL(enters, 777);
     interpreted = enters = leaves = depth = 0;
 
     // Check nested invocations
     JS_SetFunctionCallback(cx, funcTransition);
     enters = leaves = depth = 0;
     EXEC("f(3)");
-    CHECK(enters == 1+3 && leaves == 1+3 && depth == 0);
+    CHECK_EQUAL(enters, 1+3);
+    CHECK_EQUAL(leaves, 1+3);
+    CHECK_EQUAL(depth, 0);
     interpreted = enters = leaves = depth = 0;
 
-    // Check calls invoked while running on trace
+    // Check calls invoked while running on trace -- or now, perhaps on
+    // IonMonkey's equivalent, if it ever starts to exist?
     EXEC("function g () { ++x; }");
     interpreted = enters = leaves = depth = 0;
-    EXEC("for (i = 0; i < 50; ++i) { g(); }");
-    CHECK(enters == 1+50 && leaves == 1+50 && depth == 0);
-
-    // If this fails, it means that the code was interpreted rather
-    // than trace-JITted, and so is not testing what it's supposed to
-    // be testing. Which doesn't necessarily imply that the
-    // functionality is broken.
-#ifdef JS_TRACER
-    if (TRACING_ENABLED(cx))
-        CHECK(interpreted < enters);
-#endif
+    EXEC("for (i = 0; i < 5000; ++i) { g(); }");
+    CHECK_EQUAL(enters, 1+5000);
+    CHECK_EQUAL(leaves, 1+5000);
+    CHECK_EQUAL(depth, 0);
 
     // Test nesting callbacks via JS_GetFunctionCallback()
     JS_SetFunctionCallback(cx, funcTransition);
@@ -111,27 +110,29 @@ BEGIN_TEST(testFuncCallback_bug507012)
     interpreted = enters = leaves = depth = overlays = 0;
 
     EXEC("42.5");
-    CHECK(enters == 1);
-    CHECK(leaves == 1);
-    CHECK(depth == 0);
-    CHECK(overlays == enters + leaves);
+    CHECK_EQUAL(enters, 1);
+    CHECK_EQUAL(leaves, 1);
+    CHECK_EQUAL(depth, 0);
+    CHECK_EQUAL(overlays, enters + leaves);
     interpreted = enters = leaves = depth = overlays = 0;
 #endif
+
+    // Uncomment this to validate whether you're hitting all runmodes (interp,
+    // mjit, ...?) Unfortunately, that still doesn't cover all
+    // transitions between the various runmodes, but it's a start.
+    //JS_DumpAllProfiles(cx);
 
     return true;
 }
 
-// Not strictly necessary, but part of the test attempts to check
-// whether these callbacks still trigger when traced, so force
-// JSOPTION_JIT just to be sure. Once the method jit and tracing jit
-// are integrated, this'll probably have to change (and we'll probably
-// want to test in all modes.)
+// Make sure that the method jit is enabled.
+// We'll probably want to test in all modes.
 virtual
 JSContext *createContext()
 {
     JSContext *cx = JSAPITest::createContext();
     if (cx)
-        JS_SetOptions(cx, JS_GetOptions(cx) | JSOPTION_JIT);
+        JS_SetOptions(cx, JS_GetOptions(cx) | JSOPTION_METHODJIT | JSOPTION_PCCOUNT);
     return cx;
 }
 

@@ -166,6 +166,7 @@ endif
 
 ALL_TRASH		= $(TARGETS) $(OBJS) $(RES) $(filter-out . .., $(OBJDIR)) LOGS TAGS $(GARBAGE) \
 			  $(NOSUCHFILE) \
+			  $(OBJS:.$(OBJ_SUFFIX)=.i_o) \
 			  so_locations
 
 ifndef RELEASE_LIBS_DEST
@@ -280,6 +281,13 @@ $(NFSPWD):
 $(PROGRAM): $(OBJS)
 	@$(MAKE_OBJDIR)
 ifeq ($(NS_USE_GCC)_$(OS_ARCH),_WINNT)
+ifdef MOZ_PROFILE_USE
+# In the second pass, we need to merge the pgc files into the pgd file.
+# The compiler would do this for us automatically if they were in the right
+# place, but they're in dist/bin.
+	python $(topsrcdir)/build/win32/pgomerge.py \
+		$(notdir $(PROGRAM:.exe=)) $(DIST)/bin
+endif	# MOZ_PROFILE_USE
 	$(CC) $(OBJS) -Fe$@ -link $(LDFLAGS) $(OS_LIBS) $(EXTRA_LIBS)
 ifdef MT
 	@if test -f $@.manifest; then \
@@ -287,8 +295,13 @@ ifdef MT
 		rm -f $@.manifest; \
 	fi
 endif	# MSVC with manifest tool
+ifdef MOZ_PROFILE_GENERATE
+# touch it a few seconds into the future to work around FAT's
+# 2-second granularity
+	touch -t `date +%Y%m%d%H%M.%S -d "now+5seconds"` pgo.relink
+endif	# MOZ_PROFILE_GENERATE
 else	# WINNT && !GCC
-	$(CC) -o $@ $(CFLAGS) $(OBJS) $(LDFLAGS)
+	$(CC) -o $@ $(CFLAGS) $(OBJS) $(LDFLAGS) $(WRAP_LDFLAGS)
 endif	# WINNT && !GCC
 ifdef ENABLE_STRIP
 	$(STRIP) $@
@@ -326,6 +339,10 @@ ifeq ($(OS_ARCH)$(OS_RELEASE), AIX4.1)
 		-bM:SRE -bnoentry $(OS_LIBS) $(EXTRA_LIBS)
 else	# AIX 4.1
 ifeq ($(NS_USE_GCC)_$(OS_ARCH),_WINNT)
+ifdef MOZ_PROFILE_USE
+	python $(topsrcdir)/build/win32/pgomerge.py \
+		$(notdir $(SHARED_LIBRARY:.$(DLL_SUFFIX)=)) $(DIST)/bin
+endif	# MOZ_PROFILE_USE
 	$(LINK_DLL) -MAP $(DLLBASE) $(DLL_LIBS) $(EXTRA_LIBS) $(OBJS) $(RES)
 ifdef MT
 	@if test -f $@.manifest; then \
@@ -333,13 +350,57 @@ ifdef MT
 		rm -f $@.manifest; \
 	fi
 endif	# MSVC with manifest tool
+ifdef MOZ_PROFILE_GENERATE
+	touch -t `date +%Y%m%d%H%M.%S -d "now+5seconds"` pgo.relink
+endif	# MOZ_PROFILE_GENERATE
 else	# WINNT && !GCC
-	$(MKSHLIB) $(OBJS) $(RES) $(LDFLAGS) $(EXTRA_LIBS)
+	$(MKSHLIB) $(OBJS) $(RES) $(LDFLAGS) $(WRAP_LDFLAGS) $(EXTRA_LIBS)
 endif	# WINNT && !GCC
 endif	# AIX 4.1
 ifdef ENABLE_STRIP
 	$(STRIP) $@
 endif
+
+################################################################################
+
+ifdef MOZ_PROFILE_USE
+ifeq ($(NS_USE_GCC)_$(OS_ARCH),_WINNT)
+# When building with PGO, we have to make sure to re-link
+# in the MOZ_PROFILE_USE phase if we linked in the
+# MOZ_PROFILE_GENERATE phase. We'll touch this pgo.relink
+# file in the link rule in the GENERATE phase to indicate
+# that we need a relink.
+$(SHARED_LIBRARY): pgo.relink
+
+$(PROGRAM): pgo.relink
+
+endif	# WINNT && !GCC
+endif	# MOZ_PROFILE_USE
+
+ifneq (,$(MOZ_PROFILE_GENERATE)$(MOZ_PROFILE_USE))
+ifdef NS_USE_GCC
+# Force rebuilding libraries and programs in both passes because each
+# pass uses different object files.
+$(PROGRAM) $(SHARED_LIBRARY) $(LIBRARY): FORCE
+.PHONY: FORCE
+endif
+endif
+
+################################################################################
+
+ifdef MOZ_PROFILE_GENERATE
+# Clean up profiling data during PROFILE_GENERATE phase
+export::
+ifeq ($(OS_ARCH)_$(NS_USE_GCC), WINNT_)
+	$(foreach pgd,$(wildcard *.pgd),pgomgr -clear $(pgd);)
+else
+ifdef NS_USE_GCC
+	-$(RM) *.gcda
+endif
+endif
+endif
+
+################################################################################
 
 ifeq ($(OS_ARCH),WINNT)
 $(RES): $(RESNAME)

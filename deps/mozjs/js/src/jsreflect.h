@@ -81,7 +81,7 @@ enum BinaryOperator {
     /* shift */
     BINOP_LSH, BINOP_RSH, BINOP_URSH,
     /* arithmetic */
-    BINOP_PLUS, BINOP_MINUS, BINOP_STAR, BINOP_DIV, BINOP_MOD,
+    BINOP_ADD, BINOP_SUB, BINOP_STAR, BINOP_DIV, BINOP_MOD,
     /* binary */
     BINOP_BITOR, BINOP_BITXOR, BINOP_BITAND,
     /* misc */
@@ -129,11 +129,6 @@ extern char const *unopNames[];
 extern char const *nodeTypeNames[];
 
 } /* namespace js */
-
-extern js::Class js_ReflectClass;
-
-extern JSObject *
-js_InitReflectClass(JSContext *cx, JSObject *obj);
 
 
 #endif /* jsreflect_h___ */

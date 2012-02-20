@@ -50,7 +50,7 @@ namespace mjit {
 
 struct Imm64 : JSC::MacroAssembler::ImmPtr
 {
-    Imm64(uint64 u)
+    Imm64(uint64_t u)
       : ImmPtr((const void *)u)
     { }
 };
@@ -67,19 +67,21 @@ struct ImmType : ImmTag
 {
     ImmType(JSValueType type)
       : ImmTag(JSValueShiftedTag(JSVAL_TYPE_TO_SHIFTED_TAG(type)))
-    { }
+    {
+        JS_ASSERT(type > JSVAL_TYPE_DOUBLE);
+    }
 };
 
 struct ImmPayload : Imm64
 {
-    ImmPayload(uint64 payload)
+    ImmPayload(uint64_t payload)
       : Imm64(payload)
     { }
 };
 
 class PunboxAssembler : public JSC::MacroAssembler
 {
-    static const uint32 PAYLOAD_OFFSET = 0;
+    static const uint32_t PAYLOAD_OFFSET = 0;
 
   public:
     static const JSC::MacroAssembler::Scale JSVAL_SCALE = JSC::MacroAssembler::TimesEight;
@@ -94,7 +96,7 @@ class PunboxAssembler : public JSC::MacroAssembler
         return address;
     }
 
-    void loadInlineSlot(RegisterID objReg, uint32 slot,
+    void loadInlineSlot(RegisterID objReg, uint32_t slot,
                         RegisterID typeReg, RegisterID dataReg) {
         Address address(objReg, JSObject::getFixedSlotOffset(slot));
         loadValueAsComponents(address, typeReg, dataReg);
@@ -127,8 +129,13 @@ class PunboxAssembler : public JSC::MacroAssembler
     }
 
     void loadValueAsComponents(const Value &val, RegisterID type, RegisterID payload) {
-        move(Imm64(val.asRawBits() & JSVAL_TAG_MASK), type);
-        move(Imm64(val.asRawBits() & JSVAL_PAYLOAD_MASK), payload);
+        uint64_t bits = JSVAL_TO_IMPL(val).asBits;
+        move(Imm64(bits & JSVAL_TAG_MASK), type);
+        move(Imm64(bits & JSVAL_PAYLOAD_MASK), payload);
+    }
+
+    void loadValuePayload(const Value &val, RegisterID payload) {
+        move(Imm64(JSVAL_TO_IMPL(val).asBits & JSVAL_PAYLOAD_MASK), payload);
     }
 
     /*
@@ -174,15 +181,13 @@ class PunboxAssembler : public JSC::MacroAssembler
 
     /* Overload for constant type and constant data. */
     DataLabel32 storeValueWithAddressOffsetPatch(const Value &v, Address address) {
-        jsval_layout jv;
-        jv.asBits = JSVAL_BITS(Jsvalify(v));
-
-        move(ImmPtr(reinterpret_cast<void*>(jv.asBits)), Registers::ValueReg);
+        move(ImmPtr(JSVAL_TO_IMPL(v).asPtr), Registers::ValueReg);
         return storePtrWithAddressOffsetPatch(Registers::ValueReg, valueOf(address));
     }
 
     /* Overloaded for store with value remat info. */
     DataLabel32 storeValueWithAddressOffsetPatch(const ValueRemat &vr, Address address) {
+        JS_ASSERT(!vr.isFPRegister());
         if (vr.isConstant()) {
             return storeValueWithAddressOffsetPatch(vr.value(), address);
         } else if (vr.isTypeKnown()) {
@@ -244,16 +249,15 @@ class PunboxAssembler : public JSC::MacroAssembler
 
     template <typename T>
     void storeValue(const Value &v, T address) {
-        jsval_layout jv;
-        jv.asBits = JSVAL_BITS(Jsvalify(v));
-
-        storePtr(Imm64(jv.asBits), valueOf(address));
+        storePtr(Imm64(JSVAL_TO_IMPL(v).asBits), valueOf(address));
     }
 
     template <typename T>
     void storeValue(const ValueRemat &vr, T address) {
         if (vr.isConstant())
             storeValue(vr.value(), address);
+        else if (vr.isFPRegister())
+            storeDouble(vr.fpReg(), address);
         else if (vr.isTypeKnown())
             storeValueFromComponents(ImmType(vr.knownType()), vr.dataReg(), address);
         else
@@ -271,8 +275,8 @@ class PunboxAssembler : public JSC::MacroAssembler
         lshiftPtr(Imm32(1), to);
     }
 
-    void loadObjPrivate(RegisterID base, RegisterID to) {
-        Address priv(base, offsetof(JSObject, privateData));
+    void loadObjPrivate(RegisterID base, RegisterID to, uint32_t nfixed) {
+        Address priv(base, JSObject::getPrivateDataOffset(nfixed));
         loadPtr(priv, to);
     }
 
@@ -335,6 +339,16 @@ class PunboxAssembler : public JSC::MacroAssembler
         return testObject(cond, Registers::ValueReg);
     }
 
+    Jump testGCThing(RegisterID reg) {
+        return branchPtr(AboveOrEqual, reg, ImmTag(JSVAL_LOWER_INCL_SHIFTED_TAG_OF_GCTHING_SET));
+    }
+
+    Jump testGCThing(Address address) {
+        loadValue(address, Registers::ValueReg);
+        return branchPtr(AboveOrEqual, Registers::ValueReg,
+                         ImmTag(JSVAL_LOWER_INCL_SHIFTED_TAG_OF_GCTHING_SET));
+    }
+
     Jump testDouble(Condition cond, RegisterID reg) {
         cond = (cond == Equal) ? BelowOrEqual : Above;
         return branchPtr(cond, reg, ImmTag(JSVAL_SHIFTED_TAG_MAX_DOUBLE));
@@ -363,6 +377,12 @@ class PunboxAssembler : public JSC::MacroAssembler
         return testString(cond, Registers::ValueReg);
     }
 
+    void compareValue(Address one, Address two, RegisterID T0, RegisterID T1,
+                      Vector<Jump> *mismatches) {
+        loadValue(one, T0);
+        mismatches->append(branchPtr(NotEqual, T0, two));
+    }
+
     void breakDouble(FPRegisterID srcDest, RegisterID typeReg, RegisterID dataReg) {
         m_assembler.movq_rr(srcDest, typeReg);
         move(Registers::PayloadMaskReg, dataReg);
@@ -384,9 +404,22 @@ class PunboxAssembler : public JSC::MacroAssembler
     }
 
     template <typename T>
-    Jump fastArrayLoadSlot(T address, RegisterID typeReg, RegisterID dataReg) {
-        loadValueAsComponents(address, typeReg, dataReg);
-        return branchPtr(Equal, typeReg, ImmType(JSVAL_TYPE_MAGIC));
+    Jump fastArrayLoadSlot(T address, bool holeCheck,
+                           MaybeRegisterID typeReg, RegisterID dataReg)
+    {
+        Jump notHole;
+        if (typeReg.isSet()) {
+            loadValueAsComponents(address, typeReg.reg(), dataReg);
+            if (holeCheck)
+                notHole = branchPtr(Equal, typeReg.reg(), ImmType(JSVAL_TYPE_MAGIC));
+        } else {
+            if (holeCheck) {
+                loadTypeTag(address, Registers::ValueReg);
+                notHole = branchPtr(Equal, Registers::ValueReg, ImmType(JSVAL_TYPE_MAGIC));
+            }
+            loadPayload(address, dataReg);
+        }
+        return notHole;
     }
 };
 

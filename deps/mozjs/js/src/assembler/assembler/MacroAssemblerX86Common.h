@@ -91,9 +91,11 @@ public:
         DoubleLessThanOrUnordered = X86Assembler::ConditionB,
         DoubleLessThanOrEqualOrUnordered = X86Assembler::ConditionBE
     };
-    COMPILE_ASSERT(
-        !((X86Assembler::ConditionE | X86Assembler::ConditionNE | X86Assembler::ConditionA | X86Assembler::ConditionAE | X86Assembler::ConditionB | X86Assembler::ConditionBE) & DoubleConditionBits),
-        DoubleConditionBits_should_not_interfere_with_X86Assembler_Condition_codes);
+    static void staticAsserts() {
+        COMPILE_ASSERT(
+            !((X86Assembler::ConditionE | X86Assembler::ConditionNE | X86Assembler::ConditionA | X86Assembler::ConditionAE | X86Assembler::ConditionB | X86Assembler::ConditionBE) & DoubleConditionBits),
+            DoubleConditionBits_should_not_interfere_with_X86Assembler_Condition_codes);
+    }
 
     static const RegisterID stackPointerRegister = X86Registers::esp;
 
@@ -116,12 +118,12 @@ public:
         m_assembler.addl_rr(src, dest);
     }
 
-    void add32(Imm32 imm, Address address)
+    void add32(TrustedImm32 imm, Address address)
     {
         m_assembler.addl_im(imm.m_value, address.offset, address.base);
     }
 
-    void add32(Imm32 imm, RegisterID dest)
+    void add32(TrustedImm32 imm, RegisterID dest)
     {
         m_assembler.addl_ir(imm.m_value, dest);
     }
@@ -203,6 +205,12 @@ public:
         m_assembler.imull_i32r(src, imm.m_value, dest);
     }
 
+    void idiv(RegisterID reg)
+    {
+        m_assembler.cdq();
+        m_assembler.idivl_r(reg);
+    }
+
     void neg32(RegisterID srcDest)
     {
         m_assembler.negl_r(srcDest);
@@ -228,7 +236,7 @@ public:
         m_assembler.orl_rr(src, dest);
     }
 
-    void or32(Imm32 imm, RegisterID dest)
+    void or32(TrustedImm32 imm, RegisterID dest)
     {
         m_assembler.orl_ir(imm.m_value, dest);
     }
@@ -243,7 +251,7 @@ public:
         m_assembler.orl_mr(src.offset, src.base, dest);
     }
 
-    void or32(Imm32 imm, Address address)
+    void or32(TrustedImm32 imm, Address address)
     {
         m_assembler.orl_im(imm.m_value, address.offset, address.base);
     }
@@ -307,12 +315,12 @@ public:
         m_assembler.subl_rr(src, dest);
     }
     
-    void sub32(Imm32 imm, RegisterID dest)
+    void sub32(TrustedImm32 imm, RegisterID dest)
     {
         m_assembler.subl_ir(imm.m_value, dest);
     }
     
-    void sub32(Imm32 imm, Address address)
+    void sub32(TrustedImm32 imm, Address address)
     {
         m_assembler.subl_im(imm.m_value, address.offset, address.base);
     }
@@ -333,12 +341,12 @@ public:
         m_assembler.xorl_rr(src, dest);
     }
 
-    void xor32(Imm32 imm, Address dest)
+    void xor32(TrustedImm32 imm, Address dest)
     {
         m_assembler.xorl_im(imm.m_value, dest.offset, dest.base);
     }
 
-    void xor32(Imm32 imm, RegisterID dest)
+    void xor32(TrustedImm32 imm, RegisterID dest)
     {
         m_assembler.xorl_ir(imm.m_value, dest);
     }
@@ -462,7 +470,7 @@ public:
         m_assembler.movl_rm(src, address.offset, address.base, address.index, address.scale);
     }
 
-    void store32(Imm32 imm, BaseIndex address)
+    void store32(TrustedImm32 imm, BaseIndex address)
     {
         m_assembler.movl_i32m(imm.m_value, address.offset, address.base, address.index, address.scale);
     }
@@ -477,7 +485,7 @@ public:
         m_assembler.movb_i8m(imm.m_value, address.offset, address.base, address.index, address.scale);
     }
 
-    void store32(Imm32 imm, ImplicitAddress address)
+    void store32(TrustedImm32 imm, ImplicitAddress address)
     {
         m_assembler.movl_i32m(imm.m_value, address.offset, address.base);
     }
@@ -539,7 +547,7 @@ public:
     {
         union {
             float f;
-            uint32 u32;
+            uint32_t u32;
         } u;
         u.f = imm.u.d;
         store32(Imm32(u.u32), address);
@@ -549,7 +557,7 @@ public:
     {
         union {
             float f;
-            uint32 u32;
+            uint32_t u32;
         } u;
         u.f = imm.u.d;
         store32(Imm32(u.u32), address);
@@ -633,6 +641,21 @@ public:
         m_assembler.xorpd_rr(src, dest);
     }
 
+    void andDouble(FPRegisterID src, FPRegisterID dest)
+    {
+        ASSERT(isSSE2Present());
+        m_assembler.andpd_rr(src, dest);
+    }
+
+    void absDouble(FPRegisterID src, FPRegisterID dest)
+    {
+        ASSERT(isSSE2Present());
+        /* Compile abs(x) as x & -x. */
+        zeroDouble(dest);
+        subDouble(src, dest);
+        andDouble(src, dest);
+    }
+
     void convertInt32ToDouble(RegisterID src, FPRegisterID dest)
     {
         ASSERT(isSSE2Present());
@@ -690,6 +713,7 @@ public:
     void branchConvertDoubleToInt32(FPRegisterID src, RegisterID dest, JumpList& failureCases, FPRegisterID fpTemp)
     {
         ASSERT(isSSE2Present());
+        ASSERT(src != fpTemp); 
         m_assembler.cvttsd2si_rr(src, dest);
 
         // If the result is zero, it might have been -0.0, and the double comparison won't catch this!
@@ -742,7 +766,7 @@ public:
     //
     // Move values in registers.
 
-    void move(Imm32 imm, RegisterID dest)
+    void move(TrustedImm32 imm, RegisterID dest)
     {
         // Note: on 64-bit the Imm32 value is zero extended into the register, it
         // may be useful to have a separate version that sign extends the value?
@@ -761,7 +785,7 @@ public:
             m_assembler.movq_rr(src, dest);
     }
 
-    void move(ImmPtr imm, RegisterID dest)
+    void move(TrustedImmPtr imm, RegisterID dest)
     {
         m_assembler.movq_i64r(imm.asIntptr(), dest);
     }
@@ -792,7 +816,7 @@ public:
             m_assembler.movl_rr(src, dest);
     }
 
-    void move(ImmPtr imm, RegisterID dest)
+    void move(TrustedImmPtr imm, RegisterID dest)
     {
         m_assembler.movl_i32r(imm.asIntptr(), dest);
     }
@@ -846,7 +870,7 @@ public:
         return Jump(m_assembler.jCC(x86Condition(cond)));
     }
 
-    Jump branch32(Condition cond, RegisterID left, Imm32 right)
+    Jump branch32(Condition cond, RegisterID left, TrustedImm32 right)
     {
         if (((cond == Equal) || (cond == NotEqual)) && !right.m_value)
             m_assembler.testl_rr(left, left);
@@ -858,14 +882,14 @@ public:
     // Branch based on a 32-bit comparison, forcing the size of the
     // immediate operand to 32 bits in the native code stream to ensure that
     // the length of code emitted by this instruction is consistent.
-    Jump branch32FixedLength(Condition cond, RegisterID left, Imm32 right)
+    Jump branch32FixedLength(Condition cond, RegisterID left, TrustedImm32 right)
     {
         m_assembler.cmpl_ir_force32(right.m_value, left);
         return Jump(m_assembler.jCC(x86Condition(cond)));
     }
 
     // Branch and record a label after the comparison.
-    Jump branch32WithPatch(Condition cond, RegisterID left, Imm32 right, DataLabel32 &dataLabel)
+    Jump branch32WithPatch(Condition cond, RegisterID left, TrustedImm32 right, DataLabel32 &dataLabel)
     {
         // Always use cmpl, since the value is to be patched.
         m_assembler.cmpl_ir_force32(right.m_value, left);
@@ -873,7 +897,7 @@ public:
         return Jump(m_assembler.jCC(x86Condition(cond)));
     }
 
-    Jump branch32WithPatch(Condition cond, Address left, Imm32 right, DataLabel32 &dataLabel)
+    Jump branch32WithPatch(Condition cond, Address left, TrustedImm32 right, DataLabel32 &dataLabel)
     {
         m_assembler.cmpl_im_force32(right.m_value, left.offset, left.base);
         dataLabel = DataLabel32(this);
@@ -892,19 +916,19 @@ public:
         return Jump(m_assembler.jCC(x86Condition(cond)));
     }
 
-    Jump branch32(Condition cond, Address left, Imm32 right)
+    Jump branch32(Condition cond, Address left, TrustedImm32 right)
     {
         m_assembler.cmpl_im(right.m_value, left.offset, left.base);
         return Jump(m_assembler.jCC(x86Condition(cond)));
     }
 
-    Jump branch32(Condition cond, BaseIndex left, Imm32 right)
+    Jump branch32(Condition cond, BaseIndex left, TrustedImm32 right)
     {
         m_assembler.cmpl_im(right.m_value, left.offset, left.base, left.index, left.scale);
         return Jump(m_assembler.jCC(x86Condition(cond)));
     }
 
-    Jump branch32WithUnalignedHalfWords(Condition cond, BaseIndex left, Imm32 right)
+    Jump branch32WithUnalignedHalfWords(Condition cond, BaseIndex left, TrustedImm32 right)
     {
         return branch32(cond, left, right);
     }
@@ -1313,7 +1337,7 @@ private:
              : "%eax", "%ecx", "%edx"
              );
 #endif
-#elif WTF_COMPILER_SUNPRO
+#elif WTF_COMPILER_SUNCC
 #if WTF_CPU_X86_64
         asm (
              "movl $0x1, %%eax;"
@@ -1363,7 +1387,7 @@ private:
     }
 
 #if WTF_CPU_X86
-#if WTF_PLATFORM_MAC
+#if WTF_OS_MAC_OS_X
 
     // All X86 Macs are guaranteed to support at least SSE2
     static bool isSSEPresent()
@@ -1376,7 +1400,7 @@ private:
         return true;
     }
 
-#else // PLATFORM(MAC)
+#else // OS(MAC_OS_X)
 
     static bool isSSEPresent()
     {

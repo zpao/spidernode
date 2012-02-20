@@ -36,8 +36,6 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#include "jsstdint.h"
-#include "jsbit.h"
 #include "jsutil.h"
 
 /*
@@ -46,40 +44,26 @@
  * systems.
  */
 #ifdef JS_HAS_BUILTIN_BITSCAN32
-JS_STATIC_ASSERT(sizeof(unsigned int) == sizeof(JSUint32));
+JS_STATIC_ASSERT(sizeof(unsigned int) == sizeof(uint32_t));
 JS_STATIC_ASSERT_IF(JS_BYTES_PER_WORD == 4,
-                    sizeof(unsigned int) == sizeof(JSUword));
+                    sizeof(unsigned int) == sizeof(uintptr_t));
 #endif
 #ifdef JS_HAS_BUILTIN_BITSCAN64
 JS_STATIC_ASSERT_IF(JS_BYTES_PER_WORD == 8,
-                    sizeof(unsigned long long) == sizeof(JSUword));
+                    sizeof(unsigned long long) == sizeof(uintptr_t));
 #endif
 
-/*
- * Compute the log of the least power of 2 greater than or equal to n
- */
-JS_PUBLIC_API(JSIntn)
-JS_CeilingLog2(JSUint32 n)
-{
-    JSIntn log2;
+#if !defined(JS_HAS_BUILTIN_BITSCAN32) && JS_BYTES_PER_WORD == 4
 
-    JS_CEILING_LOG2(log2, n);
-    return log2;
-}
-
-/*
- * Compute the log of the greatest power of 2 less than or equal to n.
- * This really just finds the highest set bit in the word.
- */
-JS_PUBLIC_API(JSIntn)
-JS_FloorLog2(JSUint32 n)
+size_t
+js_FloorLog2wImpl(size_t n)
 {
-    JSIntn log2;
+    size_t log2;
 
     JS_FLOOR_LOG2(log2, n);
     return log2;
 }
-
+#endif
 /*
  * js_FloorLog2wImpl has to be defined only for 64-bit non-GCC case.
  */

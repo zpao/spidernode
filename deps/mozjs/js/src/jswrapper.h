@@ -42,71 +42,76 @@
 #ifndef jswrapper_h___
 #define jswrapper_h___
 
+#include "mozilla/Attributes.h"
+
 #include "jsapi.h"
 #include "jsproxy.h"
 
-JS_BEGIN_EXTERN_C
+namespace js {
+
+class DummyFrameGuard;
 
 /* No-op wrapper handler base class. */
-class JS_FRIEND_API(JSWrapper) : public js::JSProxyHandler {
+class JS_FRIEND_API(Wrapper) : public ProxyHandler
+{
     uintN mFlags;
   public:
     uintN flags() const { return mFlags; }
 
-    explicit JSWrapper(uintN flags);
+    explicit Wrapper(uintN flags);
 
     typedef enum { PermitObjectAccess, PermitPropertyAccess, DenyAccess } Permission;
 
-    virtual ~JSWrapper();
+    virtual ~Wrapper();
 
     /* ES5 Harmony fundamental wrapper traps. */
     virtual bool getPropertyDescriptor(JSContext *cx, JSObject *wrapper, jsid id, bool set,
-                                       js::PropertyDescriptor *desc);
+                                       PropertyDescriptor *desc) MOZ_OVERRIDE;
     virtual bool getOwnPropertyDescriptor(JSContext *cx, JSObject *wrapper, jsid id, bool set,
-                                          js::PropertyDescriptor *desc);
+                                          PropertyDescriptor *desc) MOZ_OVERRIDE;
     virtual bool defineProperty(JSContext *cx, JSObject *wrapper, jsid id,
-                                js::PropertyDescriptor *desc);
-    virtual bool getOwnPropertyNames(JSContext *cx, JSObject *wrapper, js::AutoIdVector &props);
-    virtual bool delete_(JSContext *cx, JSObject *wrapper, jsid id, bool *bp);
-    virtual bool enumerate(JSContext *cx, JSObject *wrapper, js::AutoIdVector &props);
-    virtual bool fix(JSContext *cx, JSObject *wrapper, js::Value *vp);
+                                PropertyDescriptor *desc) MOZ_OVERRIDE;
+    virtual bool getOwnPropertyNames(JSContext *cx, JSObject *wrapper, AutoIdVector &props) MOZ_OVERRIDE;
+    virtual bool delete_(JSContext *cx, JSObject *wrapper, jsid id, bool *bp) MOZ_OVERRIDE;
+    virtual bool enumerate(JSContext *cx, JSObject *wrapper, AutoIdVector &props) MOZ_OVERRIDE;
+    virtual bool fix(JSContext *cx, JSObject *wrapper, Value *vp) MOZ_OVERRIDE;
 
     /* ES5 Harmony derived wrapper traps. */
-    virtual bool has(JSContext *cx, JSObject *wrapper, jsid id, bool *bp);
-    virtual bool hasOwn(JSContext *cx, JSObject *wrapper, jsid id, bool *bp);
-    virtual bool get(JSContext *cx, JSObject *wrapper, JSObject *receiver, jsid id, js::Value *vp);
+    virtual bool has(JSContext *cx, JSObject *wrapper, jsid id, bool *bp) MOZ_OVERRIDE;
+    virtual bool hasOwn(JSContext *cx, JSObject *wrapper, jsid id, bool *bp) MOZ_OVERRIDE;
+    virtual bool get(JSContext *cx, JSObject *wrapper, JSObject *receiver, jsid id, Value *vp) MOZ_OVERRIDE;
     virtual bool set(JSContext *cx, JSObject *wrapper, JSObject *receiver, jsid id, bool strict,
-                     js::Value *vp);
-    virtual bool keys(JSContext *cx, JSObject *wrapper, js::AutoIdVector &props);
-    virtual bool iterate(JSContext *cx, JSObject *wrapper, uintN flags, js::Value *vp);
+                     Value *vp) MOZ_OVERRIDE;
+    virtual bool keys(JSContext *cx, JSObject *wrapper, AutoIdVector &props) MOZ_OVERRIDE;
+    virtual bool iterate(JSContext *cx, JSObject *wrapper, uintN flags, Value *vp) MOZ_OVERRIDE;
 
     /* Spidermonkey extensions. */
-    virtual bool call(JSContext *cx, JSObject *wrapper, uintN argc, js::Value *vp);
-    virtual bool construct(JSContext *cx, JSObject *wrapper, uintN argc, js::Value *argv,
-                           js::Value *rval);
-    virtual bool hasInstance(JSContext *cx, JSObject *wrapper, const js::Value *vp, bool *bp);
-    virtual JSType typeOf(JSContext *cx, JSObject *proxy);
-    virtual JSString *obj_toString(JSContext *cx, JSObject *wrapper);
-    virtual JSString *fun_toString(JSContext *cx, JSObject *wrapper, uintN indent);
+    virtual bool call(JSContext *cx, JSObject *wrapper, uintN argc, Value *vp) MOZ_OVERRIDE;
+    virtual bool construct(JSContext *cx, JSObject *wrapper, uintN argc, Value *argv, Value *rval) MOZ_OVERRIDE;
+    virtual bool nativeCall(JSContext *cx, JSObject *wrapper, Class *clasp, Native native, CallArgs args) MOZ_OVERRIDE;
+    virtual bool hasInstance(JSContext *cx, JSObject *wrapper, const Value *vp, bool *bp) MOZ_OVERRIDE;
+    virtual JSType typeOf(JSContext *cx, JSObject *proxy) MOZ_OVERRIDE;
+    virtual bool objectClassIs(JSObject *obj, ESClassValue classValue, JSContext *cx) MOZ_OVERRIDE;
+    virtual JSString *obj_toString(JSContext *cx, JSObject *wrapper) MOZ_OVERRIDE;
+    virtual JSString *fun_toString(JSContext *cx, JSObject *wrapper, uintN indent) MOZ_OVERRIDE;
+    virtual RegExpShared *regexp_toShared(JSContext *cx, JSObject *proxy) MOZ_OVERRIDE;
+    virtual bool defaultValue(JSContext *cx, JSObject *wrapper, JSType hint, Value *vp) MOZ_OVERRIDE;
+    virtual bool iteratorNext(JSContext *cx, JSObject *wrapper, Value *vp) MOZ_OVERRIDE;
 
-    virtual void trace(JSTracer *trc, JSObject *wrapper);
+    virtual void trace(JSTracer *trc, JSObject *wrapper) MOZ_OVERRIDE;
 
     /* Policy enforcement traps. */
     enum Action { GET, SET, CALL };
     virtual bool enter(JSContext *cx, JSObject *wrapper, jsid id, Action act, bool *bp);
     virtual void leave(JSContext *cx, JSObject *wrapper);
 
-    static JSWrapper singleton;
+    static Wrapper singleton;
 
     static JSObject *New(JSContext *cx, JSObject *obj, JSObject *proto, JSObject *parent,
-                         JSWrapper *handler);
+                         Wrapper *handler);
 
-    static inline JSObject *wrappedObject(const JSObject *wrapper) {
-        return wrapper->getProxyPrivate().toObjectOrNull();
-    }
-    static inline JSWrapper *wrapperHandler(const JSObject *wrapper) {
-        return static_cast<JSWrapper *>(wrapper->getProxyHandler());
-    }
+    static JSObject *wrappedObject(const JSObject *wrapper);
+    static Wrapper *wrapperHandler(const JSObject *wrapper);
 
     enum {
         CROSS_COMPARTMENT = 1 << 0,
@@ -117,77 +122,104 @@ class JS_FRIEND_API(JSWrapper) : public js::JSProxyHandler {
 };
 
 /* Base class for all cross compartment wrapper handlers. */
-class JS_FRIEND_API(JSCrossCompartmentWrapper) : public JSWrapper {
+class JS_FRIEND_API(CrossCompartmentWrapper) : public Wrapper
+{
   public:
-    JSCrossCompartmentWrapper(uintN flags);
+    CrossCompartmentWrapper(uintN flags);
 
-    virtual ~JSCrossCompartmentWrapper();
+    virtual ~CrossCompartmentWrapper();
 
     /* ES5 Harmony fundamental wrapper traps. */
     virtual bool getPropertyDescriptor(JSContext *cx, JSObject *wrapper, jsid id, bool set,
-                                       js::PropertyDescriptor *desc);
+                                       PropertyDescriptor *desc) MOZ_OVERRIDE;
     virtual bool getOwnPropertyDescriptor(JSContext *cx, JSObject *wrapper, jsid id, bool set,
-                                          js::PropertyDescriptor *desc);
+                                          PropertyDescriptor *desc) MOZ_OVERRIDE;
     virtual bool defineProperty(JSContext *cx, JSObject *wrapper, jsid id,
-                                js::PropertyDescriptor *desc);
-    virtual bool getOwnPropertyNames(JSContext *cx, JSObject *wrapper, js::AutoIdVector &props);
-    virtual bool delete_(JSContext *cx, JSObject *wrapper, jsid id, bool *bp);
-    virtual bool enumerate(JSContext *cx, JSObject *wrapper, js::AutoIdVector &props);
+                                PropertyDescriptor *desc) MOZ_OVERRIDE;
+    virtual bool getOwnPropertyNames(JSContext *cx, JSObject *wrapper, AutoIdVector &props) MOZ_OVERRIDE;
+    virtual bool delete_(JSContext *cx, JSObject *wrapper, jsid id, bool *bp) MOZ_OVERRIDE;
+    virtual bool enumerate(JSContext *cx, JSObject *wrapper, AutoIdVector &props) MOZ_OVERRIDE;
 
     /* ES5 Harmony derived wrapper traps. */
-    virtual bool has(JSContext *cx, JSObject *wrapper, jsid id, bool *bp);
-    virtual bool hasOwn(JSContext *cx, JSObject *wrapper, jsid id, bool *bp);
-    virtual bool get(JSContext *cx, JSObject *wrapper, JSObject *receiver, jsid id, js::Value *vp);
+    virtual bool has(JSContext *cx, JSObject *wrapper, jsid id, bool *bp) MOZ_OVERRIDE;
+    virtual bool hasOwn(JSContext *cx, JSObject *wrapper, jsid id, bool *bp) MOZ_OVERRIDE;
+    virtual bool get(JSContext *cx, JSObject *wrapper, JSObject *receiver, jsid id, Value *vp) MOZ_OVERRIDE;
     virtual bool set(JSContext *cx, JSObject *wrapper, JSObject *receiver, jsid id, bool strict,
-                     js::Value *vp);
-    virtual bool keys(JSContext *cx, JSObject *wrapper, js::AutoIdVector &props);
-    virtual bool iterate(JSContext *cx, JSObject *wrapper, uintN flags, js::Value *vp);
+                     Value *vp) MOZ_OVERRIDE;
+    virtual bool keys(JSContext *cx, JSObject *wrapper, AutoIdVector &props) MOZ_OVERRIDE;
+    virtual bool iterate(JSContext *cx, JSObject *wrapper, uintN flags, Value *vp) MOZ_OVERRIDE;
 
     /* Spidermonkey extensions. */
-    virtual bool call(JSContext *cx, JSObject *wrapper, uintN argc, js::Value *vp);
-    virtual bool construct(JSContext *cx, JSObject *wrapper,
-                           uintN argc, js::Value *argv, js::Value *rval);
-    virtual bool hasInstance(JSContext *cx, JSObject *wrapper, const js::Value *vp, bool *bp);
-    virtual JSString *obj_toString(JSContext *cx, JSObject *wrapper);
-    virtual JSString *fun_toString(JSContext *cx, JSObject *wrapper, uintN indent);
+    virtual bool call(JSContext *cx, JSObject *wrapper, uintN argc, Value *vp) MOZ_OVERRIDE;
+    virtual bool construct(JSContext *cx, JSObject *wrapper, uintN argc, Value *argv, Value *rval) MOZ_OVERRIDE;
+    virtual bool nativeCall(JSContext *cx, JSObject *wrapper, Class *clasp, Native native, CallArgs args) MOZ_OVERRIDE;
+    virtual bool hasInstance(JSContext *cx, JSObject *wrapper, const Value *vp, bool *bp) MOZ_OVERRIDE;
+    virtual JSString *obj_toString(JSContext *cx, JSObject *wrapper) MOZ_OVERRIDE;
+    virtual JSString *fun_toString(JSContext *cx, JSObject *wrapper, uintN indent) MOZ_OVERRIDE;
+    virtual bool defaultValue(JSContext *cx, JSObject *wrapper, JSType hint, Value *vp) MOZ_OVERRIDE;
+    virtual bool iteratorNext(JSContext *cx, JSObject *wrapper, Value *vp);
 
-    static JSCrossCompartmentWrapper singleton;
+    virtual void trace(JSTracer *trc, JSObject *wrapper) MOZ_OVERRIDE;
+
+    static CrossCompartmentWrapper singleton;
 };
 
-namespace js {
+/*
+ * Base class for security wrappers. A security wrapper is potentially hiding
+ * all or part of some wrapped object thus SecurityWrapper defaults to denying
+ * access to the wrappee. This is the opposite of Wrapper which tries to be
+ * completely transparent.
+ *
+ * NB: Currently, only a few ProxyHandler operations are overridden to deny
+ * access, relying on derived SecurityWrapper to block access when necessary.
+ */
+template <class Base>
+class JS_FRIEND_API(SecurityWrapper) : public Base
+{
+  public:
+    SecurityWrapper(uintN flags);
 
-class AutoCompartment
+    virtual bool nativeCall(JSContext *cx, JSObject *wrapper, Class *clasp, Native native, CallArgs args) MOZ_OVERRIDE;
+    virtual bool objectClassIs(JSObject *obj, ESClassValue classValue, JSContext *cx) MOZ_OVERRIDE;
+    virtual RegExpShared *regexp_toShared(JSContext *cx, JSObject *proxy) MOZ_OVERRIDE;
+};
+
+typedef SecurityWrapper<Wrapper> SameCompartmentSecurityWrapper;
+typedef SecurityWrapper<CrossCompartmentWrapper> CrossCompartmentSecurityWrapper;
+
+/*
+ * A hacky class that lets a friend force a fake frame. We must already be
+ * in the compartment of |target| when we enter the forced frame.
+ */
+class JS_FRIEND_API(ForceFrame)
 {
   public:
     JSContext * const context;
-    JSCompartment * const origin;
     JSObject * const target;
-    JSCompartment * const destination;
   private:
-    Maybe<DummyFrameGuard> frame;
-    FrameRegs regs;
-    AutoStringRooter input;
-    bool entered;
+    DummyFrameGuard *frame;
 
   public:
-    AutoCompartment(JSContext *cx, JSObject *target);
-    ~AutoCompartment();
-
+    ForceFrame(JSContext *cx, JSObject *target);
+    ~ForceFrame();
     bool enter();
-    void leave();
-
-  private:
-    // Prohibit copying.
-    AutoCompartment(const AutoCompartment &);
-    AutoCompartment & operator=(const AutoCompartment &);
 };
 
 extern JSObject *
 TransparentObjectWrapper(JSContext *cx, JSObject *obj, JSObject *wrappedProto, JSObject *parent,
                          uintN flags);
 
-}
+JS_FRIEND_API(bool) IsWrapper(const JSObject *obj);
 
-JS_END_EXTERN_C
+// Given a JSObject, returns that object stripped of wrappers. If
+// stopAtOuter is true, then this returns the outer window if it was
+// previously wrapped. Otherwise, this returns the first object for
+// which JSObject::isWrapper returns false.
+JS_FRIEND_API(JSObject *) UnwrapObject(JSObject *obj, bool stopAtOuter = true,
+                                       uintN *flagsp = NULL);
+
+bool IsCrossCompartmentWrapper(const JSObject *obj);
+
+} /* namespace js */
 
 #endif

@@ -48,22 +48,16 @@
 
 using namespace js;
 
-/* static */ inline bool
-PropertyCache::matchShape(JSContext *cx, JSObject *obj, uint32 shape)
-{
-    return obj->shape() == shape;
-}
-
 /*
  * This method is designed to inline the fast path in js_Interpret, so it makes
  * "just-so" restrictions on parameters, e.g. pobj and obj should not be the
  * same variable, since for JOF_PROP-mode opcodes, obj must not be changed
  * because of a cache miss.
  *
- * On return, if atom is null then obj points to the scope chain element in
- * which the property was found, pobj is locked, and entry is valid. If atom is
+ * On return, if name is null then obj points to the scope chain element in
+ * which the property was found, pobj is locked, and entry is valid. If name is
  * non-null then no object is locked but entry is still set correctly for use,
- * e.g., by PropertyCache::fill and atom should be used as the id to find.
+ * e.g., by PropertyCache::fill and name should be used as the id to find.
  *
  * We must lock pobj on a hit in order to close races with threads that might
  * be deleting a property from its scope, or otherwise invalidating property
@@ -71,84 +65,57 @@ PropertyCache::matchShape(JSContext *cx, JSObject *obj, uint32 shape)
  */
 JS_ALWAYS_INLINE void
 PropertyCache::test(JSContext *cx, jsbytecode *pc, JSObject *&obj,
-                    JSObject *&pobj, PropertyCacheEntry *&entry, JSAtom *&atom)
+                    JSObject *&pobj, PropertyCacheEntry *&entry, PropertyName *&name)
 {
     JS_ASSERT(this == &JS_PROPERTY_CACHE(cx));
 
-    uint32 kshape = obj->shape();
+    const Shape *kshape = obj->lastProperty();
     entry = &table[hash(pc, kshape)];
     PCMETER(pctestentry = entry);
     PCMETER(tests++);
     JS_ASSERT(&obj != &pobj);
-    JS_ASSERT(entry->kshape < SHAPE_OVERFLOW_BIT);
     if (entry->kpc == pc && entry->kshape == kshape) {
         JSObject *tmp;
         pobj = obj;
-        if (entry->vcapTag() == 1 &&
+        if (entry->isPrototypePropertyHit() &&
             (tmp = pobj->getProto()) != NULL) {
             pobj = tmp;
         }
 
-        if (matchShape(cx, pobj, entry->vshape())) {
+        if (pobj->lastProperty() == entry->pshape) {
             PCMETER(pchits++);
-            PCMETER(!entry->vcapTag() || protopchits++);
-            atom = NULL;
+            PCMETER(entry->isOwnPropertyHit() || protopchits++);
+            name = NULL;
             return;
         }
     }
-    atom = fullTest(cx, pc, &obj, &pobj, entry);
-    if (atom)
+    name = fullTest(cx, pc, &obj, &pobj, entry);
+    if (name)
         PCMETER(misses++);
 }
 
 JS_ALWAYS_INLINE bool
 PropertyCache::testForSet(JSContext *cx, jsbytecode *pc, JSObject *obj,
-                          PropertyCacheEntry **entryp, JSObject **obj2p, JSAtom **atomp)
+                          PropertyCacheEntry **entryp, JSObject **obj2p, PropertyName **namep)
 {
-    uint32 shape = obj->shape();
-    PropertyCacheEntry *entry = &table[hash(pc, shape)];
-    *entryp = entry;
-    PCMETER(pctestentry = entry);
-    PCMETER(tests++);
-    PCMETER(settests++);
-    JS_ASSERT(entry->kshape < SHAPE_OVERFLOW_BIT);
-    if (entry->kpc == pc && entry->kshape == shape)
-        return true;
+    JS_ASSERT(this == &JS_PROPERTY_CACHE(cx));
 
-    JSAtom *atom = fullTest(cx, pc, &obj, obj2p, entry);
-    JS_ASSERT(atom);
-
-    PCMETER(misses++);
-    PCMETER(setmisses++);
-
-    *atomp = atom;
-    return false;
-}
-
-JS_ALWAYS_INLINE bool
-PropertyCache::testForInit(JSRuntime *rt, jsbytecode *pc, JSObject *obj,
-                           const js::Shape **shapep, PropertyCacheEntry **entryp)
-{
-    JS_ASSERT(obj->slotSpan() >= JSSLOT_FREE(obj->getClass()));
-    JS_ASSERT(obj->isExtensible());
-    uint32 kshape = obj->shape();
+    const Shape *kshape = obj->lastProperty();
     PropertyCacheEntry *entry = &table[hash(pc, kshape)];
     *entryp = entry;
     PCMETER(pctestentry = entry);
     PCMETER(tests++);
-    PCMETER(initests++);
-    JS_ASSERT(entry->kshape < SHAPE_OVERFLOW_BIT);
-
-    if (entry->kpc == pc &&
-        entry->kshape == kshape &&
-        entry->vshape() == rt->protoHazardShape) {
-        PCMETER(pchits++);
-        PCMETER(inipchits++);
-        JS_ASSERT(entry->vcapTag() == 0);
-        *shapep = entry->vword.toShape();
-        JS_ASSERT((*shapep)->writable());
+    PCMETER(settests++);
+    if (entry->kpc == pc && entry->kshape == kshape)
         return true;
-    }
+
+    PropertyName *name = fullTest(cx, pc, &obj, obj2p, entry);
+    JS_ASSERT(name);
+
+    PCMETER(misses++);
+    PCMETER(setmisses++);
+
+    *namep = name;
     return false;
 }
 

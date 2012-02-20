@@ -49,8 +49,8 @@ dnl ========================================================
 dnl = Defaults
 dnl ========================================================
 MOD_MAJOR_VERSION=4
-MOD_MINOR_VERSION=8
-MOD_PATCH_VERSION=8
+MOD_MINOR_VERSION=9
+MOD_PATCH_VERSION=0
 NSPR_MODNAME=nspr20
 _HAVE_PTHREADS=
 USE_PTHREADS=
@@ -78,7 +78,6 @@ MACOS_SDK_DIR=
 NEXT_ROOT=
 MT=
 MOZ_OS2_HIGH_MEMORY=1
-MOZ_THUMB2=
 PROFILE_GEN_CFLAGS=
 PROFILE_GEN_LDFLAGS=
 PROFILE_USE_CFLAGS=
@@ -139,41 +138,120 @@ dnl ========================================================
 
 AC_ARG_WITH(android-ndk,
 [  --with-android-ndk=DIR
-                      location where the Android NDK can be found],
+                          location where the Android NDK can be found],
     android_ndk=$withval)
 
 AC_ARG_WITH(android-toolchain,
 [  --with-android-toolchain=DIR
-                            location of the android toolchain, default NDK/build/prebuilt/HOST/arm-eabi-4.4.0],
+                          location of the Android toolchain, default NDK/build/prebuilt/HOST/arm-eabi-4.4.0],
     android_toolchain=$withval)
+
+AC_ARG_WITH(android-version,
+[  --with-android-version=VER
+                          Android platform version, default 5],
+    android_version=$withval,
+    android_version=5)
 
 AC_ARG_WITH(android-platform,
 [  --with-android-platform=DIR
-                           location of platform dir, default NDK/build/platforms/android-5/arch-arm],
+                          location of platform dir, default NDK/build/platforms/android-5/arch-arm],
     android_platform=$withval)
 
-if test "$target" = "arm-android-eabi" ; then
+case "$target" in
+arm-linux*-android*|*-linuxandroid*)
+    android_tool_prefix="arm-linux-androideabi"
+    ;;
+arm-android-eabi)
+    android_tool_prefix="arm-eabi"
+    ;;
+i?86-*android*)
+    android_tool_prefix="i686-android-linux"
+    ;;
+*)
+    android_tool_prefix="$target_os"
+    ;;
+esac
+
+dnl ========================================================
+dnl = Gonk is a fork of Android used for Mozilla's B2G project.
+dnl = Configuration is done largely by the top level config
+dnl = and the specified gonk directory doesn't matter here.
+dnl ========================================================
+
+AC_ARG_WITH(gonk,
+[  --with-gonk=DIR         location of gonk dir],
+    gonkdir=$withval)
+
+if test -n "$gonkdir" ; then
+    dnl Most things are directly configured by env vars when building for gonk
+
+    dnl prevent cross compile section from using these flags as host flags
+    if test -z "$HOST_CPPFLAGS" ; then
+        HOST_CPPFLAGS=" "
+    fi
+    if test -z "$HOST_CFLAGS" ; then
+        HOST_CFLAGS=" "
+    fi
+    if test -z "$HOST_CXXFLAGS" ; then
+        HOST_CXXFLAGS=" "
+    fi
+    if test -z "$HOST_LDFLAGS" ; then
+        HOST_LDFLAGS=" "
+    fi
+
+    AC_DEFINE(ANDROID)
+else
+case "$target" in
+*-android*|*-linuxandroid*)
     if test -z "$android_ndk" ; then
        AC_MSG_ERROR([You must specify --with-android-ndk=/path/to/ndk when targeting Android.])
     fi
 
     if test -z "$android_toolchain" ; then
-       android_toolchain="$android_ndk"/build/prebuilt/`uname -s | tr "[[:upper:]]" "[[:lower:]]"`-x86/arm-eabi-4.4.0
+        AC_MSG_CHECKING([for android toolchain directory])
+
+        kernel_name=`uname -s | tr "[[:upper:]]" "[[:lower:]]"`
+
+        android_toolchain="$android_ndk"/build/prebuilt/$kernel_name-x86/arm-eabi-4.4.0
+
+        # With newer NDK, the toolchain path has changed.
+        if ! test -d "$android_toolchain" ; then
+            android_toolchain="$android_ndk"/toolchains/arm-$kernel_name-androideabi-4.4.3/prebuilt/$kernel_name-x86
+        fi
+
+        if test -d "$android_toolchain" ; then
+            AC_MSG_RESULT([$android_toolchain])
+        else
+            AC_MSG_ERROR([not found. You have to specify --with-android-toolchain=/path/to/ndk/toolchain.])
+        fi
     fi
 
     if test -z "$android_platform" ; then
-       android_platform="$android_ndk"/build/platforms/android-5/arch-arm
+        AC_MSG_CHECKING([for android platform directory])
+
+        android_platform="$android_ndk"/build/platforms/android-"$android_version"/arch-"$target_cpu"
+
+        # With newer NDK, the platform path has changed.
+        if ! test -d "$android_platform" ; then
+            android_platform="$android_ndk"/platforms/android-"$android_version"/arch-"$target_cpu"
+        fi
+
+        if test -d "$android_platform" ; then
+            AC_MSG_RESULT([$android_platform])
+        else
+            AC_MSG_ERROR([not found. You have to specify --with-android-platform=/path/to/ndk/platform.])
+        fi
     fi
 
     dnl set up compilers
-    AS="$android_toolchain"/bin/arm-eabi-as
-    CC="$android_toolchain"/bin/arm-eabi-gcc
-    CXX="$android_toolchain"/bin/arm-eabi-g++
-    CPP="$android_toolchain"/bin/arm-eabi-cpp
-    LD="$android_toolchain"/bin/arm-eabi-ld
-    AR="$android_toolchain"/bin/arm-eabi-ar
-    RANLIB="$android_toolchain"/bin/arm-eabi-ranlib
-    STRIP="$android_toolchain"/bin/arm-eabi-strip
+    AS="$android_toolchain"/bin/"$android_tool_prefix"-as
+    CC="$android_toolchain"/bin/"$android_tool_prefix"-gcc
+    CXX="$android_toolchain"/bin/"$android_tool_prefix"-g++
+    CPP="$android_toolchain"/bin/"$android_tool_prefix"-cpp
+    LD="$android_toolchain"/bin/"$android_tool_prefix"-ld
+    AR="$android_toolchain"/bin/"$android_tool_prefix"-ar
+    RANLIB="$android_toolchain"/bin/"$android_tool_prefix"-ranlib
+    STRIP="$android_toolchain"/bin/"$android_tool_prefix"-strip
 
     CPPFLAGS="-I$android_platform/usr/include $CPPFLAGS"
     CFLAGS="-mandroid -I$android_platform/usr/include -msoft-float -fno-short-enums -fno-exceptions $CFLAGS"
@@ -194,9 +272,10 @@ if test "$target" = "arm-android-eabi" ; then
         HOST_LDFLAGS=" "
     fi
 
-    WRAP_MALLOC_CFLAGS="-Wl,--wrap=dlopen -Wl,--wrap=dlclose -Wl,--wrap=dlerror -Wl,--wrap=dlsym -Wl,--wrap=dladdr"
-
     AC_DEFINE(ANDROID)
+    AC_DEFINE_UNQUOTED(ANDROID_VERSION, $android_version)
+    ;;
+esac
 fi
 
 dnl ========================================================
@@ -486,7 +565,11 @@ if test -z "$SKIP_COMPILER_CHECKS"; then
 dnl ========================================================
 dnl Checks for compilers.
 dnl ========================================================
-if test "$target" != "$host"; then
+
+dnl Explicitly honor $CROSS_COMPILE to allow cross-compiling
+dnl between toolkits on the same architecture, as when
+dnl targeting the iOS Simulator from OS X.
+if test "$target" != "$host" -o -n "$CROSS_COMPILE"; then
     echo "cross compiling from $host to $target"
     cross_compiling=yes
 
@@ -528,11 +611,20 @@ if test "$target" != "$host"; then
         dnl versions of PPC OS X 10.4 aren't fat, so these target compiler
         dnl checks will fail.  Fake a working SDK in that case.
         _SAVE_CFLAGS=$CFLAGS 
-        _SAVE_CXXFLAGS=$CXXLAGS
+        _SAVE_CXXFLAGS=$CXXFLAGS
         CFLAGS="-isysroot /Developer/SDKs/MacOSX10.4u.sdk $CFLAGS"
         CXXFLAGS="-isysroot /Developer/SDKs/MacOSX10.4u.sdk $CXXFLAGS"
-        ;;        
-    esac            
+        ;;
+      *:arm*-apple-darwin*)
+        dnl The arm compiler doesn't appear to know about its root by default,
+        dnl so explicitly pass it one here. Later on we'll put this in CFLAGS
+        dnl anyway.
+        _SAVE_CFLAGS=$CFLAGS
+        _SAVE_CXXFLAGS=$CXXFLAGS
+        CFLAGS="-isysroot $MACOS_SDK_DIR $CFLAGS"
+        CXXFLAGS="-isysroot $MACOS_SDK_DIR $CXXFLAGS"
+        ;;
+    esac
 
     AC_CHECK_PROGS(CC, $CC "${target_alias}-gcc" "${target}-gcc", echo)
     unset ac_cv_prog_CC
@@ -544,7 +636,7 @@ if test "$target" != "$host"; then
     fi
 
     case "$build:$target" in
-      powerpc-apple-darwin8*:i?86-apple-darwin*)
+      powerpc-apple-darwin8*:i?86-apple-darwin*|*:arm*-apple-darwin*)
         dnl Revert the changes made above.  From this point on, the target
         dnl compiler will never be used without applying the SDK to CFLAGS
         dnl (see --with-macos-sdk below).
@@ -663,7 +755,7 @@ AC_MSG_RESULT([$result])
 
 if test $result = "yes"; then
    PROFILE_GEN_LDFLAGS="-fprofile-generate"
-   PROFILE_USE_CFLAGS="-fprofile-use -fprofile-correction -Wcoverage-mismatch -freorder-blocks-and-partition"
+   PROFILE_USE_CFLAGS="-fprofile-use -fprofile-correction -Wcoverage-mismatch"
    PROFILE_USE_LDFLAGS="-fprofile-use"
 fi
 
@@ -913,39 +1005,167 @@ AC_ARG_ENABLE(os2-high-mem,
       fi ])
 
 dnl ========================================================
-dnl = Enable building the Thumb2 instruction set
+dnl = ARM toolchain tweaks
 dnl ========================================================
-AC_ARG_ENABLE(thumb2,
- [  --enable-thumb2              Enable Thumb-2 instruction set],
- [ if test "$enableval" = "yes"; then
-     MOZ_THUMB2=1,
-   fi ])
 
-if test -n "$MOZ_THUMB2"; then
-  case "$target_cpu" in
-    arm*)
-      if test "$GNU_CC"; then
-        CFLAGS="$CFLAGS -march=armv7-a -mthumb"
-        CXXFLAGS="$CXXFLAGS -march=armv7-a -mthumb"
-        ASFLAGS="$ASFLAGS -march=armv7-a -mthumb"
-      else
-        AC_MSG_ERROR([--enable-thumb2 is not supported for non-GNU toolchains])
-      fi
+dnl Defaults
+case "${CPU_ARCH}-${OS_TARGET}" in
+arm-Android)
+    MOZ_THUMB=yes
+    MOZ_ARCH=armv7-a
+    MOZ_FPU=vfp
+    MOZ_FLOAT_ABI=softfp
     ;;
-    *)
-      AC_MSG_ERROR([--enable-thumb2 is not supported for non-ARM CPU architectures])
+arm-*)
+    if test -n "$MOZ_PLATFORM_MAEMO"; then
+        MOZ_THUMB=no
+        MOZ_ARCH=armv7-a
+        MOZ_FLOAT_ABI=softfp
+    fi
+    if test "$MOZ_PLATFORM_MAEMO" = 6; then
+        MOZ_THUMB=yes
+    fi
     ;;
-  esac
-else
-  case "$target" in
-    arm-android-eabi)
-      if test "$GNU_CC"; then
-        CFLAGS="$CFLAGS -march=armv5te -mthumb-interwork"
-        CXXFLAGS="$CXXFLAGS -march=armv5te -mthumb-interwork"
-        ASFLAGS="$ASFLAGS -march=armv5te -mthumb-interwork"
-      fi
-      ;;
-  esac
+esac
+
+dnl Kept for compatibility with some buildbot mozconfig
+AC_ARG_ENABLE(thumb2, [], MOZ_THUMB=$enableval)
+
+AC_ARG_WITH(thumb,
+[  --with-thumb[[=yes|no|toolchain-default]]]
+[                          Use Thumb instruction set (-mthumb)],
+    if test -z "$GNU_CC"; then
+        AC_MSG_ERROR([--with-thumb is not supported on non-GNU toolchain-defaults])
+    fi
+    MOZ_THUMB=$withval)
+
+AC_ARG_WITH(thumb-interwork,
+[  --with-thumb-interwork[[=yes|no|toolchain-default]]
+                           Use Thumb/ARM instuctions interwork (-mthumb-interwork)],
+    if test -z "$GNU_CC"; then
+        AC_MSG_ERROR([--with-thumb-interwork is not supported on non-GNU toolchain-defaults])
+    fi
+    MOZ_THUMB_INTERWORK=$withval)
+
+AC_ARG_WITH(arch,
+[  --with-arch=[[type|toolchain-default]]
+                           Use specific CPU features (-march=type)],
+    if test -z "$GNU_CC"; then
+        AC_MSG_ERROR([--with-arch is not supported on non-GNU toolchain-defaults])
+    fi
+    MOZ_ARCH=$withval)
+
+AC_ARG_WITH(fpu,
+[  --with-fpu=[[type|toolchain-default]]
+                           Use specific FPU type (-mfpu=type)],
+    if test -z "$GNU_CC"; then
+        AC_MSG_ERROR([--with-fpu is not supported on non-GNU toolchain-defaults])
+    fi
+    MOZ_FPU=$withval)
+
+AC_ARG_WITH(float-abi,
+[  --with-float-abi=[[type|toolchain-default]]
+                           Use specific arm float ABI (-mfloat-abi=type)],
+    if test -z "$GNU_CC"; then
+        AC_MSG_ERROR([--with-float-abi is not supported on non-GNU toolchain-defaults])
+    fi
+    MOZ_FLOAT_ABI=$withval)
+
+AC_ARG_WITH(soft-float,
+[  --with-soft-float[[=yes|no|toolchain-default]]
+                           Use soft float library (-msoft-float)],
+    if test -z "$GNU_CC"; then
+        AC_MSG_ERROR([--with-soft-float is not supported on non-GNU toolchain-defaults])
+    fi
+    MOZ_SOFT_FLOAT=$withval)
+
+case "$MOZ_ARCH" in
+toolchain-default|"")
+    arch_flag=""
+    ;;
+*)
+    arch_flag="-march=$MOZ_ARCH"
+    ;;
+esac
+
+case "$MOZ_THUMB" in
+yes)
+    MOZ_THUMB2=1
+    thumb_flag="-mthumb"
+    ;;
+no)
+    MOZ_THUMB2=
+    thumb_flag="-marm"
+    ;;
+*)
+    _SAVE_CFLAGS="$CFLAGS"
+    CFLAGS="$arch_flag"
+    AC_TRY_COMPILE([],[return sizeof(__thumb2__);],
+        MOZ_THUMB2=1,
+        MOZ_THUMB2=)
+    CFLAGS="$_SAVE_CFLAGS"
+    thumb_flag=""
+    ;;
+esac
+
+case "$MOZ_THUMB_INTERWORK" in
+yes)
+    thumb_interwork_flag="-mthumb-interwork"
+    ;;
+no)
+    thumb_interwork_flag="-mno-thumb-interwork"
+    ;;
+*) # toolchain-default
+    thumb_interwork_flag=""
+    ;;
+esac
+
+case "$MOZ_FPU" in
+toolchain-default|"")
+    fpu_flag=""
+    ;;
+*)
+    fpu_flag="-mfpu=$MOZ_FPU"
+    ;;
+esac
+
+case "$MOZ_FLOAT_ABI" in
+toolchain-default|"")
+    float_abi_flag=""
+    ;;
+*)
+    float_abi_flag="-mfloat-abi=$MOZ_FLOAT_ABI"
+    ;;
+esac
+
+case "$MOZ_SOFT_FLOAT" in
+yes)
+    soft_float_flag="-msoft-float"
+    ;;
+no)
+    soft_float_flag="-mno-soft-float"
+    ;;
+*) # toolchain-default
+    soft_float_flag=""
+    ;;
+esac
+
+dnl Use echo to avoid accumulating space characters
+all_flags=`echo $arch_flag $thumb_flag $thumb_interwork_flag $fpu_flag $float_abi_flag $soft_float_flag`
+if test -n "$all_flags"; then
+    _SAVE_CFLAGS="$CFLAGS"
+    CFLAGS="$all_flags"
+    AC_MSG_CHECKING(whether the chosen combination of compiler flags ($all_flags) works)
+    AC_TRY_COMPILE([],[return 0;],
+        AC_MSG_RESULT([yes]),
+        AC_MSG_ERROR([no]))
+
+    CFLAGS="$_SAVE_CFLAGS $all_flags"
+    CXXFLAGS="$CXXFLAGS $all_flags"
+    ASFLAGS="$ASFLAGS $all_flags"
+    if test -n "$thumb_flag"; then
+        LDFLAGS="$LDFLAGS $thumb_flag"
+    fi
 fi
 
 dnl ========================================================
@@ -1036,6 +1256,33 @@ case "$target" in
     RESOLVE_LINK_SYMBOLS=1
     ;;
         
+*-android*|*-linuxandroid*)
+    if test -z "$USE_NSPR_THREADS"; then
+        USE_PTHREADS=1
+        IMPL_STRATEGY=_PTH
+    fi
+    AC_DEFINE(XP_UNIX)
+    AC_DEFINE(_GNU_SOURCE)
+    AC_DEFINE(HAVE_FCNTL_FILE_LOCKING)
+    AC_DEFINE(LINUX)
+    CFLAGS="$CFLAGS -Wall"
+    CXXFLAGS="$CXXFLAGS -Wall"
+    MDCPUCFG_H=_linux.cfg
+    PR_MD_CSRCS=linux.c
+    MKSHLIB='$(CC) $(DSO_LDOPTS) -o $@'
+    DSO_CFLAGS=-fPIC
+    DSO_LDOPTS='-shared -Wl,-soname -Wl,$(notdir $@)'
+    _OPTIMIZE_FLAGS=-O2
+    _DEBUG_FLAGS="-g -fno-inline"  # most people on linux use gcc/gdb, and that
+                                   # combo is not yet good at debugging inlined
+                                   # functions (even when using DWARF2 as the
+                                   # debugging format)
+    COMPILER_TAG=_glibc
+    CPU_ARCH=arm
+    CPU_ARCH_TAG=_arm
+    OS_TARGET=Android
+    ;;
+
 *-beos*)
     AC_DEFINE(XP_BEOS)
     AC_DEFINE(BeOS)
@@ -1138,18 +1385,27 @@ case "$target" in
     AS='$(CC) -x assembler-with-cpp'
     CFLAGS="$CFLAGS -Wall -fno-common"
     case "${target_cpu}" in
+        arm*)
+            CPU_ARCH=arm
+            ;;
         i*86*)
             if test -n "$USE_64"; then
                 CPU_ARCH=x86_64
-                CC="$CC -arch x86_64"
             else        
                 CPU_ARCH=i386
             fi
+            ;;
+        x86_64)
+            CPU_ARCH=x86_64
             ;;
         *)
             CPU_ARCH=ppc
             ;;
     esac
+    if test "`echo $CC | grep -c '\-arch '`" = "0"; then
+        CC="$CC -arch $CPU_ARCH"
+    fi
+    AC_CHECK_HEADER(crt_externs.h)
     DSO_CFLAGS=-fPIC
     DSO_LDOPTS='-dynamiclib -compatibility_version 1 -current_version 1 -all_load -install_name @executable_path/$@ -headerpad_max_install_names'
     _OPTIMIZE_FLAGS=-O2
@@ -1561,33 +1817,6 @@ tools are selected during the Xcode/Developer Tools installation.])
 	esac
     ;;
 
-arm-android-eabi)
-    if test -z "$USE_NSPR_THREADS"; then
-        USE_PTHREADS=1
-        IMPL_STRATEGY=_PTH
-    fi
-    AC_DEFINE(XP_UNIX)
-    AC_DEFINE(_GNU_SOURCE)
-    AC_DEFINE(HAVE_FCNTL_FILE_LOCKING)
-    AC_DEFINE(LINUX)
-    CFLAGS="$CFLAGS -Wall"
-    CXXFLAGS="$CXXFLAGS -Wall"
-    MDCPUCFG_H=_linux.cfg
-    PR_MD_CSRCS=linux.c
-    MKSHLIB='$(CC) $(DSO_LDOPTS) $(WRAP_MALLOC_LIB) -o $@'
-    DSO_CFLAGS=-fPIC
-    DSO_LDOPTS='-shared -Wl,-soname -Wl,$(notdir $@)'
-    _OPTIMIZE_FLAGS=-O2
-    _DEBUG_FLAGS="-g -fno-inline"  # most people on linux use gcc/gdb, and that
-                                   # combo is not yet good at debugging inlined
-                                   # functions (even when using DWARF2 as the
-                                   # debugging format)
-    COMPILER_TAG=_glibc
-    CPU_ARCH=arm
-    CPU_ARCH_TAG=_arm
-    OS_TARGET=Android
-    ;;
-
 *-linux*|*-gnu*|*-k*bsd*-gnu)
     if test -z "$USE_NSPR_THREADS"; then
         USE_PTHREADS=1
@@ -1605,7 +1834,7 @@ arm-android-eabi)
     CXXFLAGS="$CXXFLAGS -Wall"
     MDCPUCFG_H=_linux.cfg
     PR_MD_CSRCS=linux.c
-    MKSHLIB='$(CC) $(DSO_LDOPTS) $(WRAP_MALLOC_LIB) -o $@'
+    MKSHLIB='$(CC) $(DSO_LDOPTS) -o $@'
     DSO_CFLAGS=-fPIC
     DSO_LDOPTS='-shared -Wl,-soname -Wl,$(notdir $@)'
     _OPTIMIZE_FLAGS=-O2
@@ -1669,8 +1898,8 @@ arm-android-eabi)
     RESOLVE_LINK_SYMBOLS=1
 
     if test -n "$GNU_CC"; then
-        CC="$CC -mno-cygwin"
-        CXX="$CXX -mno-cygwin"
+        CC="$CC -mwindows"
+        CXX="$CXX -mwindows"
         DLL_SUFFIX=dll
         MKSHLIB='$(CC) -shared -Wl,--export-all-symbols -Wl,--out-implib -Wl,$(IMPORT_LIBRARY) $(DLLBASE) -o $(subst $(OBJDIR)/,,$(SHARED_LIBRARY))'
         RC=$WINDRES
@@ -2512,7 +2741,10 @@ dnl ========================================================
 dnl Checks for library functions.
 dnl ========================================================
 AC_PROG_GCC_TRADITIONAL
-AC_CHECK_FUNCS(lchown strerror)
+_SAVE_LIBS="$LIBS"
+LIBS="$LIBS $OS_LIBS"
+AC_CHECK_FUNCS(lchown strerror dladdr)
+LIBS="$_SAVE_LIBS"
 
 dnl AC_FUNC_MEMCMP
 dnl AC_FUNC_MMAP
@@ -2990,11 +3222,14 @@ AC_ARG_ENABLE(wrap-malloc,
       fi ])
 
 if test -n "$_WRAP_MALLOC"; then
-    if test "$GNU_CC"; then
-       WRAP_MALLOC_CFLAGS="${LDFLAGS} ${WRAP_MALLOC_CFLAGS} -Wl,--wrap -Wl,malloc -Wl,--wrap -Wl,calloc -Wl,--wrap -Wl,valloc -Wl,--wrap -Wl,free -Wl,--wrap -Wl,realloc -Wl,--wrap -Wl,memalign -Wl,--wrap -Wl,__builtin_new -Wl,--wrap -Wl,__builtin_vec_new -Wl,--wrap -Wl,__builtin_delete -Wl,--wrap -Wl,__builtin_vec_delete -Wl,--wrap -Wl,PR_Free -Wl,--wrap -Wl,PR_Malloc -Wl,--wrap -Wl,PR_Calloc -Wl,--wrap -Wl,PR_Realloc -Wl,--wrap -Wl,strdup -Wl,--wrap -Wl,strndup -Wl,--wrap -Wl,posix_memalign"
-       DSO_LDOPTS="$DSO_LDOPTS $WRAP_MALLOC_CFLAGS"
+    if test -n "$GNU_CC"; then
+        WRAP_LDFLAGS="${WRAP_LDFLAGS} -Wl,--wrap=malloc,--wrap=calloc,--wrap=valloc,--wrap=free,--wrap=realloc,--wrap=memalign"
+        WRAP_LDFLAGS="${WRAP_LDFLAGS} -Wl,--wrap=__builtin_new,--wrap=__builtin_vec_new,--wrap=__builtin_delete,--wrap=__builtin_vec_delete"
+        WRAP_LDFLAGS="${WRAP_LDFLAGS} -Wl,--wrap=PR_Free,--wrap=PR_Malloc,--wrap=PR_Calloc,--wrap=PR_Realloc"
+        WRAP_LDFLAGS="${WRAP_LDFLAGS} -Wl,--wrap=strdup,--wrap=strndup"
+        WRAP_LDFLAGS="${WRAP_LDFLAGS} -Wl,--wrap=posix_memalign,--wrap=malloc_usable_size"
     else
-       AC_MSG_ERROR([--enable-wrap-malloc is not supported for non-GNU toolchains])
+        AC_MSG_ERROR([--enable-wrap-malloc is not supported for non-GNU toolchains])
     fi
 fi
 
@@ -3003,7 +3238,7 @@ dnl = Location of malloc wrapper lib
 dnl ========================================================
 AC_ARG_WITH(wrap-malloc,
 [  --with-wrap-malloc=SHAREDLIB  Location of malloc wrapper library],
-    WRAP_MALLOC_LIB=$withval)
+    WRAP_LDFLAGS="${WRAP_LDFLAGS} $withval")
 
 dnl ========================================================
 dnl Substitution of found variables.
@@ -3058,8 +3293,7 @@ AC_SUBST(OBJ_SUFFIX)
 AC_SUBST(LIB_SUFFIX)
 AC_SUBST(DLL_SUFFIX)
 AC_SUBST(ASM_SUFFIX)
-AC_SUBST(WRAP_MALLOC_CFLAGS)
-AC_SUBST(WRAP_MALLOC_LIB)
+AC_SUBST(WRAP_LDFLAGS)
 AC_SUBST(MKSHLIB)
 AC_SUBST(DSO_CFLAGS)
 AC_SUBST(DSO_LDOPTS)
@@ -3117,55 +3351,68 @@ dnl ========================================================
 dnl Generate output files.
 dnl ========================================================
 MAKEFILES="
-Makefile 
-config/Makefile
-config/autoconf.mk
-config/nsprincl.mk
-config/nsprincl.sh
-config/nspr-config
-lib/Makefile 
-lib/ds/Makefile 
-lib/libc/Makefile 
-lib/libc/include/Makefile 
-lib/libc/src/Makefile 
-lib/tests/Makefile
-pkg/Makefile
-pkg/linux/Makefile
-pkg/solaris/Makefile
-pkg/solaris/SUNWpr/Makefile
-pkg/solaris/SUNWprd/Makefile
-pr/Makefile 
-pr/include/Makefile 
-pr/include/md/Makefile 
-pr/include/obsolete/Makefile 
-pr/include/private/Makefile 
-pr/src/Makefile 
-pr/src/io/Makefile 
-pr/src/linking/Makefile 
-pr/src/malloc/Makefile 
-pr/src/md/Makefile 
-pr/src/md/${PR_MD_ARCH_DIR}/Makefile 
-pr/src/memory/Makefile 
-pr/src/misc/Makefile 
-pr/src/threads/Makefile 
-pr/tests/Makefile 
-pr/tests/dll/Makefile 
+    Makefile
+    config/Makefile
+    config/autoconf.mk
+    config/nsprincl.mk
+    config/nsprincl.sh
+    config/nspr-config
+    lib/Makefile
+    lib/ds/Makefile
+    lib/libc/Makefile
+    lib/libc/include/Makefile
+    lib/libc/src/Makefile
+    lib/tests/Makefile
+    pkg/Makefile
+    pr/Makefile
+    pr/include/Makefile
+    pr/include/md/Makefile
+    pr/include/obsolete/Makefile
+    pr/include/private/Makefile
+    pr/src/Makefile
+    pr/src/io/Makefile
+    pr/src/linking/Makefile
+    pr/src/malloc/Makefile
+    pr/src/md/Makefile
+    pr/src/md/${PR_MD_ARCH_DIR}/Makefile
+    pr/src/memory/Makefile
+    pr/src/misc/Makefile
+    pr/src/threads/Makefile
+    pr/tests/Makefile
+    pr/tests/dll/Makefile
 "
 
-dnl lib/tests/Makefile
-dnl pr/tests/w16gui/Makefile
-dnl tools/Makefile
+if test "$OS_TARGET" = "Linux"; then
+    MAKEFILES="$MAKEFILES
+        pkg/linux/Makefile
+    "
+elif test "$OS_TARGET" = "SunOS"; then
+    MAKEFILES="$MAKEFILES
+        pkg/solaris/Makefile
+        pkg/solaris/SUNWpr/Makefile
+        pkg/solaris/SUNWprd/Makefile
+    "
+fi
 
 if test -z "$USE_PTHREADS" && test -z "$USE_BTHREADS"; then
-    MAKEFILES="$MAKEFILES pr/src/threads/combined/Makefile"
+    MAKEFILES="$MAKEFILES
+        pr/src/threads/combined/Makefile
+    "
 elif test -n "$USE_PTHREADS"; then
-    MAKEFILES="$MAKEFILES pr/src/pthreads/Makefile"
+    MAKEFILES="$MAKEFILES
+        pr/src/pthreads/Makefile
+    "
 elif test -n "$USE_BTHREADS"; then
-    MAKEFILES="$MAKEFILES pr/src/bthreads/Makefile"
+    MAKEFILES="$MAKEFILES
+        pr/src/bthreads/Makefile
+    "
 fi
 
 if test -n "$USE_CPLUS"; then
-    MAKEFILES="$MAKEFILES pr/src/cplus/Makefile pr/src/cplus/tests/Makefile"
+    MAKEFILES="$MAKEFILES
+        pr/src/cplus/Makefile
+        pr/src/cplus/tests/Makefile
+    "
 fi
 
 echo $MAKEFILES > unallmakefiles

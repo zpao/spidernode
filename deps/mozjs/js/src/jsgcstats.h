@@ -39,20 +39,10 @@
 #ifndef jsgcstats_h___
 #define jsgcstats_h___
 
+#include "mozilla/Util.h"
+
 #if !defined JS_DUMP_CONSERVATIVE_GC_ROOTS && defined DEBUG
 # define JS_DUMP_CONSERVATIVE_GC_ROOTS 1
-#endif
-
-/* Define JS_GCMETER here if wanted */
-#if defined JS_GCMETER
-const bool JS_WANT_GC_METER_PRINT = true;
-const bool JS_WANT_GC_PER_COMPARTMENT_PRINT = true;
-const bool JS_WANT_CONSERVATIVE_GC_PRINT = true;
-#elif defined DEBUG
-# define JS_GCMETER 1
-const bool JS_WANT_GC_METER_PRINT = false;
-const bool JS_WANT_GC_PER_COMPARTMENT_PRINT = false;
-const bool JS_WANT_CONSERVATIVE_GC_PRINT = false;
 #endif
 
 namespace js {
@@ -61,117 +51,35 @@ namespace gc {
  * The conservative GC test for a word shows that it is either a valid GC
  * thing or is not for one of the following reasons.
  */
-enum ConservativeGCTest {
+enum ConservativeGCTest
+{
     CGCT_VALID,
     CGCT_LOWBITSET, /* excluded because one of the low bits was set */
     CGCT_NOTARENA,  /* not within arena range in a chunk */
+    CGCT_OTHERCOMPARTMENT,  /* in another compartment */
     CGCT_NOTCHUNK,  /* not within a valid chunk */
     CGCT_FREEARENA, /* within arena containing only free things */
-    CGCT_WRONGTAG,  /* tagged pointer but wrong type */
     CGCT_NOTLIVE,   /* gcthing is not allocated */
     CGCT_END
 };
 
-struct ConservativeGCStats {
-    uint32  counter[gc::CGCT_END];  /* ConservativeGCTest classification
+struct ConservativeGCStats
+{
+    uint32_t counter[gc::CGCT_END]; /* ConservativeGCTest classification
                                        counters */
-    uint32  unaligned;              /* number of valid but not aligned on
+    uint32_t unaligned;             /* number of valid but not aligned on
                                        thing start pointers */ 
 
     void add(const ConservativeGCStats &another) {
-        for (size_t i = 0; i != JS_ARRAY_LENGTH(counter); ++i)
+        for (size_t i = 0; i < mozilla::ArrayLength(counter); ++i)
             counter[i] += another.counter[i];
     }
 
     void dump(FILE *fp);
 };
 
-#ifdef JS_GCMETER
-struct JSGCArenaStats {
-    uint32  alloc;          /* allocation attempts */
-    uint32  localalloc;     /* allocations from local lists */
-    uint32  nthings;        /* live GC things */
-    uint32  maxthings;      /* maximum of live GC cells */
-    double  totalthings;    /* live GC things the GC scanned so far */
-    uint32  narenas;        /* number of arena in list before the GC */
-    uint32  newarenas;      /* new arenas allocated before the last GC */
-    uint32  livearenas;     /* number of live arenas after the last GC */
-    uint32  maxarenas;      /* maximum of allocated arenas */
-    uint32  totalarenas;    /* total number of arenas with live things that
-                               GC scanned so far */
-};
-#endif
-
-#ifdef JS_GCMETER
-
-struct JSGCStats {
-    uint32  lock;       /* valid lock calls */
-    uint32  unlock;     /* valid unlock calls */
-    uint32  unmarked;   /* number of times marking of GC thing's children were
-                           delayed due to a low C stack */
-    uint32  lastditch;  /* number of times the last ditch GC run */
-    uint32  fail;       /* allocation failures */
-#ifdef DEBUG
-    uint32  maxunmarked;/* maximum number of things with children to mark
-                           later */
-#endif
-    uint32  poke;           /* number of potentially useful GC calls */
-    uint32  afree;          /* thing arenas freed so far */
-    uint32  nallarenas;     /* number of all allocated arenas */
-    uint32  maxnallarenas;  /* maximum number of all allocated arenas */
-    uint32  nchunks;        /* number of allocated chunks */
-    uint32  maxnchunks;     /* maximum number of allocated chunks */
-
-    ConservativeGCStats conservative;
-};
-
-extern void
-UpdateCompartmentStats(JSCompartment *comp, unsigned thingKind, uint32 nlivearenas,
-                       uint32 nkilledArenas, uint32 nthings);
-#endif /* JS_GCMETER */
-
 } //gc
 
-#ifdef MOZ_GCTIMER
-
-const bool JS_WANT_GC_SUITE_PRINT = false;  //false for gnuplot output
-
-extern jsrefcount newChunkCount;
-extern jsrefcount destroyChunkCount;
-
-struct GCTimer {
-    uint64 enter;
-    uint64 startMark;
-    uint64 startSweep;
-    uint64 sweepObjectEnd;
-    uint64 sweepStringEnd;
-    uint64 sweepShapeEnd;
-    uint64 sweepDestroyEnd;
-    uint64 end;
-
-    GCTimer();
-
-    uint64 getFirstEnter();
-
-    void finish(bool lastGC);
-};
-
-# define GCTIMER_PARAM      , GCTimer &gcTimer
-# define GCTIMER_ARG        , gcTimer
-# define TIMESTAMP(x)       (gcTimer.x = PRMJ_Now())
-# define GCTIMER_BEGIN()    GCTimer gcTimer
-# define GCTIMER_END(last)  (gcTimer.finish(last))
-#else
-# define GCTIMER_PARAM
-# define GCTIMER_ARG
-# define TIMESTAMP(x)       ((void) 0)
-# define GCTIMER_BEGIN()    ((void) 0)
-# define GCTIMER_END(last)  ((void) 0)
-#endif
-
 } //js
-
-extern JS_FRIEND_API(void)
-js_DumpGCStats(JSRuntime *rt, FILE *fp);
 
 #endif /* jsgcstats_h__ */

@@ -50,7 +50,7 @@ bool V8::Initialize() {
     return true;
   gHasAttemptedInitialization = true;
   JS_SetCStringsAreUTF8();
-  JS_ASSERT(!gRuntime && !gRootContext && !gCompartment && !gCompartment && !gCompartmentCall);
+  JS_ASSERT(!gRuntime && !gRootContext && !gCompartment && !gCompartmentCall);
   gRuntime = JS_NewRuntime(64 * MB);
   if(!gRuntime)
     return false;
@@ -59,7 +59,7 @@ bool V8::Initialize() {
   if (!ctx)
     return false;
   // TODO: look into JSOPTION_NO_SCRIPT_RVAL
-  JS_SetOptions(ctx, JSOPTION_VAROBJFIX | JSOPTION_JIT | JSOPTION_METHODJIT | JSOPTION_DONT_REPORT_UNCAUGHT);
+  JS_SetOptions(ctx, JSOPTION_VAROBJFIX | JSOPTION_METHODJIT | JSOPTION_DONT_REPORT_UNCAUGHT);
   JS_SetVersion(ctx, JSVERSION_LATEST);
   JS_SetErrorReporter(ctx, TryCatch::ReportError);
 
@@ -77,7 +77,7 @@ bool V8::Initialize() {
   (void) JS_AddObjectRoot(ctx, &gCompartment);
 
   JS_SetGCCallback(cx(), GCCallback);
-  JS_SetExtraGCRoots(gRuntime, TraceObjectInternals, NULL);
+  JS_SetExtraGCRootsTracer(gRuntime, TraceObjectInternals, NULL);
   return true;
 }
 
@@ -122,8 +122,21 @@ bool V8::IdleNotification() {
   return true;
 }
 
+HeapStatistics::HeapStatistics() :
+  total_heap_size_(0),
+  total_heap_size_executable_(0),
+  used_heap_size_(0),
+  heap_size_limit_(0)
+{}
+
 void V8::GetHeapStatistics(HeapStatistics* aHeapStatistics) {
-  UNIMPLEMENTEDAPI();
+  size_t limit = JS_GetGCParameter(rt(), JSGC_MAX_BYTES);
+  size_t used = JS_GetGCParameter(rt(), JSGC_BYTES);
+
+  aHeapStatistics->set_heap_size_limit(limit);
+  aHeapStatistics->set_used_heap_size(used);
+
+  // TODO: fill in the remaining stats
 }
 
 const char* V8::GetVersion() {

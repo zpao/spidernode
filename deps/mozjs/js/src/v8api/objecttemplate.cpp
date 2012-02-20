@@ -27,18 +27,18 @@ struct PrivateData
     indexedQuery(NULL),
     indexedDeleter(NULL),
     indexedEnumerator(NULL),
-    cls(gNewInstanceClass)
+    cls(gNewInstanceClass),
+    name(NULL)
   {
   }
 
-  static PrivateData* Get(JSContext* cx,
-                          JSObject* obj)
-  {
-    return static_cast<PrivateData*>(JS_GetPrivate(cx, obj));
+  ~PrivateData() {
+    free(name);
   }
+
   static PrivateData* Get(JSObject* obj)
   {
-    return Get(cx(), obj);
+    return static_cast<PrivateData*>(JS_GetPrivate(obj));
   }
   static PrivateData* Get(Handle<ObjectTemplate> ot)
   {
@@ -69,44 +69,55 @@ struct PrivateData
   Traced<ObjectTemplate> prototype;
 
   JSClass cls;
+  char* name;
 };
 
 struct ObjectTemplateHandle
 {
-  ObjectTemplateHandle(Handle<ObjectTemplate> ot) :
-    objectTemplate(ot)
+  ObjectTemplateHandle(Handle<ObjectTemplate> ot, JSObject* holder) :
+    objectTemplate(ot),
+    holder(holder)
   {
     JS_ASSERT(!ot.IsEmpty());
+    JS_ASSERT(holder != NULL);
   }
 
-  static ObjectTemplateHandle* Get(JSContext* cx,
-                                   JSObject* obj)
+  static ObjectTemplateHandle* Get(JSObject* obj)
   {
     ObjectTemplateHandle* data = NULL;
     // XXX: this doesn't work correctly if there are multiple
     // instantiated objects in the proto chain
     JSObject* o = obj;
     while (o != NULL) {
-      JSClass* cls = JS_GET_CLASS(cx, o);
+      JSClass* cls = JS_GetClass(o);
       if (cls->delProperty == o_DeleteProperty) {
-        data = static_cast<ObjectTemplateHandle*>(JS_GetPrivate(cx, o));
+        data = static_cast<ObjectTemplateHandle*>(JS_GetPrivate(o));
         break;
       }
-      o = JS_GetPrototype(cx, o);
+      o = JS_GetPrototype(o);
     }
     JS_ASSERT(data);
     return data;
   }
 
-  static Local<ObjectTemplate> GetHandle(JSContext* cx,
-                                         JSObject* obj)
+  static Local<ObjectTemplate> GetHandle(JSObject* obj)
   {
-    ObjectTemplateHandle* h = ObjectTemplateHandle::Get(cx, obj);
+    ObjectTemplateHandle* h = ObjectTemplateHandle::Get(obj);
     JS_ASSERT(h && h->objectTemplate);
     return h->objectTemplate.get();
   }
 
+  static JSObject* GetHolder(JSObject* obj)
+  {
+    ObjectTemplateHandle* h = ObjectTemplateHandle::Get(obj);
+    JS_ASSERT(h && h->holder);
+    return h->holder;
+  }
+
   Traced<ObjectTemplate> objectTemplate;
+  // It's ok not to trace this because holder is the only reference to this
+  // structure.
+  JSObject* holder;
 };
 
 JSBool
@@ -115,7 +126,8 @@ o_DeleteProperty(JSContext* cx,
                  jsid id,
                  jsval* vp)
 {
-  Local<ObjectTemplate> ot = ObjectTemplateHandle::GetHandle(cx, obj);
+  ApiExceptionBoundary boundary;
+  Local<ObjectTemplate> ot = ObjectTemplateHandle::GetHandle(obj);
   PrivateData* pd = PrivateData::Get(ot);
   JS_ASSERT(pd);
   if (JSID_IS_INT(id) && pd->indexedDeleter) {
@@ -124,7 +136,7 @@ o_DeleteProperty(JSContext* cx,
     Handle<Boolean> ret = pd->indexedDeleter(JSID_TO_INT(id), info);
     if (!ret.IsEmpty()) {
       *vp = ret->native();
-      return JS_TRUE;
+      return boundary.noExceptionOccured();
     }
   }
   else if (JSID_IS_STRING(id) && pd->namedDeleter) {
@@ -133,11 +145,11 @@ o_DeleteProperty(JSContext* cx,
     Handle<Boolean> ret = pd->namedDeleter(String::FromJSID(id), info);
     if (!ret.IsEmpty()) {
       *vp = ret->native();
-      return JS_TRUE;
+      return boundary.noExceptionOccured();
     }
   }
 
-  return JS_PropertyStub(cx, obj, id, vp);
+  return JS_PropertyStub(cx, obj, id, vp) && boundary.noExceptionOccured();
 }
 
 JSBool
@@ -146,29 +158,32 @@ o_GetProperty(JSContext* cx,
               jsid id,
               jsval* vp)
 {
-  Local<ObjectTemplate> ot = ObjectTemplateHandle::GetHandle(cx, obj);
+  ApiExceptionBoundary boundary;
+  Local<ObjectTemplate> ot = ObjectTemplateHandle::GetHandle(obj);
   PrivateData* pd = PrivateData::Get(ot);
   JS_ASSERT(pd);
   if (JSID_IS_INT(id) && JSID_TO_INT(id) >= 0 && pd->indexedGetter) {
+    JSObject* holder = ObjectTemplateHandle::GetHolder(obj);
     const AccessorInfo info =
-      AccessorInfo::MakeAccessorInfo(pd->indexedData.get(), obj);
+      AccessorInfo::MakeAccessorInfo(pd->indexedData.get(), obj, holder);
     Handle<Value> ret = pd->indexedGetter(JSID_TO_INT(id), info);
     if (!ret.IsEmpty()) {
       *vp = ret->native();
-      return JS_TRUE;
+      return boundary.noExceptionOccured();
     }
   }
   else if (JSID_IS_STRING(id) && pd->namedGetter) {
+    JSObject* holder = ObjectTemplateHandle::GetHolder(obj);
     const AccessorInfo info =
-      AccessorInfo::MakeAccessorInfo(pd->namedData.get(), obj);
+      AccessorInfo::MakeAccessorInfo(pd->namedData.get(), obj, holder);
     Handle<Value> ret = pd->namedGetter(String::FromJSID(id), info);
     if (!ret.IsEmpty()) {
       *vp = ret->native();
-      return JS_TRUE;
+      return boundary.noExceptionOccured();
     }
   }
 
-  return JS_PropertyStub(cx, obj, id, vp);
+  return JS_PropertyStub(cx, obj, id, vp) && boundary.noExceptionOccured();
 }
 
 JSBool
@@ -178,18 +193,19 @@ o_SetProperty(JSContext* cx,
               JSBool strict,
               jsval* vp)
 {
-  Local<ObjectTemplate> ot = ObjectTemplateHandle::GetHandle(cx, obj);
+  ApiExceptionBoundary boundary;
+  Local<ObjectTemplate> ot = ObjectTemplateHandle::GetHandle(obj);
   PrivateData* pd = PrivateData::Get(ot);
   JS_ASSERT(pd);
   if (JSID_IS_INT(id) && pd->indexedSetter) {
     Value val(*vp);
     const AccessorInfo info =
       AccessorInfo::MakeAccessorInfo(pd->indexedData.get(), obj);
-    JSUint32 idx = JSID_TO_INT(id);
+    uint32_t idx = JSID_TO_INT(id);
     Handle<Value> ret = pd->indexedSetter(idx, Local<Value>(&val), info);
     if (!ret.IsEmpty()) {
       *vp = ret->native();
-      return JS_TRUE;
+      return boundary.noExceptionOccured();
     }
   }
   else if (JSID_IS_STRING(id) && pd->namedSetter) {
@@ -200,18 +216,18 @@ o_SetProperty(JSContext* cx,
       pd->namedSetter(String::FromJSID(id), Local<Value>(&val), info);
     if (!ret.IsEmpty()) {
       *vp = ret->native();
-      return JS_TRUE;
+      return boundary.noExceptionOccured();
     }
   }
 
-  return JS_StrictPropertyStub(cx, obj, id, strict, vp);
+  return JS_StrictPropertyStub(cx, obj, id, strict, vp) && boundary.noExceptionOccured();
 }
 
 void
 o_Trace(JSTracer* tracer,
         JSObject* obj)
 {
-  ObjectTemplateHandle* data = ObjectTemplateHandle::Get(tracer->context, obj);
+  ObjectTemplateHandle* data = ObjectTemplateHandle::Get(obj);
   JS_ASSERT(data);
   data->objectTemplate.trace(tracer);
 }
@@ -220,8 +236,8 @@ void
 o_finalize(JSContext* cx,
            JSObject* obj)
 {
-  ObjectTemplateHandle* data = ObjectTemplateHandle::Get(cx, obj);
-  cx->delete_(data);
+  ObjectTemplateHandle* data = ObjectTemplateHandle::Get(obj);
+  delete_(data);
 }
 
 JSClass gNewInstanceClass = {
@@ -251,7 +267,7 @@ ot_SetProperty(JSContext* cx,
                JSBool strict,
                jsval* vp)
 {
-  PrivateData* data = PrivateData::Get(cx, obj);
+  PrivateData* data = PrivateData::Get(obj);
   JS_ASSERT(data);
 
   Value v(*vp);
@@ -267,7 +283,7 @@ void
 ot_Trace(JSTracer* tracer,
          JSObject* obj)
 {
-  PrivateData* data = PrivateData::Get(tracer->context, obj);
+  PrivateData* data = PrivateData::Get(obj);
   data->accessors.trace(tracer);
   data->attributes.trace(tracer);
   data->namedData.trace(tracer);
@@ -279,8 +295,8 @@ void
 ot_finalize(JSContext* cx,
             JSObject* obj)
 {
-  PrivateData* data = PrivateData::Get(cx, obj);
-  cx->delete_(data);
+  PrivateData* data = PrivateData::Get(obj);
+  delete_(data);
 }
 
 JSClass gObjectTemplateClass = {
@@ -305,28 +321,40 @@ JSClass gObjectTemplateClass = {
 
 } // anonymous namespace
 
-ObjectTemplate::ObjectTemplate() :
-  Template(&gObjectTemplateClass)
-{
-  PrivateData* data = cx()->new_<PrivateData>();
-  (void)JS_SetPrivate(cx(), InternalObject(), data);
-}
-
-// static
-bool ObjectTemplate::IsObjectTemplate(Handle<Value> v) {
+namespace internal {
+bool IsObjectTemplate(Handle<Value> v) {
   if (v.IsEmpty())
     return false;
   Handle<Object> o = v->ToObject();
   if (o.IsEmpty())
     return false;
   JSObject *obj = **o;
-  return &gObjectTemplateClass == JS_GET_CLASS(cx(), obj);
+  return &gObjectTemplateClass == JS_GetClass(obj);
+}
+}
+
+ObjectTemplate::ObjectTemplate() :
+  Template(&gObjectTemplateClass)
+{
+  PrivateData* data = new PrivateData();
+  (void)JS_SetPrivate(InternalObject(), data);
 }
 
 void ObjectTemplate::SetPrototype(Handle<ObjectTemplate> o) {
   PrivateData* pd = PrivateData::Get(InternalObject());
   JS_ASSERT(pd);
   pd->prototype = o;
+}
+
+void ObjectTemplate::SetObjectName(Handle<String> s) {
+  PrivateData* pd = PrivateData::Get(InternalObject());
+  JS_ASSERT(pd);
+  String::AsciiValue str(s);
+  if (pd->name) {
+    free(pd->name);
+  }
+  pd->name = strdup(*str);
+  pd->cls.name = pd->name;
 }
 
 // static
@@ -358,12 +386,8 @@ ObjectTemplate::NewInstance(JSObject* parent)
     UNIMPLEMENTEDAPI(Local<Object>());
   }
 
-  ObjectTemplateHandle* handle = cx()->new_<ObjectTemplateHandle>(this);
-  if (!JS_SetPrivate(cx(), obj, handle)) {
-    cx()->delete_(handle);
-    // TODO handle error better
-    UNIMPLEMENTEDAPI(Local<Object>());
-  }
+  ObjectTemplateHandle* handle = new_<ObjectTemplateHandle>(this, obj);
+  JS_SetPrivate(obj, handle);
 
   Object o(obj);
 
@@ -371,8 +395,8 @@ ObjectTemplate::NewInstance(JSObject* parent)
   AttributeStorage::Range attributes = pd->attributes.all();
   while (!attributes.empty()) {
     AttributeStorage::Entry& entry = attributes.front();
-    Local<Value> v = entry.value.get();
-    if (FunctionTemplate::IsFunctionTemplate(v)) {
+    Handle<Value> v = entry.value.get();
+    if (IsFunctionTemplate(v)) {
       FunctionTemplate *tmpl = reinterpret_cast<FunctionTemplate*>(*v);
       v = tmpl->GetFunction(parent);
     } else if (IsObjectTemplate(v)) {

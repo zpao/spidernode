@@ -48,21 +48,21 @@
 using namespace js;
 
 void
-JSONSourceParser::error(const char *msg)
+JSONParser::error(const char *msg)
 {
     if (errorHandling == RaiseError)
         JS_ReportErrorNumber(cx, js_GetErrorMessage, NULL, JSMSG_JSON_BAD_PARSE, msg);
 }
 
 bool
-JSONSourceParser::errorReturn()
+JSONParser::errorReturn()
 {
     return errorHandling == NoError;
 }
 
-template<JSONSourceParser::StringType ST>
-JSONSourceParser::Token
-JSONSourceParser::readString()
+template<JSONParser::StringType ST>
+JSONParser::Token
+JSONParser::readString()
 {
     JS_ASSERT(current < end);
     JS_ASSERT(*current == '"');
@@ -81,14 +81,14 @@ JSONSourceParser::readString()
      * Optimization: if the source contains no escaped characters, create the
      * string directly from the source text.
      */
-    RangeCheckedPointer<const jschar> start = current;
+    RangedPtr<const jschar> start = current;
     for (; current < end; current++) {
         if (*current == '"') {
             size_t length = current - start;
             current++;
-            JSFlatString *str = (ST == JSONSourceParser::PropertyName)
-                                ? js_AtomizeChars(cx, start, length, 0)
-                                : js_NewStringCopyN(cx, start, length);
+            JSFlatString *str = (ST == JSONParser::PropertyName)
+                                ? js_AtomizeChars(cx, start.get(), length)
+                                : js_NewStringCopyN(cx, start.get(), length);
             if (!str)
                 return token(OOM);
             return stringToken(str);
@@ -110,7 +110,7 @@ JSONSourceParser::readString()
      */
     StringBuffer buffer(cx);
     do {
-        if (start < current && !buffer.append(start, current))
+        if (start < current && !buffer.append(start.get(), current.get()))
             return token(OOM);
 
         if (current >= end)
@@ -118,7 +118,7 @@ JSONSourceParser::readString()
 
         jschar c = *current++;
         if (c == '"') {
-            JSFlatString *str = (ST == JSONSourceParser::PropertyName)
+            JSFlatString *str = (ST == JSONParser::PropertyName)
                                 ? buffer.finishAtom()
                                 : buffer.finishString();
             if (!str)
@@ -181,8 +181,8 @@ JSONSourceParser::readString()
     return token(Error);
 }
 
-JSONSourceParser::Token
-JSONSourceParser::readNumber()
+JSONParser::Token
+JSONParser::readNumber()
 {
     JS_ASSERT(current < end);
     JS_ASSERT(JS7_ISDEC(*current) || *current == '-');
@@ -200,7 +200,7 @@ JSONSourceParser::readNumber()
         return token(Error);
     }
 
-    const RangeCheckedPointer<const jschar> digitStart = current;
+    const RangedPtr<const jschar> digitStart = current;
 
     /* 0|[1-9][0-9]+ */
     if (!JS7_ISDEC(*current)) {
@@ -218,7 +218,7 @@ JSONSourceParser::readNumber()
     if (current == end || (*current != '.' && *current != 'e' && *current != 'E')) {
         const jschar *dummy;
         jsdouble d;
-        if (!GetPrefixInteger(cx, digitStart, current, 10, &dummy, &d))
+        if (!GetPrefixInteger(cx, digitStart.get(), current.get(), 10, &dummy, &d))
             return token(OOM);
         JS_ASSERT(current == dummy);
         return numberToken(negative ? -d : d);
@@ -264,7 +264,7 @@ JSONSourceParser::readNumber()
 
     jsdouble d;
     const jschar *finish;
-    if (!js_strtod(cx, digitStart, current, &finish, &d))
+    if (!js_strtod(cx, digitStart.get(), current.get(), &finish, &d))
         return token(OOM);
     JS_ASSERT(current == finish);
     return numberToken(negative ? -d : d);
@@ -276,8 +276,8 @@ IsJSONWhitespace(jschar c)
     return c == '\t' || c == '\r' || c == '\n' || c == ' ';
 }
 
-JSONSourceParser::Token
-JSONSourceParser::advance()
+JSONParser::Token
+JSONParser::advance()
 {
     while (current < end && IsJSONWhitespace(*current))
         current++;
@@ -357,8 +357,8 @@ JSONSourceParser::advance()
     }
 }
 
-JSONSourceParser::Token
-JSONSourceParser::advanceAfterObjectOpen()
+JSONParser::Token
+JSONParser::advanceAfterObjectOpen()
 {
     JS_ASSERT(current[-1] == '{');
 
@@ -382,7 +382,7 @@ JSONSourceParser::advanceAfterObjectOpen()
 }
 
 static inline void
-AssertPastValue(const jschar *current)
+AssertPastValue(const RangedPtr<const jschar> current)
 {
     /*
      * We're past an arbitrary JSON value, so the previous character is
@@ -408,8 +408,8 @@ AssertPastValue(const jschar *current)
               JS7_ISDEC(current[-1]));
 }
 
-JSONSourceParser::Token
-JSONSourceParser::advanceAfterArrayElement()
+JSONParser::Token
+JSONParser::advanceAfterArrayElement()
 {
     AssertPastValue(current);
 
@@ -434,8 +434,8 @@ JSONSourceParser::advanceAfterArrayElement()
     return token(Error);
 }
 
-JSONSourceParser::Token
-JSONSourceParser::advancePropertyName()
+JSONParser::Token
+JSONParser::advancePropertyName()
 {
     JS_ASSERT(current[-1] == ',');
 
@@ -466,8 +466,8 @@ JSONSourceParser::advancePropertyName()
     return token(Error);
 }
 
-JSONSourceParser::Token
-JSONSourceParser::advancePropertyColon()
+JSONParser::Token
+JSONParser::advancePropertyColon()
 {
     JS_ASSERT(current[-1] == '"');
 
@@ -487,8 +487,8 @@ JSONSourceParser::advancePropertyColon()
     return token(Error);
 }
 
-JSONSourceParser::Token
-JSONSourceParser::advanceAfterProperty()
+JSONParser::Token
+JSONParser::advanceAfterProperty()
 {
     AssertPastValue(current);
 
@@ -514,13 +514,13 @@ JSONSourceParser::advanceAfterProperty()
 }
 
 /*
- * This enum is local to JSONSourceParser::parse, below, but ISO C++98 doesn't
- * allow templates to depend on local types.  Boo-urns!
+ * This enum is local to JSONParser::parse, below, but ISO C++98 doesn't allow
+ * templates to depend on local types.  Boo-urns!
  */
 enum ParserState { FinishArrayElement, FinishObjectMember, JSONValue };
 
 bool
-JSONSourceParser::parse(Value *vp)
+JSONParser::parse(Value *vp)
 {
     Vector<ParserState> stateStack(cx);
     AutoValueVector valueStack(cx);
@@ -538,9 +538,9 @@ JSONSourceParser::parse(Value *vp)
              *     js_CheckForStringIndex.
              */
             jsid propid = ATOM_TO_JSID(&valueStack.popCopy().toString()->asAtom());
-            if (!js_DefineNativeProperty(cx, &valueStack.back().toObject(), propid, v,
-                                         PropertyStub, StrictPropertyStub, JSPROP_ENUMERATE,
-                                         0, 0, NULL))
+            if (!DefineNativeProperty(cx, &valueStack.back().toObject(), propid, v,
+                                      JS_PropertyStub, JS_StrictPropertyStub, JSPROP_ENUMERATE,
+                                      0, 0))
             {
                 return false;
             }
@@ -584,7 +584,7 @@ JSONSourceParser::parse(Value *vp)
 
           case FinishArrayElement: {
             Value v = valueStack.popCopy();
-            if (!js_ArrayCompPush(cx, &valueStack.back().toObject(), v))
+            if (!js_NewbornArrayPush(cx, &valueStack.back().toObject(), v))
                 return false;
             token = advanceAfterArrayElement();
             if (token == Comma) {
@@ -634,7 +634,7 @@ JSONSourceParser::parse(Value *vp)
               }
 
               case ObjectOpen: {
-                JSObject *obj = NewBuiltinClassInstance(cx, &js_ObjectClass);
+                JSObject *obj = NewBuiltinClassInstance(cx, &ObjectClass);
                 if (!obj || !valueStack.append(ObjectValue(*obj)))
                     return false;
                 token = advanceAfterObjectOpen();

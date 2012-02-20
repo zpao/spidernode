@@ -30,17 +30,14 @@ BEGIN_TEST(testTrap_gc)
         ;
 
     // compile
-    JSObject *scriptObj = JS_CompileScript(cx, global, source, strlen(source), __FILE__, 1);
-    CHECK(scriptObj);
+    JSScript *script = JS_CompileScript(cx, global, source, strlen(source), __FILE__, 1);
+    CHECK(script);
 
     // execute
     jsvalRoot v2(cx);
-    CHECK(JS_ExecuteScript(cx, global, scriptObj, v2.addr()));
+    CHECK(JS_ExecuteScript(cx, global, script, v2.addr()));
     CHECK(JSVAL_IS_OBJECT(v2));
-    CHECK(emptyTrapCallCount == 0);
-
-    // Disable JIT for debugging
-    JS_SetOptions(cx, JS_GetOptions(cx) & ~JSOPTION_JIT);
+    CHECK_EQUAL(emptyTrapCallCount, 0);
 
     // Enable debug mode
     CHECK(JS_SetDebugMode(cx, JS_TRUE));
@@ -51,26 +48,25 @@ BEGIN_TEST(testTrap_gc)
     // JS_ExecuteScript. This way we avoid using Anchor.
     JSString *trapClosure;
     {
-        JSScript *script = JS_GetScriptFromObject(scriptObj);
         jsbytecode *line2 = JS_LineNumberToPC(cx, script, 1);
         CHECK(line2);
-        
+
         jsbytecode *line6 = JS_LineNumberToPC(cx, script, 5);
         CHECK(line2);
-        
+
         trapClosure = JS_NewStringCopyZ(cx, trapClosureText);
         CHECK(trapClosure);
         JS_SetTrap(cx, script, line2, EmptyTrapHandler, STRING_TO_JSVAL(trapClosure));
         JS_SetTrap(cx, script, line6, EmptyTrapHandler, STRING_TO_JSVAL(trapClosure));
-        
+
         JS_GC(cx);
-        
+
         CHECK(JS_FlatStringEqualsAscii(JS_ASSERT_STRING_IS_FLAT(trapClosure), trapClosureText));
     }
 
     // execute
-    CHECK(JS_ExecuteScript(cx, global, scriptObj, v2.addr()));
-    CHECK(emptyTrapCallCount == 11);
+    CHECK(JS_ExecuteScript(cx, global, script, v2.addr()));
+    CHECK_EQUAL(emptyTrapCallCount, 11);
 
     JS_GC(cx);
 

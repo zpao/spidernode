@@ -1,41 +1,8 @@
-/* -*- Mode: C; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- *
- * ***** BEGIN LICENSE BLOCK *****
- * Version: MPL 1.1/GPL 2.0/LGPL 2.1
- *
- * The contents of this file are subject to the Mozilla Public License Version
- * 1.1 (the "License"); you may not use this file except in compliance with
- * the License. You may obtain a copy of the License at
- * http://www.mozilla.org/MPL/
- *
- * Software distributed under the License is distributed on an "AS IS" basis,
- * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
- * for the specific language governing rights and limitations under the
- * License.
- *
- * The Original Code is SpiderMonkey code.
- *
- * The Initial Developer of the Original Code is
- * Mozilla Corporation.
- * Portions created by the Initial Developer are Copyright (C) 2010
- * the Initial Developer. All Rights Reserved.
- *
- * Contributor(s):
- *
- *
- * Alternatively, the contents of this file may be used under the terms of
- * either of the GNU General Public License Version 2 or later (the "GPL"),
- * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
- * in which case the provisions of the GPL or the LGPL are applicable instead
- * of those above. If you wish to allow use of your version of this file only
- * under the terms of either the GPL or the LGPL, and not to allow others to
- * use your version of this file under the terms of the MPL, indicate your
- * decision by deleting the provisions above and replace them with the notice
- * and other provisions required by the GPL or the LGPL. If you do not delete
- * the provisions above, a recipient may use your version of this file under
- * the terms of any one of the MPL, the GPL or the LGPL.
- *
- * ***** END LICENSE BLOCK ***** */
+/* -*- Mode: C++; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+ */
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this file,
+ * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #ifndef jsgcmark_h___
 #define jsgcmark_h___
@@ -43,118 +10,188 @@
 #include "jsgc.h"
 #include "jscntxt.h"
 #include "jscompartment.h"
-
 #include "jslock.h"
-#include "jstl.h"
+
+#include "gc/Barrier.h"
+#include "js/TemplateLib.h"
 
 namespace js {
 namespace gc {
 
-template<typename T>
-void Mark(JSTracer *trc, T *thing);
+/*** Object Marking ***/
+
+/*
+ * These functions expose marking functionality for all of the different GC
+ * thing kinds. For each GC thing, there are several variants. As an example,
+ * these are the variants generated for JSObject. They are listed from most to
+ * least desirable for use:
+ *
+ * MarkObject(JSTracer *trc, const HeapPtr<JSObject> &thing, const char *name);
+ *     This function should be used for marking JSObjects, in preference to all
+ *     others below. Use it when you have HeapPtr<JSObject>, which
+ *     automatically implements write barriers.
+ *
+ * MarkObjectRoot(JSTracer *trc, JSObject *thing, const char *name);
+ *     This function is only valid during the root marking phase of GC (i.e.,
+ *     when MarkRuntime is on the stack).
+ *
+ * MarkObjectUnbarriered(JSTracer *trc, JSObject *thing, const char *name);
+ *     Like MarkObject, this function can be called at any time. It is more
+ *     forgiving, since it doesn't demand a HeapPtr as an argument. Its use
+ *     should always be accompanied by a comment explaining how write barriers
+ *     are implemented for the given field.
+ *
+ * Additionally, the functions MarkObjectRange and MarkObjectRootRange are
+ * defined for marking arrays of object pointers.
+ */
+#define DeclMarker(base, type)                                                                    \
+void Mark##base(JSTracer *trc, const HeapPtr<type> &thing, const char *name);                     \
+void Mark##base##Root(JSTracer *trc, type *thing, const char *name);                              \
+void Mark##base##Unbarriered(JSTracer *trc, type *thing, const char *name);                       \
+void Mark##base##Range(JSTracer *trc, size_t len, HeapPtr<type> *thing, const char *name);        \
+void Mark##base##RootRange(JSTracer *trc, size_t len, type **thing, const char *name);
+
+DeclMarker(BaseShape, BaseShape)
+DeclMarker(Object, ArgumentsObject)
+DeclMarker(Object, GlobalObject)
+DeclMarker(Object, JSObject)
+DeclMarker(Object, JSFunction)
+DeclMarker(Script, JSScript)
+DeclMarker(Shape, Shape)
+DeclMarker(String, JSAtom)
+DeclMarker(String, JSString)
+DeclMarker(String, JSFlatString)
+DeclMarker(String, JSLinearString)
+DeclMarker(TypeObject, types::TypeObject)
+#if JS_HAS_XML_SUPPORT
+DeclMarker(XML, JSXML)
+#endif
+
+/*** Externally Typed Marking ***/
+
+/*
+ * Note: this must only be called by the GC and only when we are tracing through
+ * MarkRoots. It is explicitly for ConservativeStackMarking and should go away
+ * after we transition to exact rooting.
+ */
+void
+MarkKind(JSTracer *trc, void *thing, JSGCTraceKind kind);
 
 void
-MarkString(JSTracer *trc, JSString *str);
+MarkGCThingRoot(JSTracer *trc, void *thing, const char *name);
+
+/*** ID Marking ***/
 
 void
-MarkString(JSTracer *trc, JSString *str, const char *name);
+MarkId(JSTracer *trc, const HeapId &id, const char *name);
 
 void
-MarkObject(JSTracer *trc, JSObject &obj, const char *name);
+MarkIdRoot(JSTracer *trc, const jsid &id, const char *name);
 
 void
-MarkObjectWithPrinter(JSTracer *trc, JSObject &obj, JSTraceNamePrinter printer,
-		      const void *arg, size_t index);
+MarkIdRange(JSTracer *trc, size_t len, js::HeapId *vec, const char *name);
 
 void
-MarkShape(JSTracer *trc, const Shape *shape, const char *name);
+MarkIdRootRange(JSTracer *trc, size_t len, jsid *vec, const char *name);
+
+/*** Value Marking ***/
 
 void
-MarkXML(JSTracer *trc, JSXML *xml, const char *name);
+MarkValue(JSTracer *trc, const js::HeapValue &v, const char *name);
 
 void
-MarkAtomRange(JSTracer *trc, size_t len, JSAtom **vec, const char *name);
+MarkValueRange(JSTracer *trc, size_t len, const HeapValue *vec, const char *name);
 
 void
-MarkObjectRange(JSTracer *trc, size_t len, JSObject **vec, const char *name);
+MarkValueRoot(JSTracer *trc, const Value &v, const char *name);
 
 void
-MarkXMLRange(JSTracer *trc, size_t len, JSXML **vec, const char *name);
+MarkValueRootRange(JSTracer *trc, size_t len, const Value *vec, const char *name);
 
+inline void
+MarkValueRootRange(JSTracer *trc, const Value *begin, const Value *end, const char *name)
+{
+    MarkValueRootRange(trc, end - begin, begin, name);
+}
+
+/*** Special Cases ***/
+
+/* TypeNewObject contains a HeapPtr<const Shape> that needs a unique cast. */
 void
-MarkId(JSTracer *trc, jsid id);
+MarkShape(JSTracer *trc, const HeapPtr<const Shape> &thing, const char *name);
 
+/* Direct value access used by the write barriers and the methodjit */
 void
-MarkId(JSTracer *trc, jsid id, const char *name);
+MarkValueUnbarriered(JSTracer *trc, const js::Value &v, const char *name);
 
+/*
+ * Mark a value that may be in a different compartment from the compartment
+ * being GC'd. (Although it won't be marked if it's in the wrong compartment.)
+ */
 void
-MarkIdRange(JSTracer *trc, jsid *beg, jsid *end, const char *name);
+MarkCrossCompartmentValue(JSTracer *trc, const js::HeapValue &v, const char *name);
 
-void
-MarkIdRange(JSTracer *trc, size_t len, jsid *vec, const char *name);
-
-void
-MarkKind(JSTracer *trc, void *thing, uint32 kind);
-
-void
-MarkValueRaw(JSTracer *trc, const js::Value &v);
-
-void
-MarkValue(JSTracer *trc, const js::Value &v, const char *name);
-
-void
-MarkValueRange(JSTracer *trc, Value *beg, Value *end, const char *name);
-
-void
-MarkValueRange(JSTracer *trc, size_t len, Value *vec, const char *name);
-
-void
-MarkShapeRange(JSTracer *trc, const Shape **beg, const Shape **end, const char *name);
-
-void
-MarkShapeRange(JSTracer *trc, size_t len, const Shape **vec, const char *name);
-
-/* N.B. Assumes JS_SET_TRACING_NAME/INDEX has already been called. */
-void
-MarkGCThing(JSTracer *trc, void *thing, uint32 kind);
-
-void
-MarkGCThing(JSTracer *trc, void *thing);
-
-void
-MarkGCThing(JSTracer *trc, void *thing, const char *name);
-
-void
-MarkGCThing(JSTracer *trc, void *thing, const char *name, size_t index);
-
-void
-Mark(JSTracer *trc, void *thing, uint32 kind, const char *name);
-
-void
-MarkRoot(JSTracer *trc, JSObject *thing, const char *name);
-
-void
-MarkRoot(JSTracer *trc, JSString *thing, const char *name);
-
-void
-MarkRoot(JSTracer *trc, const Shape *thing, const char *name);
-
-void
-MarkRoot(JSTracer *trc, JSXML *thing, const char *name);
-
+/*
+ * MarkChildren<JSObject> is exposed solely for preWriteBarrier on
+ * JSObject::TradeGuts. It should not be considered external interface.
+ */
 void
 MarkChildren(JSTracer *trc, JSObject *obj);
 
+/*
+ * Trace through the shape and any shapes it contains to mark
+ * non-shape children. This is exposed to the JS API as
+ * JS_TraceShapeCycleCollectorChildren.
+ */
 void
-MarkChildren(JSTracer *trc, JSString *str);
+MarkCycleCollectorChildren(JSTracer *trc, const Shape *shape);
 
-void
-MarkChildren(JSTracer *trc, const Shape *shape);
+/*** Generic ***/
+/*
+ * The Mark() functions interface should only be used by code that must be
+ * templated.  Other uses should use the more specific, type-named functions.
+ */
 
-void
-MarkChildren(JSTracer *trc, JSXML *xml);
-
+inline void
+Mark(JSTracer *trc, const js::HeapValue &v, const char *name)
+{
+    MarkValue(trc, v, name);
 }
+
+inline void
+Mark(JSTracer *trc, const HeapPtr<JSObject> &o, const char *name)
+{
+    MarkObject(trc, o, name);
 }
+
+inline void
+Mark(JSTracer *trc, const HeapPtr<JSXML> &xml, const char *name)
+{
+    MarkXML(trc, xml, name);
+}
+
+inline bool
+IsMarked(const js::Value &v)
+{
+    if (v.isMarkable())
+        return !IsAboutToBeFinalized(v);
+    return true;
+}
+
+inline bool
+IsMarked(Cell *cell)
+{
+    return !IsAboutToBeFinalized(cell);
+}
+
+} /* namespace gc */
+
+void
+TraceChildren(JSTracer *trc, void *thing, JSGCTraceKind kind);
+
+void
+CallTracer(JSTracer *trc, void *thing, JSGCTraceKind kind);
+
+} /* namespace js */
 
 #endif

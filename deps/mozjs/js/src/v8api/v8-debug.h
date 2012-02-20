@@ -53,7 +53,7 @@ public:
 
   typedef void (*EventCallback)(DebugEvent event, Handle<Object> exec_state, Handle<Object> event_data, Handle<Value> data);
   typedef void (*EventCallback2)(const EventDetails& event_details);
-  typedef void (*MessageHandler)(const JSUint16* message, int length, ClientData* client_data);
+  typedef void (*MessageHandler)(const uint16_t* message, int length, ClientData* client_data);
   typedef void (*MessageHandler2)(const Message& message);
   typedef void (*HostDispatchHandler)();
   typedef void (*DebugMessageDispatchHandler)();
@@ -84,7 +84,7 @@ public:
   static void SetMessageHandler2(MessageHandler2 handler) {
     UNIMPLEMENTEDAPI();
   }
-  static void SendCommand(const JSUint16 command, int length, ClientData* client_data = NULL) {
+  static void SendCommand(const uint16_t command, int length, ClientData* client_data = NULL) {
     UNIMPLEMENTEDAPI();
   }
 

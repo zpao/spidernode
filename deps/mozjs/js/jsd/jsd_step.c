@@ -98,7 +98,7 @@ _interpreterTrace(JSDContext* jsdc, JSContext *cx, JSStackFrame *fp,
         printf("%s this: ", JS_IsConstructorFrame(cx, fp) ? "constructing":"");
 
         if (JS_GetFrameThis(cx, fp, &thisVal))
-            printf("0x%0llx", (JSUword) thisVal);
+            printf("0x%0llx", (uintptr_t) thisVal);
         else
             puts("<unavailable>");
     }
@@ -150,9 +150,9 @@ _callHook(JSDContext *jsdc, JSContext *cx, JSStackFrame *fp, JSBool before,
                 {
                     if (before)
                     {
-                        if (JSLL_IS_ZERO(pdata->lastCallStart))
+                        if (!pdata->lastCallStart)
                         {
-                            int64 now;
+                            int64_t now;
                             JSDProfileData *callerpdata;
                             
                             /* Get the time just the once, for consistency. */
@@ -162,17 +162,14 @@ _callHook(JSDContext *jsdc, JSContext *cx, JSStackFrame *fp, JSBool before,
                             callerpdata = jsdc->callingFunctionPData;
                             if (callerpdata)
                             {
-                                int64 ll_delta;
+                                int64_t ll_delta;
                                 pdata->caller = callerpdata;
                                 /* We need to 'stop' the timer for the caller.
                                  * Use time since last return if appropriate. */
-                                if (JSLL_IS_ZERO(jsdc->lastReturnTime))
-                                {
-                                    JSLL_SUB(ll_delta, now, callerpdata->lastCallStart);
-                                } else {
-                                    JSLL_SUB(ll_delta, now, jsdc->lastReturnTime);
-                                }
-                                JSLL_ADD(callerpdata->runningTime, callerpdata->runningTime, ll_delta);
+                                ll_delta = jsdc->lastReturnTime
+                                           ? now - jsdc->lastReturnTime
+                                           : now - callerpdata->lastCallStart;
+                                callerpdata->runningTime += ll_delta;
                             }
                             /* We're the new current function, and no return
                              * has happened yet. */
@@ -188,13 +185,12 @@ _callHook(JSDContext *jsdc, JSContext *cx, JSStackFrame *fp, JSBool before,
                         }
                         /* make sure we're called for the return too. */
                         hookresult = JS_TRUE;
-                    } else if (!pdata->recurseDepth &&
-                               !JSLL_IS_ZERO(pdata->lastCallStart)) {
-                        int64 now, ll_delta;
+                    } else if (!pdata->recurseDepth && pdata->lastCallStart) {
+                        int64_t now, ll_delta;
                         jsdouble delta;
                         now = JS_Now();
-                        JSLL_SUB(ll_delta, now, pdata->lastCallStart);
-                        JSLL_L2D(delta, ll_delta);
+                        ll_delta = now - pdata->lastCallStart;
+                        delta = ll_delta;
                         delta /= 1000.0;
                         pdata->totalExecutionTime += delta;
                         /* minExecutionTime starts as 0, so we need to overwrite
@@ -212,13 +208,13 @@ _callHook(JSDContext *jsdc, JSContext *cx, JSStackFrame *fp, JSBool before,
                          * the running total by the time delta since the last
                          * return, and use the running total instead of the
                          * delta calculated above. */
-                        if (!JSLL_IS_ZERO(jsdc->lastReturnTime))
+                        if (jsdc->lastReturnTime)
                         {
                             /* Add last chunk to running time, and use total
                              * running time as 'delta'. */
-                            JSLL_SUB(ll_delta, now, jsdc->lastReturnTime);
-                            JSLL_ADD(pdata->runningTime, pdata->runningTime, ll_delta);
-                            JSLL_L2D(delta, pdata->runningTime);
+                            ll_delta = now - jsdc->lastReturnTime;
+                            pdata->runningTime += ll_delta;
+                            delta = pdata->runningTime;
                             delta /= 1000.0;
                         }
                         

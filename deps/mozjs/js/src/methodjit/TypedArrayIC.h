@@ -42,73 +42,21 @@
 
 #include "jscntxt.h"
 #include "jstypedarray.h"
+#include "jstypedarrayinlines.h"
+
+#include "jsnuminlines.h"
+#include "jstypedarrayinlines.h"
 
 namespace js {
 namespace mjit {
 
-#ifdef JS_POLYIC_TYPED_ARRAY
+#ifdef JS_METHODJIT_TYPED_ARRAY
 
 typedef JSC::MacroAssembler::RegisterID RegisterID;
 typedef JSC::MacroAssembler::FPRegisterID FPRegisterID;
 typedef JSC::MacroAssembler::Jump Jump;
 typedef JSC::MacroAssembler::Imm32 Imm32;
 typedef JSC::MacroAssembler::ImmDouble ImmDouble;
-
-template <typename T>
-static void
-LoadFromTypedArray(Assembler &masm, js::TypedArray *tarray, T address,
-                   RegisterID typeReg, RegisterID dataReg)
-{
-    switch (tarray->type) {
-      case js::TypedArray::TYPE_INT8:
-        masm.load8SignExtend(address, dataReg);
-        masm.move(ImmType(JSVAL_TYPE_INT32), typeReg);
-        break;
-      case js::TypedArray::TYPE_UINT8:
-      case js::TypedArray::TYPE_UINT8_CLAMPED:
-        masm.load8ZeroExtend(address, dataReg);
-        masm.move(ImmType(JSVAL_TYPE_INT32), typeReg);
-        break;
-      case js::TypedArray::TYPE_INT16:
-        masm.load16SignExtend(address, dataReg);
-        masm.move(ImmType(JSVAL_TYPE_INT32), typeReg);
-        break;
-      case js::TypedArray::TYPE_UINT16:
-        masm.load16(address, dataReg);
-        masm.move(ImmType(JSVAL_TYPE_INT32), typeReg);
-        break;
-      case js::TypedArray::TYPE_INT32:
-        masm.load32(address, dataReg);
-        masm.move(ImmType(JSVAL_TYPE_INT32), typeReg);
-        break;
-      case js::TypedArray::TYPE_UINT32:
-      {
-        masm.load32(address, dataReg);
-        masm.move(ImmType(JSVAL_TYPE_INT32), typeReg);
-        Jump safeInt = masm.branch32(Assembler::Below, dataReg, Imm32(0x80000000));
-        masm.convertUInt32ToDouble(dataReg, FPRegisters::First);
-        masm.breakDouble(FPRegisters::First, typeReg, dataReg);
-        safeInt.linkTo(masm.label(), &masm);
-        break;
-      }
-      case js::TypedArray::TYPE_FLOAT32:
-      case js::TypedArray::TYPE_FLOAT64:
-      {
-        if (tarray->type == js::TypedArray::TYPE_FLOAT32)
-            masm.loadFloat(address, FPRegisters::First);
-        else
-            masm.loadDouble(address, FPRegisters::First);
-        // Make sure NaN gets canonicalized.
-        Jump notNaN = masm.branchDouble(Assembler::DoubleEqual,
-                                        FPRegisters::First,
-                                        FPRegisters::First);
-        masm.loadStaticDouble(&js_NaN, FPRegisters::First, dataReg);
-        notNaN.linkTo(masm.label(), &masm);
-        masm.breakDouble(FPRegisters::First, typeReg, dataReg);
-        break;
-      }
-    }
-}
 
 static inline bool
 ConstantFoldForFloatArray(JSContext *cx, ValueRemat *vr)
@@ -150,18 +98,8 @@ ConstantFoldForFloatArray(JSContext *cx, ValueRemat *vr)
     return true;
 }
 
-static inline int32
-ClampIntForUint8Array(int32 x)
-{
-    if (x < 0)
-        return 0;
-    if (x > 255)
-        return 255;
-    return x;
-}
-
 static inline bool
-ConstantFoldForIntArray(JSContext *cx, js::TypedArray *tarray, ValueRemat *vr)
+ConstantFoldForIntArray(JSContext *cx, JSObject *tarray, ValueRemat *vr)
 {
     if (!vr->isTypeKnown())
         return true;
@@ -187,14 +125,14 @@ ConstantFoldForIntArray(JSContext *cx, js::TypedArray *tarray, ValueRemat *vr)
         v.setNumber(d);
     }
 
-    int32 i32 = 0;
+    int32_t i32 = 0;
     if (v.isDouble()) {
-        i32 = (tarray->type == js::TypedArray::TYPE_UINT8_CLAMPED)
+        i32 = (TypedArray::getType(tarray) == js::TypedArray::TYPE_UINT8_CLAMPED)
               ? js_TypedArray_uint8_clamp_double(v.toDouble())
               : js_DoubleToECMAInt32(v.toDouble());
     } else if (v.isInt32()) {
         i32 = v.toInt32();
-        if (tarray->type == js::TypedArray::TYPE_UINT8_CLAMPED)
+        if (TypedArray::getType(tarray) == js::TypedArray::TYPE_UINT8_CLAMPED)
             i32 = ClampIntForUint8Array(i32);
     } else if (v.isBoolean()) {
         i32 = v.toBoolean() ? 1 : 0;
@@ -207,47 +145,14 @@ ConstantFoldForIntArray(JSContext *cx, js::TypedArray *tarray, ValueRemat *vr)
     return true;
 }
 
-template <typename S, typename T>
-static void
-StoreToIntArray(Assembler &masm, js::TypedArray *tarray, S src, T address)
-{
-    switch (tarray->type) {
-      case js::TypedArray::TYPE_INT8:
-      case js::TypedArray::TYPE_UINT8:
-      case js::TypedArray::TYPE_UINT8_CLAMPED:
-        masm.store8(src, address);
-        break;
-      case js::TypedArray::TYPE_INT16:
-      case js::TypedArray::TYPE_UINT16:
-        masm.store16(src, address);
-        break;
-      case js::TypedArray::TYPE_INT32:
-      case js::TypedArray::TYPE_UINT32:
-        masm.store32(src, address);
-        break;
-      default:
-        JS_NOT_REACHED("unknown int array type");
-    }
-}
-
-template <typename S, typename T>
-static void
-StoreToFloatArray(Assembler &masm, js::TypedArray *tarray, S src, T address)
-{
-    if (tarray->type == js::TypedArray::TYPE_FLOAT32)
-        masm.storeFloat(src, address);
-    else
-        masm.storeDouble(src, address);
-}
-
 // Generate code that will ensure a dynamically typed value, pinned in |vr|,
 // can be stored in an integer typed array. If any sort of conversion is
 // required, |dataReg| will be clobbered by a new value. |saveMask| is
 // used to ensure that |dataReg| (and volatile registers) are preserved
 // across any conversion process.
 static void
-GenConversionForIntArray(Assembler &masm, js::TypedArray *tarray, const ValueRemat &vr,
-                         uint32 saveMask)
+GenConversionForIntArray(Assembler &masm, JSObject *tarray, const ValueRemat &vr,
+                         uint32_t saveMask)
 {
     if (vr.isConstant()) {
         // Constants are always folded to ints up-front.
@@ -273,9 +178,9 @@ GenConversionForIntArray(Assembler &masm, js::TypedArray *tarray, const ValueRem
         masm.storeArg(0, masm.vmFrameOffset(offsetof(VMFrame, cx)));
         masm.storeArgAddr(1, masm.addressOfExtra(vp));
 
-        typedef int32 (JS_FASTCALL *Int32CxVp)(JSContext *, Value *);
+        typedef int32_t (JS_FASTCALL *Int32CxVp)(JSContext *, Value *);
         Int32CxVp stub;
-        if (tarray->type == js::TypedArray::TYPE_UINT8_CLAMPED)
+        if (TypedArray::getType(tarray) == js::TypedArray::TYPE_UINT8_CLAMPED)
             stub = stubs::ConvertToTypedInt<true>;
         else 
             stub = stubs::ConvertToTypedInt<false>;
@@ -291,26 +196,8 @@ GenConversionForIntArray(Assembler &masm, js::TypedArray *tarray, const ValueRem
     }
 
     // Performing clamping, if needed.
-    if (tarray->type == js::TypedArray::TYPE_UINT8_CLAMPED) {
-        //     cmp dr, 0
-        //     jge _min
-        //     mov dr, 0
-        //     jump _done
-        // _min:
-        //     cmp dr, 255
-        //     jle _done
-        //     mov dr, 255
-        // _done:
-        //
-        Jump j = masm.branch32(Assembler::GreaterThanOrEqual, vr.dataReg(), Imm32(0));
-        masm.move(Imm32(0), vr.dataReg());
-        Jump done = masm.jump();
-        j.linkTo(masm.label(), &masm);
-        j = masm.branch32(Assembler::LessThanOrEqual, vr.dataReg(), Imm32(255));
-        masm.move(Imm32(255), vr.dataReg());
-        j.linkTo(masm.label(), &masm);
-        done.linkTo(masm.label(), &masm);
-    }
+    if (TypedArray::getType(tarray) == js::TypedArray::TYPE_UINT8_CLAMPED)
+        masm.clampInt32ToUint8(vr.dataReg());
 }
 
 // Generate code that will ensure a dynamically typed value, pinned in |vr|,
@@ -318,11 +205,10 @@ GenConversionForIntArray(Assembler &masm, js::TypedArray *tarray, const ValueRem
 // |dataReg| (and volatile registers) are preserved across any conversion
 // process.
 //
-// Constants are left untouched. Any other value is placed into
-// FPRegisters::First.
+// Constants are left untouched. Any other value is placed into destReg.
 static void
-GenConversionForFloatArray(Assembler &masm, js::TypedArray *tarray, const ValueRemat &vr,
-                           FPRegisterID destReg, uint32 saveMask)
+GenConversionForFloatArray(Assembler &masm, JSObject *tarray, const ValueRemat &vr,
+                           FPRegisterID destReg, uint32_t saveMask)
 {
     if (vr.isConstant()) {
         // Constants are always folded to doubles up-front.
@@ -348,7 +234,7 @@ GenConversionForFloatArray(Assembler &masm, js::TypedArray *tarray, const ValueR
         }
     }
 
-    // Generate a generic conversion call, if not known to be int32 or double.
+    // Generate a generic conversion call, if not known to be int32_t or double.
     if (!vr.isTypeKnown() ||
         (vr.knownType() != JSVAL_TYPE_INT32 &&
          vr.knownType() != JSVAL_TYPE_DOUBLE)) {
@@ -386,18 +272,19 @@ GenConversionForFloatArray(Assembler &masm, js::TypedArray *tarray, const ValueR
     if (skip2.isSet())
         skip2.get().linkTo(masm.label(), &masm);
 
-    if (tarray->type == js::TypedArray::TYPE_FLOAT32)
+    if (TypedArray::getType(tarray) == js::TypedArray::TYPE_FLOAT32)
         masm.convertDoubleToFloat(destReg, destReg);
 }
 
 template <typename T>
 static bool
-StoreToTypedArray(JSContext *cx, Assembler &masm, js::TypedArray *tarray, T address,
-                  const ValueRemat &vrIn, uint32 saveMask)
+StoreToTypedArray(JSContext *cx, Assembler &masm, JSObject *tarray, T address,
+                  const ValueRemat &vrIn, uint32_t saveMask)
 {
     ValueRemat vr = vrIn;
 
-    switch (tarray->type) {
+    uint32_t type = TypedArray::getType(tarray);
+    switch (type) {
       case js::TypedArray::TYPE_INT8:
       case js::TypedArray::TYPE_UINT8:
       case js::TypedArray::TYPE_UINT8_CLAMPED:
@@ -426,11 +313,11 @@ StoreToTypedArray(JSContext *cx, Assembler &masm, js::TypedArray *tarray, T addr
         // for the conversion call. This is because the object and key may be
         // in temporary registers, and we want to restore those without killing
         // the mutated RHS.
-        bool singleByte = (tarray->type == js::TypedArray::TYPE_INT8 ||
-                           tarray->type == js::TypedArray::TYPE_UINT8 ||
-                           tarray->type == js::TypedArray::TYPE_UINT8_CLAMPED);
+        bool singleByte = (type == js::TypedArray::TYPE_INT8 ||
+                           type == js::TypedArray::TYPE_UINT8 ||
+                           type == js::TypedArray::TYPE_UINT8_CLAMPED);
         bool mayNeedConversion = (!vr.isTypeKnown() || vr.knownType() != JSVAL_TYPE_INT32);
-        bool mayNeedClamping = !vr.isConstant() && (tarray->type == js::TypedArray::TYPE_UINT8_CLAMPED);
+        bool mayNeedClamping = !vr.isConstant() && (type == js::TypedArray::TYPE_UINT8_CLAMPED);
         bool needsSingleByteReg = singleByte &&
                                   !vr.isConstant() &&
                                   !(Registers::SingleByteRegs & Registers::maskReg(vr.dataReg()));
@@ -442,12 +329,12 @@ StoreToTypedArray(JSContext *cx, Assembler &masm, js::TypedArray *tarray, T addr
             //   - won't clobber the key, object, or RHS type regs
             //   - is temporary, but
             //   - is not in saveMask, which contains live volatile registers.
-            uint32 allowMask = Registers::AvailRegs;
+            uint32_t allowMask = Registers::AvailRegs;
             if (singleByte)
                 allowMask &= Registers::SingleByteRegs;
 
             // Create a mask of registers we absolutely cannot clobber.
-            uint32 pinned = Assembler::maskAddress(address);
+            uint32_t pinned = Assembler::maskAddress(address);
             if (!vr.isTypeKnown())
                 pinned |= Registers::maskReg(vr.typeReg());
 
@@ -455,13 +342,13 @@ StoreToTypedArray(JSContext *cx, Assembler &masm, js::TypedArray *tarray, T addr
 
             RegisterID newReg;
             if (!avail.empty()) {
-                newReg = avail.takeAnyReg();
+                newReg = avail.takeAnyReg().reg();
             } else {
                 // If no registers meet the ideal set, relax a constraint and spill.
                 avail = allowMask & ~pinned;
 
                 if (!avail.empty()) {
-                    newReg = avail.takeAnyReg();
+                    newReg = avail.takeAnyReg().reg();
                     saveRHS.preserve(Registers::maskReg(newReg));
                 } else {
                     // Oh no! *All* single byte registers are pinned. This
@@ -470,12 +357,12 @@ StoreToTypedArray(JSContext *cx, Assembler &masm, js::TypedArray *tarray, T addr
 
                     // If |vr|'s registers are part of the address, swapping is
                     // going to cause problems during the store.
-                    uint32 vrRegs = Registers::mask2Regs(vr.dataReg(), vr.typeReg());
-                    uint32 lhsMask = vrRegs & Assembler::maskAddress(address);
+                    uint32_t vrRegs = Registers::mask2Regs(vr.dataReg(), vr.typeReg());
+                    uint32_t lhsMask = vrRegs & Assembler::maskAddress(address);
 
                     // We'll also need to save any of the registers which won't
                     // be restored via |lhsMask| above.
-                    uint32 rhsMask = vrRegs & ~lhsMask;
+                    uint32_t rhsMask = vrRegs & ~lhsMask;
 
                     // Push them, but get the order right. We'll pop LHS first.
                     saveRHS.preserve(rhsMask);
@@ -512,9 +399,9 @@ StoreToTypedArray(JSContext *cx, Assembler &masm, js::TypedArray *tarray, T addr
         saveLHS.restore();
 
         if (vr.isConstant())
-            StoreToIntArray(masm, tarray, Imm32(vr.value().toInt32()), address);
+            masm.storeToTypedIntArray(type, Imm32(vr.value().toInt32()), address);
         else
-            StoreToIntArray(masm, tarray, vr.dataReg(), address);
+            masm.storeToTypedIntArray(type, vr.dataReg(), address);
 
         // Note that this will finish restoring the damage from the
         // earlier register swap.
@@ -523,21 +410,29 @@ StoreToTypedArray(JSContext *cx, Assembler &masm, js::TypedArray *tarray, T addr
       }
 
       case js::TypedArray::TYPE_FLOAT32:
-      case js::TypedArray::TYPE_FLOAT64:
+      case js::TypedArray::TYPE_FLOAT64: {
+        /*
+         * Use a temporary for conversion. Inference is disabled, so no FP
+         * registers are live.
+         */
+        Registers regs(Registers::TempFPRegs);
+        FPRegisterID temp = regs.takeAnyReg().fpreg();
+
         if (!ConstantFoldForFloatArray(cx, &vr))
             return false;
-        GenConversionForFloatArray(masm, tarray, vr, FPRegisters::First, saveMask);
+        GenConversionForFloatArray(masm, tarray, vr, temp, saveMask);
         if (vr.isConstant())
-            StoreToFloatArray(masm, tarray, ImmDouble(vr.value().toDouble()), address);
+            masm.storeToTypedFloatArray(type, ImmDouble(vr.value().toDouble()), address);
         else
-            StoreToFloatArray(masm, tarray, FPRegisters::First, address);
+            masm.storeToTypedFloatArray(type, temp, address);
         break;
+      }
     }
 
     return true;
 }
 
-#endif // defined(JS_POLYIC) && (defined JS_CPU_X86 || defined JS_CPU_X64)
+#endif /* JS_METHODJIT_TYPED_ARRAY */
 
 } /* namespace mjit */
 } /* namespace js */

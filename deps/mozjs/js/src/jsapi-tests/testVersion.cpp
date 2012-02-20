@@ -2,6 +2,9 @@
 #include "jsscript.h"
 #include "jscntxt.h"
 
+#include "jscntxtinlines.h"
+#include "jsobjinlines.h"
+
 using namespace js;
 
 struct VersionFixture;
@@ -42,7 +45,7 @@ struct VersionFixture : public JSAPITest
                                  EvalScriptVersion16, 0, 0);
     }
 
-    JSObject *fakeScript(const char *contents, size_t length) {
+    JSScript *fakeScript(const char *contents, size_t length) {
         return JS_CompileScript(cx, global, contents, length, "<test>", 1);
     }
 
@@ -75,9 +78,9 @@ struct VersionFixture : public JSAPITest
 
     /* Check that script compilation results in a version without XML. */
     bool checkNewScriptNoXML() {
-        JSObject *scriptObj = fakeScript("", 0);
-        CHECK(scriptObj);
-        CHECK(!hasXML(JS_GetScriptFromObject(scriptObj)->getVersion()));
+        JSScript *script = fakeScript("", 0);
+        CHECK(script);
+        CHECK(!hasXML(script->getVersion()));
         return true;
     }
 
@@ -101,9 +104,9 @@ struct VersionFixture : public JSAPITest
     }
 
     bool toggleXML(bool shouldEnable) {
-        CHECK(hasXML() == !shouldEnable);
+        CHECK_EQUAL(hasXML(), !shouldEnable);
         JS_ToggleOptions(cx, JSOPTION_XML);
-        CHECK(hasXML() == shouldEnable);
+        CHECK_EQUAL(hasXML(), shouldEnable);
         return true;
     }
 
@@ -196,9 +199,9 @@ BEGIN_FIXTURE_TEST(VersionFixture, testOptionsAreUsedForVersionFlags)
         "disableXMLOption();"
         "callSetVersion17();"
         "checkNewScriptNoXML();";
-    JSObject *toActivate = fakeScript(toActivateChars, sizeof(toActivateChars) - 1);
+    JSScript *toActivate = fakeScript(toActivateChars, sizeof(toActivateChars) - 1);
     CHECK(toActivate);
-    CHECK(hasXML(JS_GetScriptFromObject(toActivate)));
+    CHECK(hasXML(toActivate));
 
     disableXML();
 
@@ -218,13 +221,13 @@ END_FIXTURE_TEST(VersionFixture, testOptionsAreUsedForVersionFlags)
 BEGIN_FIXTURE_TEST(VersionFixture, testEntryLosesOverride)
 {
     EXEC("overrideVersion15(); evalScriptVersion16('checkOverride(false); captureVersion()');");
-    CHECK(captured == JSVERSION_1_6);
+    CHECK_EQUAL(captured, JSVERSION_1_6);
 
     /* 
      * Override gets propagated to default version as non-override when you leave the VM's execute
      * call.
      */
-    CHECK(JS_GetVersion(cx) == JSVERSION_1_5);
+    CHECK_EQUAL(JS_GetVersion(cx), JSVERSION_1_5);
     CHECK(!cx->isVersionOverridden());
     return true;
 }
@@ -238,28 +241,28 @@ END_FIXTURE_TEST(VersionFixture, testEntryLosesOverride)
  */
 BEGIN_FIXTURE_TEST(VersionFixture, testReturnLosesOverride)
 {
-    CHECK(JS_GetVersion(cx) == JSVERSION_ECMA_5);
+    CHECK_EQUAL(JS_GetVersion(cx), JSVERSION_ECMA_5);
     EXEC(
         "checkOverride(false);"
         "evalScriptVersion16('overrideVersion15();');"
         "checkOverride(false);"
         "captureVersion();"
     );
-    CHECK(captured == JSVERSION_ECMA_5);
+    CHECK_EQUAL(captured, JSVERSION_ECMA_5);
     return true;
 }
 END_FIXTURE_TEST(VersionFixture, testReturnLosesOverride)
 
 BEGIN_FIXTURE_TEST(VersionFixture, testEvalPropagatesOverride)
 {
-    CHECK(JS_GetVersion(cx) == JSVERSION_ECMA_5);
+    CHECK_EQUAL(JS_GetVersion(cx), JSVERSION_ECMA_5);
     EXEC(
         "checkOverride(false);"
         "eval('overrideVersion15();');"
         "checkOverride(true);"
         "captureVersion();"
     );
-    CHECK(captured == JSVERSION_1_5);
+    CHECK_EQUAL(captured, JSVERSION_1_5);
     return true;
 }
 END_FIXTURE_TEST(VersionFixture, testEvalPropagatesOverride)

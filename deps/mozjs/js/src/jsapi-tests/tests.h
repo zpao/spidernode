@@ -38,9 +38,14 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
+#include "mozilla/Util.h"
+
 #include "jsapi.h"
 #include "jsprvtd.h"
-#include "jsvector.h"
+#include "jsalloc.h"
+
+#include "js/Vector.h"
+
 #include <errno.h>
 #include <string.h>
 #include <stdio.h>
@@ -172,7 +177,7 @@ class JSAPITest
                fail(bytes, filename, lineno);
     }
 
-    JSAPITestString toSource(jsval v) {
+    JSAPITestString jsvalToSource(jsval v) {
         JSString *str = JS_ValueToSource(cx, v);
         if (str) {
             JSAutoByteString bytes(cx, str);
@@ -183,9 +188,75 @@ class JSAPITest
         return JSAPITestString("<<error converting value to string>>");
     }
 
-#define CHECK_SAME(actual, expected) \
+    JSAPITestString toSource(long v) {
+        char buf[40];
+        sprintf(buf, "%ld", v);
+        return JSAPITestString(buf);
+    }
+
+    JSAPITestString toSource(unsigned long v) {
+        char buf[40];
+        sprintf(buf, "%lu", v);
+        return JSAPITestString(buf);
+    }
+
+    JSAPITestString toSource(long long v) {
+        char buf[40];
+        sprintf(buf, "%lld", v);
+        return JSAPITestString(buf);
+    }
+
+    JSAPITestString toSource(unsigned long long v) {
+        char buf[40];
+        sprintf(buf, "%llu", v);
+        return JSAPITestString(buf);
+    }
+
+    JSAPITestString toSource(unsigned int v) {
+        return toSource((unsigned long)v);
+    }
+
+    JSAPITestString toSource(int v) {
+        return toSource((long)v);
+    }
+
+    JSAPITestString toSource(bool v) {
+        return JSAPITestString(v ? "true" : "false");
+    }
+
+    JSAPITestString toSource(JSAtom *v) {
+        return jsvalToSource(STRING_TO_JSVAL((JSString*)v));
+    }
+
+    JSAPITestString toSource(JSVersion v) {
+        return JSAPITestString(JS_VersionToString(v));
+    }
+
+    template<typename T>
+    bool checkEqual(const T &actual, const T &expected,
+                    const char *actualExpr, const char *expectedExpr,
+                    const char *filename, int lineno) {
+        return (actual == expected) ||
+            fail(JSAPITestString("CHECK_EQUAL failed: expected (") +
+                 expectedExpr + ") = " + toSource(expected) +
+                 ", got (" + actualExpr + ") = " + toSource(actual), filename, lineno);
+    }
+
+    // There are many cases where the static types of 'actual' and 'expected'
+    // are not identical, and C++ is understandably cautious about automatic
+    // coercions. So catch those cases and forcibly coerce, then use the
+    // identical-type specialization. This may do bad things if the types are
+    // actually *not* compatible.
+    template<typename T, typename U>
+    bool checkEqual(const T &actual, const U &expected,
+                   const char *actualExpr, const char *expectedExpr,
+                   const char *filename, int lineno) {
+        return checkEqual(U(actual), expected, actualExpr, expectedExpr, filename, lineno);
+    }
+
+#define CHECK_EQUAL(actual, expected) \
     do { \
-        if (!checkSame(actual, expected, #actual, #expected, __FILE__, __LINE__)) \
+        if (!checkEqual(actual, expected, #actual, #expected, __FILE__, __LINE__)) \
             return false; \
     } while (false)
 
@@ -196,8 +267,14 @@ class JSAPITest
         return (JS_SameValue(cx, actual, expected, &same) && same) ||
                fail(JSAPITestString("CHECK_SAME failed: expected JS_SameValue(cx, ") +
                     actualExpr + ", " + expectedExpr + "), got !JS_SameValue(cx, " +
-                    toSource(actual) + ", " + toSource(expected) + ")", filename, lineno);
+                    jsvalToSource(actual) + ", " + jsvalToSource(expected) + ")", filename, lineno);
     }
+
+#define CHECK_SAME(actual, expected) \
+    do { \
+        if (!checkSame(actual, expected, #actual, #expected, __FILE__, __LINE__)) \
+            return false; \
+    } while (false)
 
 #define CHECK(expr) \
     do { \
@@ -261,7 +338,25 @@ class JSAPITest
     }
 
     virtual JSRuntime * createRuntime() {
-        return JS_NewRuntime(8L * 1024 * 1024);
+        JSRuntime *rt = JS_NewRuntime(8L * 1024 * 1024);
+        if (!rt)
+            return NULL;
+
+        const size_t MAX_STACK_SIZE =
+/* Assume we can't use more than 5e5 bytes of C stack by default. */
+#if (defined(DEBUG) && defined(__SUNPRO_CC))  || defined(JS_CPU_SPARC)
+            /*
+             * Sun compiler uses a larger stack space for js::Interpret() with
+             * debug.  Use a bigger gMaxStackSize to make "make check" happy.
+             */
+            5000000
+#else
+            500000
+#endif
+        ;
+
+        JS_SetNativeStackQuota(rt, MAX_STACK_SIZE);
+        return rt;
     }
 
     virtual void destroyRuntime() {
@@ -281,23 +376,7 @@ class JSAPITest
         JSContext *cx = JS_NewContext(rt, 8192);
         if (!cx)
             return NULL;
-
-        const size_t MAX_STACK_SIZE =
-/* Assume we can't use more than 5e5 bytes of C stack by default. */
-#if (defined(DEBUG) && defined(__SUNPRO_CC))  || defined(JS_CPU_SPARC)
-            /*
-             * Sun compiler uses a larger stack space for js::Interpret() with
-             * debug.  Use a bigger gMaxStackSize to make "make check" happy.
-             */
-            5000000
-#else
-            500000
-#endif
-        ;
-
-        JS_SetNativeStackQuota(cx, MAX_STACK_SIZE);
-
-        JS_SetOptions(cx, JSOPTION_VAROBJFIX | JSOPTION_JIT);
+        JS_SetOptions(cx, JSOPTION_VAROBJFIX);
         JS_SetVersion(cx, JSVERSION_LATEST);
         JS_SetErrorReporter(cx, &reportError);
         return cx;
@@ -307,9 +386,9 @@ class JSAPITest
         return basicGlobalClass();
     }
 
-    virtual JSObject * createGlobal() {
+    virtual JSObject * createGlobal(JSPrincipals *principals = NULL) {
         /* Create the global object. */
-        JSObject *global = JS_NewCompartmentAndGlobalObject(cx, getGlobalClass(), NULL);
+        JSObject *global = JS_NewCompartmentAndGlobalObject(cx, getGlobalClass(), principals);
         if (!global)
             return NULL;
 
@@ -355,7 +434,7 @@ class JSAPITest
 
 /*
  * A class for creating and managing one temporary file.
- * 
+ *
  * We could use the ISO C temporary file functions here, but those try to
  * create files in the root directory on Windows, which fails for users
  * without Administrator privileges.
@@ -386,7 +465,7 @@ class TempFile {
             fprintf(stderr, "error opening temporary file '%s': %s\n",
                     fileName, strerror(errno));
             exit(1);
-        }            
+        }
         name = fileName;
         return stream;
     }
