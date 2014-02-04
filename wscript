@@ -39,7 +39,9 @@ import js2c
 
 srcdir = '.'
 blddir = 'build'
-supported_archs = ('arm', 'ia32', 'x64') # 'mips' supported by v8, but not node
+# 'mips' supported by v8, but not by node
+# 'sparc' supported by mozjs, but not by v8
+supported_archs = ('arm', 'ia32', 'x64', 'sparc')
 
 jobs=1
 if os.environ.has_key('JOBS'):
@@ -49,7 +51,7 @@ def safe_path(path):
   return path.replace("\\", "/")
 
 def canonical_cpu_type(arch):
-  m = {'x86': 'ia32', 'i386':'ia32', 'x86_64':'x64', 'amd64':'x64'}
+  m = {'x86': 'ia32', 'i386':'ia32', 'x86_64':'x64', 'amd64':'x64', 'sun4u':'sparc', 'sun4v':'sparc'}
   if arch in m: arch = m[arch]
   if not arch in supported_archs:
     raise Exception("supported architectures are "+', '.join(supported_archs)+\
@@ -670,8 +672,12 @@ def spidermonkey_cmd(bld, variant, moz_objdir):
     copy_lib_cmd = 'cp %s/dist/lib/%s %s/%s' % \
                    (moz_objdir, lib_file, variant, dest_lib_file)
 
-    cmd  = 'export CC="%s" ; ' % bld.env['COMPILER_CC']
-    cmd += 'export CXX="%s" ; ' % bld.env['COMPILER_CXX']
+    cmd  = 'PATH="%s" ; export PATH ; ' % os.environ['PATH']
+    cmd += 'CC="%s" ; export CC ; ' % bld.env['COMPILER_CC']
+    cmd += 'CXX="%s" ; export CXX ; ' % bld.env['COMPILER_CXX']
+    cmd += 'CCFLAGS="%s" ; export CCFLAGS ; ' % ' '.join(bld.env['CCFLAGS'])
+    cmd += 'CXXFLAGS="%s" ; export CXXFLAGS ; ' % ' '.join(bld.env['CXXFLAGS'])
+    cmd += 'LDFLAGS="%s" ; export LDFLAGS ; ' % ' '.join(bld.env['LINKFLAGS'])
     cmd += '%s && %s && %s && %s' % (autoconf_cmd, nspr_cmd, js_cmd, copy_lib_cmd)
 
     return ("echo '%s' && set -x -e && " % cmd) + cmd
